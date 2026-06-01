@@ -1,0 +1,2 @@
+ cd "F:\我的开发\CPGAME"
+  python .\keno_dashboard_server.py

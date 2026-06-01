@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>基诺分析面板</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-mark">K</div>
+          <div>
+            <h1>基诺分析工作台</h1>
+            <p id="gameSubtitle">BC.Game 74214 · 斯洛伐克 E-Klub 20/80</p>
+          </div>
+        </div>
+
+        <label class="game-selector">
+          <span>彩种</span>
+          <select id="gameSelect"></select>
+        </label>
+
+        <nav class="tabs" aria-label="页面">
+          <button class="tab-btn active" type="button" data-view="prediction">预测面板</button>
+          <button class="tab-btn" type="button" data-view="adjacentTool">派生转换</button>
+          <button class="tab-btn" type="button" data-view="martingale">倍投计算</button>
+          <button class="tab-btn" type="button" data-view="bets">模拟投注</button>
+          <button class="tab-btn" type="button" data-view="backtest">策略回测</button>
+          <button class="tab-btn" type="button" data-view="analysis">分析面板</button>
+          <button class="tab-btn" type="button" data-view="history">历史开奖</button>
+        </nav>
+
+        <div class="sync-actions">
+          <button id="refreshPageBtn" class="secondary-btn" type="button" title="刷新当前页数据">
+            <span>↻ 刷新</span>
+          </button>
+          <button id="syncBtn" class="primary-btn" type="button">
+            <span>全彩种同步</span>
+          </button>
+          <button id="fullSyncBtn" class="secondary-btn" type="button">
+            <span>全量同步</span>
+          </button>
+        </div>
+
+        <div id="gamePills" class="game-pills" aria-label="彩种切换"></div>
+      </header>
+
+      <main class="content">
+        <section class="status-strip">
+          <article>
+            <span>本地期数</span>
+            <strong id="drawCount">--</strong>
+          </article>
+          <article>
+            <span>最新开奖</span>
+            <strong id="newestDraw">--</strong>
+          </article>
+          <article>
+            <span>文件更新时间</span>
+            <strong id="fileModified">--</strong>
+          </article>
+          <article>
+            <span>同步状态</span>
+            <strong id="dataState">未加载</strong>
+          </article>
+        </section>
+
+        <details id="syncLogPanel" class="sync-log-panel">
+          <summary>
+            <span>同步日志</span>
+            <strong id="lastSyncSummary">暂无同步记录</strong>
+          </summary>
+          <div class="sync-log-grid">
+            <article>
+              <span>最后同步</span>
+              <strong id="lastSyncTime">--</strong>
+            </article>
+            <article>
+              <span>BC 新增</span>
+              <strong id="lastBcRows">--</strong>
+            </article>
+            <article>
+              <span>官网补齐</span>
+              <strong id="lastEtiposRows">--</strong>
+            </article>
+            <article>
+              <span>结算投注</span>
+              <strong id="lastSettledBets">--</strong>
+            </article>
+            <article>
+              <span>结算预测</span>
+              <strong id="lastSettledPredictions">--</strong>
+            </article>
+          </div>
+          <div id="lastSyncError" class="sync-error hidden"></div>
+        </details>
+
+        <section id="predictionView" class="view active">
+          <section class="panel prediction-panel">
+            <div class="panel-title">
+              <h2>预测面板</h2>
+              <div class="prediction-meta">
+                <strong id="predictionWindow">--</strong>
+                <span id="predictionMethod" class="muted">--</span>
+              </div>
+            </div>
+            <div class="prediction-summary">
+              <article>
+                <div class="prediction-heading">
+                  <span>大号 Top 5</span>
+                  <small>41-80</small>
+                </div>
+                <div id="bigPredictionBalls" class="prediction-balls"></div>
+              </article>
+              <article>
+                <div class="prediction-heading">
+                  <span>小号 Top 5</span>
+                  <small>1-40</small>
+                </div>
+                <div id="smallPredictionBalls" class="prediction-balls"></div>
+              </article>
+              <article id="bonusPredictionCard" class="hidden">
+                <div class="prediction-heading">
+                  <span id="bonusPredictionTitle">特殊号码</span>
+                  <small id="bonusPredictionRange">--</small>
+                </div>
+                <div id="bonusPredictionBalls" class="prediction-balls"></div>
+              </article>
+            </div>
+            <div id="predictionStrategyTickets" class="prediction-ticket-grid"></div>
+            <div id="predictionTrackingPanel" class="prediction-tracking-block">
+              <div class="tracking-header">
+                <div>
+                  <h3>预测追踪</h3>
+                  <span id="predictionTrackingMeta" class="muted">等待生成预测记录</span>
+                </div>
+                <div class="tracking-controls">
+                  <div class="tracking-nav">
+                    <select id="predictionTrackingStatusFilter" title="追踪记录状态筛选">
+                      <option value="all">全部</option>
+                      <option value="pending">待开奖</option>
+                      <option value="won">已中奖</option>
+                      <option value="lost">未中</option>
+                      <option value="cancelled">已取消</option>
+                      <option value="void">已作废</option>
+                    </select>
+                    <button id="predictionTrackingPrevBtn" class="secondary-btn small" type="button">上一页</button>
+                    <span id="predictionTrackingPageInfo" class="muted">--</span>
+                    <button id="predictionTrackingNextBtn" class="secondary-btn small" type="button">下一页</button>
+                  </div>
+                  <div class="tracking-ops">
+                    <span id="predictionAutoStatus" class="muted">追踪关闭</span>
+                    <button id="predictionAutoToggleBtn" class="secondary-btn small" type="button">启动追踪</button>
+                    <button id="predictionAutoRunBtn" class="secondary-btn small" type="button">立即同步一次</button>
+                  </div>
+                </div>
+              </div>
+              <div id="predictionTrackingStats" class="tracking-stat-grid"></div>
+              <div id="predictionTrackingWarning" class="subtle-note warning-note hidden"></div>
+              <div id="predictionTrackingGroups" class="tracking-group-grid"></div>
+              <div class="table-wrap prediction-tracking">
+                <table class="tracking-table">
+                  <thead>
+                    <tr>
+                      <th>目标时间</th>
+                      <th>策略</th>
+                      <th>候选票</th>
+                      <th>命中率</th>
+                      <th>状态</th>
+                      <th>结果</th>
+                      <th>盈亏</th>
+                    </tr>
+                  </thead>
+                  <tbody id="predictionTrackingRows"></tbody>
+                </table>
+              </div>
+              <div id="predictionAdjacentStats" class="adjacent-stat-block hidden"></div>
+            </div>
+            <div id="predictionNotice" class="subtle-note">
+              当前为启发式统计排序，不代表开奖概率被改变；下注前应以具体策略回测、理论命中率和资金风险为准。
+            </div>
+          </section>
+        </section>
+
+        <section id="adjacentToolView" class="view">
+          <section class="adjacent-tool-layout">
+            <article class="panel adjacent-tool-panel">
+              <div class="panel-title">
+                <h2>派生转换</h2>
+                <span id="adjacentToolMeta" class="muted">输入号码后直接生成派生票</span>
+              </div>
+              <div class="adjacent-tool-form">
+                <label class="wide">
+                  <span>原始号码</span>
+                  <input id="adjacentToolNumbers" type="text" placeholder="例如 15 或 20 35" />
+                </label>
+                <div class="adjacent-tool-checks" aria-label="派生类型">
+                  <label>
+                    <input type="checkbox" data-adjacent-type="p1_adjacent_pair" checked />
+                    <span>1球左右邻二码</span>
+                  </label>
+                  <label>
+                    <input type="checkbox" data-adjacent-type="p2_anchor_pair" checked />
+                    <span>2球锚点邻二码</span>
+                  </label>
+                  <label>
+                    <input type="checkbox" data-adjacent-type="p2_outer_pair" checked />
+                    <span>2球外侧邻二码</span>
+                  </label>
+                  <label>
+                    <input type="checkbox" data-adjacent-type="p2_cross_halo_pair" checked />
+                    <span>2球交叉临码二码</span>
+                  </label>
+                  <label>
+                    <input type="checkbox" data-adjacent-type="p2_local_four_ball" checked />
+                    <span>2球局部四码</span>
+                  </label>
+                </div>
+              </div>
+              <div class="adjacent-tool-actions">
+                <button id="adjacentToolGenerateBtn" class="primary-btn" type="button">生成派生号码</button>
+                <button id="adjacentToolCopyBtn" class="secondary-btn" type="button">复制总清单</button>
+                <span id="adjacentToolHint" class="muted">支持空格、逗号、短横线分隔；按当前彩种号码范围过滤。</span>
+              </div>
+            </article>
+
+            <article class="panel adjacent-tool-result-panel">
+              <div class="panel-title">
+                <h2>派生结果</h2>
+                <span id="adjacentToolSummary" class="muted">等待生成</span>
+              </div>
+              <div id="adjacentToolResults" class="adjacent-tool-results">
+                <div class="empty-state">输入号码并选择派生类型</div>
+              </div>
+            </article>
+          </section>
+        </section>
+
+        <section id="martingaleView" class="view">
+          <section class="martingale-layout">
+            <article class="panel martingale-panel">
+              <div class="panel-title">
+                <h2>倍投计算</h2>
+                <span id="martingaleGameMeta" class="muted">--</span>
+              </div>
+              <div id="martingaleModeGroup" class="martingale-mode-grid" aria-label="玩法模式">
+                <button class="martingale-mode-btn active" type="button" data-martingale-mode="main">普通主号</button>
+                <button class="martingale-mode-btn" type="button" data-martingale-mode="bonus">含特殊球</button>
+              </div>
+              <div id="martingalePlayGroup" class="martingale-play-grid" aria-label="玩法">
+                <button class="martingale-play-btn" type="button" data-pick-count="1">1球</button>
+                <button class="martingale-play-btn" type="button" data-pick-count="2">2球</button>
+                <button class="martingale-play-btn active" type="button" data-pick-count="3">3球</button>
+                <button class="martingale-play-btn" type="button" data-pick-count="4">4球</button>
+                <button class="martingale-play-btn" type="button" data-pick-count="5">5球</button>
+                <button class="martingale-play-btn" type="button" data-pick-count="6">6球</button>
+                <button class="martingale-play-btn" type="button" data-pick-count="7">7球</button>
+                <button class="martingale-play-btn" type="button" data-pick-count="8">8球</button>
+              </div>
+              <div class="martingale-form-grid">
+                <label>
+                  <span>赔率</span>
+                  <input id="martingaleOdds" type="number" min="1.01" step="0.01" value="60" />
+                </label>
+                <label>
+                  <span>初始本金</span>
+                  <input id="martingaleBankroll" type="number" min="0.01" step="0.01" value="1000" />
+                </label>
+                <label>
+                  <span>追号期数</span>
+                  <input id="martingalePeriods" type="number" min="1" max="200" step="1" value="10" />
+                </label>
+                <label>
+                  <span>目标净利</span>
+                  <input id="martingaleTargetProfit" type="number" min="0.01" step="0.01" value="1" />
+                </label>
+                <label>
+                  <span>投注单位</span>
+                  <input id="martingaleUnit" type="number" min="0.000001" step="0.01" value="0.01" />
+                </label>
+                <label>
+                  <span>单注上限</span>
+                  <input id="martingaleMaxStake" type="number" min="0" step="0.01" value="0" />
+                </label>
+                <label>
+                  <span>止损线</span>
+                  <input id="martingaleStopLoss" type="number" min="0" step="0.01" value="0" />
+                </label>
+              </div>
+              <div class="martingale-actions">
+                <button id="generateMartingaleBtn" class="primary-btn" type="button">生成购买计划</button>
+                <span id="martingaleInputHint" class="muted">--</span>
+              </div>
+            </article>
+
+            <article class="panel martingale-result-panel">
+              <div class="panel-title">
+                <h2>购买计划</h2>
+                <span id="martingaleResultMeta" class="muted">尚未生成</span>
+              </div>
+              <div class="martingale-metric-grid">
+                <div class="stat-card">
+                  <span>单期理论命中</span>
+                  <strong id="martingaleHitProb">--</strong>
+                  <small id="martingaleFairOdds">--</small>
+                </div>
+                <div class="stat-card">
+                  <span>计划内至少命中</span>
+                  <strong id="martingalePlanHitProb">--</strong>
+                  <small id="martingaleMissAllProb">--</small>
+                </div>
+                <div class="stat-card">
+                  <span>赔率期望</span>
+                  <strong id="martingaleEv">--</strong>
+                  <small id="martingaleOddsGap">--</small>
+                </div>
+                <div class="stat-card">
+                  <span>最大单注</span>
+                  <strong id="martingaleMaxPlanStake">--</strong>
+                  <small id="martingaleLastStake">--</small>
+                </div>
+                <div class="stat-card">
+                  <span>累计占用</span>
+                  <strong id="martingaleTotalStake">--</strong>
+                  <small id="martingaleBankrollUsage">--</small>
+                </div>
+                <div class="stat-card accent">
+                  <span>风险断点</span>
+                  <strong id="martingaleBreakPoint">--</strong>
+                  <small id="martingaleBreakReason">--</small>
+                </div>
+              </div>
+              <div id="martingaleAlert" class="martingale-alert hidden"></div>
+              <div class="table-wrap martingale">
+                <table class="martingale-table">
+                  <thead>
+                    <tr>
+                      <th>期数</th>
+                      <th>本期投入</th>
+                      <th>累计投入</th>
+                      <th>命中返还</th>
+                      <th>命中净利</th>
+                      <th>剩余本金</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody id="martingaleRows">
+                    <tr>
+                      <td colspan="7"><span class="muted">等待生成</span></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+        </section>
+
+        <section id="betsView" class="view">
+          <section class="bets-grid">
+            <article class="panel bet-entry-panel">
+              <div class="panel-title">
+                <h2>新增模拟投注</h2>
+                <span class="muted">按目标开奖时间结算</span>
+              </div>
+              <div class="bet-form-grid">
+                <label>
+                  <span>目标开奖时间</span>
+                  <select id="betTargetTime"></select>
+                </label>
+                <label>
+                  <span>投注类型</span>
+                  <select id="betType"></select>
+                </label>
+                <label class="wide">
+                  <span>指定号码</span>
+                  <input id="betNumbers" type="text" placeholder="例如 21 22 23" />
+                </label>
+                <label>
+                  <span>投入</span>
+                  <input id="betStake" type="number" min="0.01" step="0.01" value="1" />
+                </label>
+                <label>
+                  <span>赔率</span>
+                  <input id="betOdds" type="number" min="1.01" step="0.01" value="60" />
+                </label>
+                <label class="wide">
+                  <span>备注</span>
+                  <input id="betNote" type="text" placeholder="可选，例如来自 17:20 预测" maxlength="160" />
+                </label>
+              </div>
+              <div class="bet-actions">
+                <button id="createBetBtn" class="primary-btn" type="button">记录模拟投注</button>
+                <span id="betFormHint" class="muted">连号类填写指定连续号码；双两连、三两连等形态类不用填号码。</span>
+              </div>
+            </article>
+
+            <article class="panel bet-summary-panel">
+              <div class="panel-title">
+                <h2>投注汇总</h2>
+                <span id="betCount" class="muted">--</span>
+              </div>
+              <div class="bet-summary-grid">
+                <div class="stat-card">
+                  <span>待开奖</span>
+                  <strong id="pendingBets">--</strong>
+                  <small id="pendingStake">--</small>
+                </div>
+                <div class="stat-card">
+                  <span>已中奖</span>
+                  <strong id="wonBets">--</strong>
+                  <small id="hitRate">--</small>
+                </div>
+                <div class="stat-card">
+                  <span>已未中</span>
+                  <strong id="lostBets">--</strong>
+                  <small>自动结算</small>
+                </div>
+                <div class="stat-card accent">
+                  <span>净盈亏</span>
+                  <strong id="profitTotal">--</strong>
+                  <small id="payoutTotal">--</small>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section class="panel bet-list-panel">
+            <div class="panel-title">
+              <h2>当前彩种记录</h2>
+              <span class="muted">同步开奖结果后，目标时间已开奖的记录会自动显示中奖或未中。</span>
+            </div>
+            <div class="table-wrap bets">
+              <table class="bet-table">
+                <thead>
+                  <tr>
+                    <th>目标时间</th>
+                    <th>类型</th>
+                    <th>内容</th>
+                    <th>投入 / 赔率</th>
+                    <th>状态</th>
+                    <th>开奖结果</th>
+                    <th>盈亏</th>
+                    <th>操作</th>
+                  </tr>
+                </thead>
+                <tbody id="betTable"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel bet-list-panel">
+            <div class="panel-title">
+              <h2>全部彩种记录</h2>
+              <span class="muted">这里把所有彩种的模拟投注放在一起，方便直接核对。</span>
+            </div>
+            <div class="table-wrap bets">
+              <table class="bet-table" id="betTableAll">
+                <thead>
+                  <tr>
+                    <th>目标时间</th>
+                    <th>彩种</th>
+                    <th>类型</th>
+                    <th>内容</th>
+                    <th>投入 / 赔率</th>
+                    <th>状态</th>
+                    <th>开奖结果</th>
+                    <th>盈亏</th>
+                  </tr>
+                </thead>
+                <tbody id="betTableAllBody"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="backtestView" class="view">
+          <section class="panel backtest-panel">
+            <div class="panel-title">
+              <h2>策略回测</h2>
+              <span id="backtestStatus" class="muted">尚未运行</span>
+            </div>
+            <div class="subtle-note fixed-note">
+              基诺每期独立，历史遗漏不影响下期概率。回测仅用于验证排名方法是否不劣于随机，不代表未来收益。
+            </div>
+            <div class="backtest-form-grid">
+              <label>
+                <span>策略类型</span>
+                <select id="backtestStrategy">
+                  <option value="exact_numbers">指定号码组回测</option>
+                  <option value="pair_top_n">两连号遗漏 Top N</option>
+                  <option value="triple_top_n">三连号遗漏 Top N</option>
+                  <option value="quad_top_n">四连号遗漏 Top N</option>
+                </select>
+              </label>
+              <label id="backtestNumbersField" class="hidden">
+                <span>指定号码</span>
+                <input id="backtestNumbers" type="text" placeholder="例如 1 2 3 4" />
+              </label>
+              <label>
+                <span>每期投注 Top N</span>
+                <input id="backtestTopN" type="number" min="1" max="20" step="1" value="3" />
+              </label>
+              <label>
+                <span>最小当前遗漏</span>
+                <input id="backtestMissThreshold" type="number" min="0" step="1" value="0" />
+              </label>
+              <label>
+                <span>训练窗口</span>
+                <input id="backtestTrain" type="number" min="100" max="30000" step="100" value="10000" />
+              </label>
+              <label>
+                <span>验证窗口</span>
+                <input id="backtestTest" type="number" min="10" max="5000" step="10" value="1000" />
+              </label>
+              <label>
+                <span>每注投入</span>
+                <input id="backtestStake" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label>
+                <span>赔率</span>
+                <input id="backtestOdds" type="number" min="1.01" step="0.01" value="60" />
+              </label>
+            </div>
+            <div class="backtest-actions">
+              <button id="runBacktestBtn" class="primary-btn" type="button">开始回测</button>
+              <button id="runBacktestScanBtn" class="secondary-btn" type="button">自动扫描 ROI</button>
+              <div class="backtest-progress">
+                <div class="backtest-progress-track"><div id="backtestProgressBar"></div></div>
+                <span id="backtestProgressText">等待提交</span>
+              </div>
+            </div>
+          </section>
+
+          <section id="backtestResultPanel" class="panel backtest-result-panel hidden">
+            <div class="panel-title">
+              <h2 id="backtestResultTitle">回测结果</h2>
+              <span id="backtestResultMeta" class="muted">--</span>
+            </div>
+            <div class="backtest-metric-grid">
+              <article class="stat-card">
+                <span>命中率</span>
+                <strong id="backtestHitRate">--</strong>
+                <small id="backtestTheoryHitRate">--</small>
+              </article>
+              <article class="stat-card accent">
+                <span>ROI</span>
+                <strong id="backtestRoi">--</strong>
+                <small id="backtestTheoryRoi">--</small>
+              </article>
+              <article class="stat-card">
+                <span>投注 / 命中</span>
+                <strong id="backtestBetsWon">--</strong>
+                <small id="backtestProfit">--</small>
+              </article>
+              <article class="stat-card">
+                <span>最大连亏</span>
+                <strong id="backtestMaxLoss">--</strong>
+                <small>按单注连续未中计算</small>
+              </article>
+            </div>
+            <div class="backtest-chart-wrap">
+              <svg id="backtestChart" class="backtest-chart" viewBox="0 0 720 220" role="img" aria-label="ROI 曲线"></svg>
+            </div>
+            <div class="table-wrap backtest-samples">
+              <table>
+                <thead>
+                  <tr>
+                    <th>验证期</th>
+                    <th>时间</th>
+                    <th>投注目标</th>
+                    <th>当时遗漏</th>
+                    <th>训练命中率</th>
+                    <th>结果</th>
+                  </tr>
+                </thead>
+                <tbody id="backtestSamples"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section id="backtestScanPanel" class="panel backtest-scan-panel hidden">
+            <div class="panel-title">
+              <h2>自动扫描结果</h2>
+              <span id="backtestScanMeta" class="muted">--</span>
+            </div>
+            <div id="backtestScanNotice" class="subtle-note warning-note hidden"></div>
+            <div class="table-wrap backtest-scan">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>策略</th>
+                    <th>类型</th>
+                    <th>投注 / 命中</th>
+                    <th>命中率</th>
+                    <th>ROI</th>
+                    <th>理论 ROI</th>
+                    <th>超额 ROI</th>
+                    <th>盈亏</th>
+                    <th>最大连亏</th>
+                  </tr>
+                </thead>
+                <tbody id="backtestScanRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="analysisView" class="view">
+          <section class="metric-grid">
+            <article class="metric">
+              <span>3 选全中概率</span>
+              <strong id="p3">--</strong>
+              <small id="p3Wait">--</small>
+            </article>
+            <article class="metric">
+              <span id="threePickEvLabel">3球赔率期望</span>
+              <strong id="ev60">--</strong>
+              <small id="threePickEvHint">按当前彩种默认赔率</small>
+            </article>
+            <article class="metric">
+              <span>任意 3 连号出现</span>
+              <strong id="anyRun">--</strong>
+              <small>单期开奖含至少一组三连</small>
+            </article>
+            <article class="metric">
+              <span>实测连号窗口/期</span>
+              <strong id="observedWindows">--</strong>
+              <small id="expectedWindows">--</small>
+            </article>
+          </section>
+
+          <section class="panel filter-panel">
+            <div class="panel-title">
+              <h2>检索条件</h2>
+              <div class="panel-actions">
+                <button id="resetBtn" class="secondary-btn small" type="button">重置</button>
+                <button id="applyBtn" class="primary-btn small" type="button">应用分析</button>
+              </div>
+            </div>
+            <div class="filter-grid">
+              <label>
+                <span>分析最近期数</span>
+                <input id="drawLimit" type="number" min="0" step="100" value="0" />
+              </label>
+              <label>
+                <span>当前遗漏不少于</span>
+                <input id="minCurrentMiss" type="number" min="0" step="1" value="0" />
+              </label>
+              <label>
+                <span>历史命中不少于</span>
+                <input id="minHits" type="number" min="0" step="1" value="0" />
+              </label>
+              <label>
+                <span>尾部概率不高于</span>
+                <select id="maxTail">
+                  <option value="1">100%</option>
+                  <option value="0.5">50%</option>
+                  <option value="0.25">25%</option>
+                  <option value="0.1">10%</option>
+                  <option value="0.05">5%</option>
+                  <option value="0.01">1%</option>
+                </select>
+              </label>
+              <label>
+                <span>三连号包含</span>
+                <input id="tripleQuery" type="text" placeholder="例如 43-44 或 78" />
+              </label>
+              <label>
+                <span>排序</span>
+                <select id="sortBy">
+                  <option value="currentMiss">当前遗漏</option>
+                  <option value="maxMiss">最大遗漏</option>
+                  <option value="hits">命中次数</option>
+                  <option value="hitRate">命中率</option>
+                  <option value="tail">尾部概率</option>
+                  <option value="triple">号码顺序</option>
+                </select>
+              </label>
+              <label>
+                <span>方向</span>
+                <select id="sortOrder">
+                  <option value="desc">降序</option>
+                  <option value="asc">升序</option>
+                </select>
+              </label>
+              <label>
+                <span>显示条数</span>
+                <input id="resultLimit" type="number" min="1" max="78" step="1" value="78" />
+              </label>
+            </div>
+          </section>
+
+          <section class="analysis-grid">
+            <article class="panel triple-panel">
+              <div class="panel-title">
+                <h2>三连号明细</h2>
+                <span id="tripleCount" class="muted">--</span>
+              </div>
+              <div class="table-wrap large">
+                <table class="triple-table">
+                  <thead>
+                    <tr>
+                      <th>三连号</th>
+                      <th>当前遗漏</th>
+                      <th>最大遗漏</th>
+                      <th>命中</th>
+                      <th>命中率</th>
+                      <th>偏离度</th>
+                      <th>上次遗漏</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tripleTable"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+
+          <section class="run-overview-grid">
+            <article class="panel">
+              <div class="panel-title">
+                <h2>连号组合统计</h2>
+                <span class="muted">按期开奖命中</span>
+              </div>
+              <div id="runPatternCards" class="stat-card-grid"></div>
+              <div class="subtle-note">双两连、两连+三连均按不重叠组合统计。</div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>最长连号长度</h2>
+                <span class="muted">按期统计</span>
+              </div>
+              <div class="mini-bars" id="runBars"></div>
+            </article>
+          </section>
+
+          <section class="advanced-grid">
+            <article class="panel">
+              <div class="panel-title">
+                <h2>和值范围</h2>
+                <span class="muted">14 档</span>
+              </div>
+              <div id="sumRangeBars" class="distribution-list"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>大小比例</h2>
+                <span class="muted">大=41-80，小=1-40</span>
+              </div>
+              <div id="sizeRatioBars" class="distribution-list compact"></div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>奇偶比例</h2>
+                <span class="muted">奇:偶</span>
+              </div>
+              <div id="oddEvenBars" class="distribution-list compact"></div>
+            </article>
+
+            <article id="bonusBallPanel" class="panel hidden">
+              <div class="panel-title">
+                <h2>特殊号码统计</h2>
+                <span id="bonusBallMeta" class="muted">--</span>
+              </div>
+              <div id="bonusBallBars" class="distribution-list compact"></div>
+            </article>
+          </section>
+
+          <section class="pair-quad-grid">
+            <article class="panel">
+              <div class="panel-title">
+                <h2>两连号遗漏明细</h2>
+                <span id="pairCount" class="muted">--</span>
+              </div>
+              <div class="table-wrap medium">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>两连号</th>
+                      <th>当前遗漏</th>
+                      <th>最大遗漏</th>
+                      <th>命中</th>
+                      <th>命中率</th>
+                    </tr>
+                  </thead>
+                  <tbody id="pairTable"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>四连号遗漏明细</h2>
+                <span id="quadCount" class="muted">--</span>
+              </div>
+              <div class="table-wrap medium">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>四连号</th>
+                      <th>当前遗漏</th>
+                      <th>最大遗漏</th>
+                      <th>命中</th>
+                      <th>命中率</th>
+                    </tr>
+                  </thead>
+                  <tbody id="quadTable"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
+
+          <section class="panel cross-panel">
+            <div class="panel-title">
+              <h2>交叉分析</h2>
+              <div class="cross-controls">
+                <label>
+                  <span>维度</span>
+                  <select id="crossCategory">
+                    <option value="sumRange">和值范围</option>
+                    <option value="sizeRatio">大小比例</option>
+                    <option value="oddEvenRatio">奇偶比例</option>
+                  </select>
+                </label>
+                <label>
+                  <span>连号条件</span>
+                  <select id="crossCondition">
+                    <option value="all">全部开奖</option>
+                    <option value="hasPair">含两连</option>
+                    <option value="hasDoublePair">含双两连</option>
+                    <option value="hasTriplePairSet">含三双两连</option>
+                    <option value="hasQuadPairSet">含四双两连</option>
+                    <option value="hasFivePairSet">含五双两连</option>
+                    <option value="hasPairTriple">含两连+三连</option>
+                    <option value="hasDoubleTriple">含双三连</option>
+                    <option value="hasTripleDoublePair">含三连配双两连</option>
+                    <option value="hasQuad">含四连</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="crossBars" class="distribution-list cross-list"></div>
+          </section>
+        </section>
+
+        <section id="historyView" class="view">
+          <section class="panel history-tools">
+            <div class="panel-title">
+              <h2>历史开奖</h2>
+              <div class="panel-actions">
+                <button id="historySearchBtn" class="primary-btn small" type="button">查询</button>
+              </div>
+            </div>
+            <div class="history-filter-grid">
+              <label>
+                <span>搜索期号/日期/号码组合</span>
+                <input id="historyQuery" type="text" placeholder="例如 4655710417、2026-05-29、10 16 17" />
+              </label>
+              <label>
+                <span>排序</span>
+                <select id="historySort">
+                  <option value="desc">最新在前</option>
+                  <option value="asc">最早在前</option>
+                </select>
+              </label>
+              <label>
+                <span>每页</span>
+                <select id="historyPageSize">
+                  <option value="50">50</option>
+                  <option value="100" selected>100</option>
+                  <option value="200">200</option>
+                  <option value="500">500</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="panel history-panel">
+            <div class="panel-title">
+              <h2>完整开奖数据</h2>
+              <span id="historyCount" class="muted">--</span>
+            </div>
+            <div class="table-wrap history">
+              <table class="draw-table">
+                <thead>
+                  <tr>
+                    <th>期号</th>
+                    <th>时间</th>
+                    <th>开奖号码</th>
+                  </tr>
+                </thead>
+                <tbody id="historyTable"></tbody>
+              </table>
+            </div>
+            <div class="pager">
+              <button id="prevPageBtn" class="secondary-btn small" type="button">上一页</button>
+              <span id="pageInfo">--</span>
+              <button id="nextPageBtn" class="secondary-btn small" type="button">下一页</button>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast hidden"></div>
+    <script src="/app.js"></script>
+  </body>
+</html>

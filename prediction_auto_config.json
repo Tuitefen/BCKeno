@@ -1,0 +1,26 @@
+{
+  "enabled": false,
+  "pollSeconds": 60,
+  "sync": true,
+  "maxPages": 2,
+  "pageSize": 100,
+  "sleep": 0.05,
+  "skipSupplement": true,
+  "games": {
+    "sk_keno_20_80": {
+      "enabled": false
+    },
+    "spain_l_express_20_70": {
+      "enabled": true
+    },
+    "poland_keno_20_70": {
+      "enabled": true
+    },
+    "russia_rapido_8_20": {
+      "enabled": true
+    },
+    "italy_win_for_life_10_20": {
+      "enabled": true
+    }
+  }
+}
