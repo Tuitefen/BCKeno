@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "pollSeconds": 60,
   "sync": true,
   "maxPages": 2,

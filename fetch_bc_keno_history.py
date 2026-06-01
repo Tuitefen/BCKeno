@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import subprocess
 import sys
 import time
@@ -33,7 +34,9 @@ from urllib.request import Request, urlopen
 API_URL = "https://bcgame.nz/api/platform-lottery/lottery-detail/history"
 LOTTERY_URL = "https://bcgame.nz/zh-CN/lottery/detail/{lottery_id}?tab=1"
 DEFAULT_LOTTERY_ID = "74214"
-DEFAULT_OUTPUT = "bc_keno_history.csv"
+ROOT = Path(__file__).resolve().parent
+DATA_ROOT = Path(os.environ.get("BCKENO_DATA_DIR", ROOT / "data")).resolve()
+DEFAULT_OUTPUT = DATA_ROOT / "bc_keno_history.csv"
 MAX_NUMBER_COLUMNS = 20
 NUMBER_COLUMNS = [f"n{i}" for i in range(1, MAX_NUMBER_COLUMNS + 1)]
 CANCELLED_STATUS_CODES = {"60"}
@@ -404,7 +407,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Fetch BC.Game Slovakia E-Klub Keno 20/80 draw history to CSV."
     )
     parser.add_argument("--lottery-id", default=DEFAULT_LOTTERY_ID)
-    parser.add_argument("--out", type=Path, default=Path(DEFAULT_OUTPUT))
+    parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--expected-count", type=int, default=20)
     parser.add_argument("--total-numbers", type=int, default=80)
     parser.add_argument(
@@ -427,8 +430,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--report-out",
         type=Path,
-        default=Path("bc_triples_report.csv"),
-        help="Output CSV for --analyze. Default: bc_triples_report.csv.",
+        default=DATA_ROOT / "bc_triples_report.csv",
+        help="Output CSV for --analyze. Default: data/bc_triples_report.csv.",
     )
     parser.add_argument(
         "--top",

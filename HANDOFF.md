@@ -21,11 +21,94 @@ Then inspect current code only as needed:
 ## Current Server
 
 - URL: `http://127.0.0.1:8787`
-- Current process: `python PID 79484`
+- Current process: `python PID 77196`
 - Workspace: `F:\我的开发\CPGAME`
 - Important backup/audit folder: `F:\我的开发\CPGAME\claude`
 
-If backend or frontend code changes, restart PID `79484`.
+If backend or frontend code changes, restart PID `77196`.
+
+## 2026-06-01 Continuation - Basic Runtime Path Cleanup
+
+User asked whether a startup command already exists and requested basic cleanup of configuration/data paths before any server deployment work.
+
+Answer:
+
+- Existing startup command was already:
+  - `python .\keno_dashboard_server.py`
+- `启动命令.txt` also existed, but its encoding/display was messy.
+
+Implemented:
+
+- Added runtime directories:
+  - `data/`
+  - `logs/`
+  - `backups/`
+- Migrated current runtime data into `data/`:
+  - `bc_keno_history.csv`
+  - `bc_spain_l_express_20_70_history.csv`
+  - `bc_poland_keno_20_70_history.csv`
+  - `bc_russia_rapido_8_20_history.csv`
+  - `bc_italy_win_for_life_10_20_history.csv`
+  - `bc_triples_report.csv`
+  - `triples_report.csv`
+  - `prediction_tracking.sqlite3`
+  - `prediction_tracking.json`
+  - `prediction_auto_config.json`
+  - `simulated_bets.jsonl`
+  - `sample_history.csv`
+- Updated `keno_dashboard_server.py`:
+  - Added `DATA_ROOT`, `LOG_ROOT`, `BACKUP_ROOT`.
+  - Defaults:
+    - `DATA_ROOT = ROOT / "data"`
+    - `LOG_ROOT = ROOT / "logs"`
+    - `BACKUP_ROOT = ROOT / "backups"`
+  - Environment overrides:
+    - `BCKENO_DATA_DIR`
+    - `BCKENO_LOG_DIR`
+    - `BCKENO_BACKUP_DIR`
+  - All game history paths now point to `DATA_ROOT`.
+  - Runtime files now point to `DATA_ROOT`:
+    - bets JSONL
+    - prediction tracking JSON
+    - prediction tracking SQLite
+    - prediction auto config JSON
+  - Server startup creates `data/`, `logs/`, and `backups/` if missing and prints their paths.
+- Updated `fetch_bc_keno_history.py`:
+  - Default output is now `data/bc_keno_history.csv`.
+  - Default report output is now `data/bc_triples_report.csv`.
+  - Supports `BCKENO_DATA_DIR`.
+- Added `start_server.ps1`:
+  - Sets default runtime env vars if not already set.
+  - Creates runtime directories.
+  - Starts `python .\keno_dashboard_server.py`.
+- Rewrote `启动命令.txt` with clear startup commands:
+  - `.\start_server.ps1`
+  - fallback `python .\keno_dashboard_server.py`
+- Added `DEPLOYMENT.md` with startup and directory notes.
+- Updated `.gitignore`:
+  - ignores `logs/`
+  - ignores `backups/`
+  - existing WAL/SHM ignores remain.
+
+Verification:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py .\fetch_bc_keno_history.py
+node .\tmp\verify_prediction_layout_order.mjs
+node .\tmp\verify_adjacent_tool_ui.mjs
+```
+
+Observed:
+
+- Prediction panel still loads Spain data from the migrated `data/` files.
+- Adjacent conversion page still works.
+- Root directory no longer contains the moved runtime data files.
+- Current local server:
+
+```text
+http://127.0.0.1:8787
+python PID 77196
+```
 
 ## 2026-06-01 Continuation - Adjacent Conversion Tool
 

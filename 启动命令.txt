@@ -1,2 +1,5 @@
- cd "F:\我的开发\CPGAME"
-  python .\keno_dashboard_server.py
+cd "F:\我的开发\CPGAME"
+.\start_server.ps1
+
+备用直接启动:
+python .\keno_dashboard_server.py

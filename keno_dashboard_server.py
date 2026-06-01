@@ -13,6 +13,7 @@ import hashlib
 import json
 import math
 import mimetypes
+import os
 import re
 import sqlite3
 import threading
@@ -40,11 +41,14 @@ class RequestBodyTooLarge(ValueError):
 
 ROOT = Path(__file__).resolve().parent
 WEB_ROOT = ROOT / "web"
-DEFAULT_HISTORY = ROOT / "bc_keno_history.csv"
-DEFAULT_BETS = ROOT / "simulated_bets.jsonl"
-DEFAULT_PREDICTION_TRACKING = ROOT / "prediction_tracking.json"
-DEFAULT_PREDICTION_TRACKING_DB = ROOT / "prediction_tracking.sqlite3"
-DEFAULT_PREDICTION_AUTO_CONFIG = ROOT / "prediction_auto_config.json"
+DATA_ROOT = Path(os.environ.get("BCKENO_DATA_DIR", ROOT / "data")).resolve()
+LOG_ROOT = Path(os.environ.get("BCKENO_LOG_DIR", ROOT / "logs")).resolve()
+BACKUP_ROOT = Path(os.environ.get("BCKENO_BACKUP_DIR", ROOT / "backups")).resolve()
+DEFAULT_HISTORY = DATA_ROOT / "bc_keno_history.csv"
+DEFAULT_BETS = DATA_ROOT / "simulated_bets.jsonl"
+DEFAULT_PREDICTION_TRACKING = DATA_ROOT / "prediction_tracking.json"
+DEFAULT_PREDICTION_TRACKING_DB = DATA_ROOT / "prediction_tracking.sqlite3"
+DEFAULT_PREDICTION_AUTO_CONFIG = DATA_ROOT / "prediction_auto_config.json"
 DEFAULT_LOTTERY_ID = "74214"
 DEFAULT_GAME_KEY = "sk_keno_20_80"
 HOST = "127.0.0.1"
@@ -144,7 +148,7 @@ LOTTERY_GAMES: dict[str, dict[str, Any]] = {
         "drawnNumbers": 20,
         "totalNumbers": 70,
         "drawIntervalMinutes": 4,
-        "historyPath": ROOT / "bc_spain_l_express_20_70_history.csv",
+        "historyPath": DATA_ROOT / "bc_spain_l_express_20_70_history.csv",
         "supportsAnalysis": True,
         "supportsPredictions": True,
         "officialSupplement": "lotodate",
@@ -160,7 +164,7 @@ LOTTERY_GAMES: dict[str, dict[str, Any]] = {
         "drawnNumbers": 20,
         "totalNumbers": 70,
         "drawIntervalMinutes": 4,
-        "historyPath": ROOT / "bc_poland_keno_20_70_history.csv",
+        "historyPath": DATA_ROOT / "bc_poland_keno_20_70_history.csv",
         "supportsAnalysis": True,
         "supportsPredictions": True,
         "officialSupplement": "lotodate",
@@ -176,7 +180,7 @@ LOTTERY_GAMES: dict[str, dict[str, Any]] = {
         "drawnNumbers": 8,
         "totalNumbers": 20,
         "drawIntervalMinutes": 15,
-        "historyPath": ROOT / "bc_russia_rapido_8_20_history.csv",
+        "historyPath": DATA_ROOT / "bc_russia_rapido_8_20_history.csv",
         "supportsAnalysis": True,
         "supportsPredictions": True,
         "officialSupplement": "yesplay",
@@ -195,7 +199,7 @@ LOTTERY_GAMES: dict[str, dict[str, Any]] = {
         "drawnNumbers": 10,
         "totalNumbers": 20,
         "drawIntervalMinutes": 60,
-        "historyPath": ROOT / "bc_italy_win_for_life_10_20_history.csv",
+        "historyPath": DATA_ROOT / "bc_italy_win_for_life_10_20_history.csv",
         "supportsAnalysis": True,
         "supportsPredictions": True,
         "officialSupplement": "lotodate",
@@ -6989,9 +6993,15 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 def main() -> int:
     WEB_ROOT.mkdir(exist_ok=True)
+    DATA_ROOT.mkdir(exist_ok=True)
+    LOG_ROOT.mkdir(exist_ok=True)
+    BACKUP_ROOT.mkdir(exist_ok=True)
     server = ThreadingHTTPServer((HOST, PORT), DashboardHandler)
     print(f"Keno dashboard running at http://{HOST}:{PORT}")
     print(f"Serving files from {WEB_ROOT}")
+    print(f"Data directory: {DATA_ROOT}")
+    print(f"Log directory: {LOG_ROOT}")
+    print(f"Backup directory: {BACKUP_ROOT}")
     if load_prediction_auto_config().get("enabled"):
         start_prediction_auto()
         print("Prediction auto tracking resumed from config")

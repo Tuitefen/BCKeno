@@ -8,6 +8,8 @@ node_modules/
 output/
 tmp/
 claude/
+logs/
+backups/
 
 *.sqlite3-shm
 *.sqlite3-wal
