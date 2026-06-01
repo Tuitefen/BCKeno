@@ -414,9 +414,12 @@ DEFAULT_BONUS_ODDS_BY_GAME = {
 PREDICTION_TICKET_STRATEGIES = {
     "italy_win_for_life_10_20": [
         {"mode": "main", "pickCount": 3, "label": "意大利 3球候选票"},
-        {"mode": "bonus", "pickCount": 1, "label": "意大利 1+1特殊球候选票"},
+        {"mode": "main", "pickCount": 2, "label": "意大利 2球候选票"},
     ],
-    "russia_rapido_8_20": {"mode": "bonus", "pickCount": 2, "label": "俄罗斯 2+1特殊球候选票"},
+    "russia_rapido_8_20": [
+        {"mode": "main", "pickCount": 2, "label": "俄罗斯 2球候选票"},
+        {"mode": "bonus", "pickCount": 2, "label": "俄罗斯 2+1特殊球候选票"},
+    ],
     "spain_l_express_20_70": [
         {"mode": "main", "pickCount": 1, "label": "西班牙 1球候选票"},
         {"mode": "main", "pickCount": 2, "label": "西班牙 2球候选票"},
@@ -430,7 +433,12 @@ PREDICTION_TRACKING_METHOD_VERSION = "strategy-ticket-v1"
 PREDICTION_TICKET_BACKTEST_WINDOW = 1000
 PREDICTION_TICKET_CHASE_PERIODS = 10
 PREDICTION_TICKET_TOP_COUNT = 3
-ADJACENT_DERIVED_STATS_GAME_KEYS = {"spain_l_express_20_70", "poland_keno_20_70"}
+ADJACENT_DERIVED_STATS_GAME_KEYS = {
+    "spain_l_express_20_70",
+    "poland_keno_20_70",
+    "italy_win_for_life_10_20",
+    "russia_rapido_8_20",
+}
 ADJACENT_DERIVED_EXAMPLE_LIMIT = 4
 ADJACENT_DERIVED_HIT_DETAIL_LIMIT = 4
 BACKTEST_SIMPLE_SHAPE_RUN_LENGTHS = {

@@ -21,11 +21,70 @@ Then inspect current code only as needed:
 ## Current Server
 
 - URL: `http://127.0.0.1:8787`
-- Current process: `python PID 77196`
+- Current process: `python PID 75624`
 - Workspace: `F:\我的开发\CPGAME`
 - Important backup/audit folder: `F:\我的开发\CPGAME\claude`
 
-If backend or frontend code changes, restart PID `77196`.
+If backend or frontend code changes, restart PID `75624`.
+
+## 2026-06-01 Continuation - Italy/Russia Two-Ball Prediction And Adjacent Stats
+
+User approved:
+
+- Italy currently had `3球` and `1+1`; recent `1+1` had not hit, so replace `1+1` with `2球`.
+- Russia currently had only `2+1`; keep it and add a main `2球`.
+- Enable adjacent-derived stats for those main `2球` tickets.
+
+Implemented:
+
+- `keno_dashboard_server.py`
+  - `PREDICTION_TICKET_STRATEGIES`:
+    - Italy now generates:
+      - main `3球`
+      - main `2球`
+    - Italy no longer generates bonus `1+1`.
+    - Russia now generates:
+      - main `2球`
+      - bonus `2+1`
+  - `ADJACENT_DERIVED_STATS_GAME_KEYS` now includes:
+    - `italy_win_for_life_10_20`
+    - `russia_rapido_8_20`
+  - Existing adjacent stats logic already filters:
+    - same `gameKey`
+    - settled `won/lost`
+    - `mode == "main"`
+    - `pickCount in {1,2}`
+    - result draw exists
+  - Therefore Russia `2+1` special-ball tickets are not included in adjacent-derived stats.
+- Added `tmp/verify_italy_russia_two_ball.mjs`.
+
+Verification:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py
+node --check .\web\app.js
+node .\tmp\verify_prediction_layout_order.mjs
+node .\tmp\verify_italy_russia_two_ball.mjs
+```
+
+Observed:
+
+- Italy `/api/predictions` now returns:
+  - three main `3球` tickets
+  - three main `2球` tickets at `3.8x`
+  - no bonus tickets
+- Russia `/api/predictions` now returns:
+  - three main `2球` tickets at `6x`
+  - three bonus `2+1` tickets at `25x`
+- Italy and Russia `/api/adjacent-derived-stats` return `enabled=true`.
+- Current source settled records for Italy/Russia adjacent stats may be `0` until newly created main `2球` prediction records settle.
+
+Current local server:
+
+```text
+http://127.0.0.1:8787
+python PID 75624
+```
 
 ## 2026-06-01 Continuation - Basic Runtime Path Cleanup
 
