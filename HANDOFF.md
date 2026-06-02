@@ -1,6 +1,6 @@
 ﻿# Session Handoff
 
-Updated: 2026-05-31 Asia/Shanghai
+Updated: 2026-06-02 Asia/Shanghai
 
 ## Start Here
 
@@ -26,6 +26,91 @@ Then inspect current code only as needed:
 - Important backup/audit folder: `F:\我的开发\CPGAME\claude`
 
 If backend or frontend code changes, restart PID `75624`.
+
+## 2026-06-02 Handoff - Auto Tracking Health Check
+
+User asked to check whether automatic tracking is normal, then record the current state locally before restarting the conversation.
+
+Current repo state:
+
+- Git repository is active on branch `main`.
+- Remote:
+  - `origin=https://github.com/Tuitefen/BCKeno.git`
+- Latest pushed code commit before this handoff:
+  - `802ce58 Add Italy and Russia two-ball adjacent support`
+- Code was clean before the latest runtime sync changes.
+- Current modified files are normal runtime data produced by sync/tracking:
+  - `data/bc_italy_win_for_life_10_20_history.csv`
+  - `data/bc_keno_history.csv`
+  - `data/bc_poland_keno_20_70_history.csv`
+  - `data/bc_russia_rapido_8_20_history.csv`
+  - `data/bc_spain_l_express_20_70_history.csv`
+  - `data/prediction_tracking.sqlite3`
+
+Automatic prediction tracking status:
+
+- `GET /api/prediction-auto` returned healthy.
+- `enabled=true`
+- `running=true`
+- `status=running`
+- `pollSeconds=60`
+- `errors=[]`
+- Message:
+  - `自动追踪完成：4 个彩种，0 个错误`
+- Last run:
+  - `2026-06-01T15:07:20+00:00`
+- Next run:
+  - `2026-06-01T15:08:24+00:00`
+
+Enabled games in automatic tracking:
+
+- Spain: enabled
+- Poland: enabled
+- Russia: enabled
+- Italy: enabled
+- Slovakia: disabled intentionally because Slovakia predictions were removed; Slovakia remains history-sync only.
+
+Important interpretation:
+
+- `skippedPrediction=true` in a cycle is normal when there are no new rows or when the target batch already exists. It prevents duplicate tracking records.
+- Italy now has pending main `2球` records plus `3球` records.
+- Russia now has pending main `2球` records plus existing `2+1` special-ball records.
+- Adjacent-derived stats only use main tickets with `mode == "main"`, so Russia `2+1` does not enter adjacent-derived stats.
+
+Observed pending examples after the Italy/Russia change:
+
+- Russia main `2球`:
+  - `3-15`
+  - `4-7`
+  - `7-8`
+- Russia `2+1特殊球`:
+  - `7-11 + 1`
+  - `7-14 + 1`
+  - `7-15 + 1`
+- Italy main `2球`:
+  - `6-19`
+  - `6-13`
+  - `6-9`
+- Italy `3球`:
+  - `6-8-13`
+  - `6-8-9`
+  - `2-8-13`
+
+Next-session recommendation:
+
+1. Read this `HANDOFF.md` first.
+2. Check whether server PID `75624` is still alive.
+3. If code changed or server died, restart with:
+
+```powershell
+.\start_server.ps1
+```
+
+4. Re-check auto tracking with:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8787/api/prediction-auto"
+```
 
 ## 2026-06-01 Continuation - Italy/Russia Two-Ball Prediction And Adjacent Stats
 
@@ -1646,7 +1731,7 @@ Claude audit should focus especially on prediction feature usefulness, practical
 
 ## Notes
 
-- This workspace is not a git repository.
+- This workspace is now a git repository on branch `main`.
 - Use root `HANDOFF.md` as the current reliable handoff.
 - Claude audit backups are under `claude\`.
 
