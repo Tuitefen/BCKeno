@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch recent official/supplement lottery results for non-Slovakia games."""
+"""Fetch recent official/supplement lottery results for supported games."""
 
 from __future__ import annotations
 

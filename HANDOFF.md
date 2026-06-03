@@ -1,6 +1,6 @@
 ﻿# Session Handoff
 
-Updated: 2026-06-02 Asia/Shanghai
+Updated: 2026-06-03 Asia/Shanghai
 
 ## Start Here
 
@@ -8,7 +8,7 @@ For the next conversation, read only this root file first:
 
 1. `HANDOFF.md`
 
-`README_KENO.md` is older project background and can be used only if extra context is needed. Do not use old root audit files as the new-session entry point.
+`README_KENO.md` was deleted because it documented the old Slovakia-only tool. Do not use old root audit files as the new-session entry point.
 
 Then inspect current code only as needed:
 
@@ -16,16 +16,588 @@ Then inspect current code only as needed:
 2. `web/app.js`
 3. `web/index.html`
 4. `web/styles.css`
-5. `fetch_italy_winforlife_archive.py`
+5. `fetch_bc_keno_history.py`
+6. `fetch_italy_winforlife_archive.py`
 
 ## Current Server
 
 - URL: `http://127.0.0.1:8787`
-- Current process: `python PID 75624`
+- Current process: `python PID 46564`
 - Workspace: `F:\我的开发\CPGAME`
 - Important backup/audit folder: `F:\我的开发\CPGAME\claude`
 
-If backend or frontend code changes, restart PID `75624`.
+If backend code changes, restart PID `46564`. Frontend static files are served from disk and usually do not require restart.
+
+## 2026-06-03 Handoff - Prediction Panel F And CDE/F Backtest
+
+User approved implementing prediction panel F and removing the standalone `派生转换` page/tool.
+
+Implemented backend changes in `keno_dashboard_server.py`:
+
+- Added `PREDICTION_PANEL_F = "f"`.
+- Added panel label `预测面板F` and tracking method `strategy-ticket-f-v1`.
+- Added panel aliases:
+  - `f`
+  - `panel_f`
+  - `prediction_f`
+  - `predictionf`
+  - `resonance_cd`
+  - `overlap_cd`
+- Added `prediction_panel_f_overlap_ticket(...)`.
+- F logic intentionally does not use post-draw E wrong-kill numbers.
+- F uses only pre-draw available data:
+  - C source tickets.
+  - D source tickets.
+  - E kill pool, equal to unique numbers from C source tickets union D source tickets.
+- F ticket rule:
+  - Prefer `C source numbers ∩ D source numbers`.
+  - If fewer than 4 numbers, fill from E kill pool using stable ranking based on source counts, C/D balance, existing score, and low-number tie break.
+  - Generate exactly one 4-number ticket.
+- F ticket metadata includes:
+  - `panel = "f"`
+  - `sourcePanel = "cd_overlap"`
+  - `sourcePanels = ["c", "d", "e"]`
+  - `structureType = "cd_overlap_fill_four"`
+  - `structureLabel = "CD重叠补码四码"`
+  - `corePoolNumbers`
+  - `fillPoolNumbers`
+  - source count maps.
+- `prediction_payload()` now supports `panel=f`.
+- `prediction_context_tickets()` now returns `fTickets` and `fNumbers`.
+- Added `cde_prediction_backtest_panel_result(...)` for prediction-hit style result metrics:
+  - `hitNumbers`
+  - `hitCount`
+  - `missNumbers`
+  - `missCount`
+  - `pickNumbers`
+  - `pickCount`
+  - compatibility aliases for older CDE rendering fields.
+- `cde_kill_backtest_payload()` now includes panel F:
+  - `summaries` contains C, D, E, and F.
+  - detail rows include `panels.f`.
+  - F summary uses `metricType = "prediction_hit"`.
+  - C/D/E remain kill-right/kill-wrong metrics.
+  - F is not used in `bestPanel` comparison because its metric is prediction hit count, not wrong-kill count.
+- Auto tracking now generates A-F and reports `summaryF` / `trackingTotalF`.
+
+Implemented frontend changes:
+
+- `web/index.html`
+  - Added top nav button `预测面板F`.
+  - Removed standalone `派生转换` nav/page.
+  - CDE table now includes `F 命中`.
+  - Detail header changed to `错杀/命中号码`.
+- `web/app.js`
+  - Added F state and routing under the prediction-panel flow.
+  - Added `PREDICTION_PANEL_F = "f"`.
+  - Added `predictionF` support in view/panel mapping and refresh/hydration logic.
+  - F loading text: `读取C/D重叠号并生成F四码票`.
+  - F shows the E candidate/kill pool and C/D source ticket groups.
+  - CDE/F backtest rendering:
+    - C/D/E columns show wrong/right kill counts.
+    - F column shows `中 N 未中 M 4码`.
+    - last detail column shows C/D/E wrong-killed numbers and `F中` hit numbers.
+    - F summary cards show `平均命中`, `平均未中`, `命中率`, and `0中期数`.
+  - Removed standalone adjacent-tool functions and event listeners:
+    - `parseAdjacentToolNumbers`
+    - `adjacentPairCandidates`
+    - `adjacentOuterPairCandidates`
+    - `adjacentCrossHaloCandidates`
+    - `adjacentFourBallCandidates`
+    - `selectedAdjacentToolTypes`
+    - `buildAdjacentToolRows`
+    - `renderAdjacentTool`
+    - `copyAdjacentToolResults`
+  - Kept prediction tracking's internal `临码派生统计`.
+- `web/styles.css`
+  - Removed standalone `.adjacent-tool-*` styles.
+  - CDE/F backtest table uses no internal vertical scroll.
+
+CDE/F backtest UI behavior:
+
+- It is a normal full-page view, not a modal.
+- It shows 25 detail rows per page.
+- Previous/next pagination works.
+- Spain and Poland are supported.
+- Russia remains disabled for CDE/F.
+
+Verification passed:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py
+node --check .\web\app.js
+node --check .\tmp\verify_prediction_f_and_cdef_ui.mjs
+node .\tmp\verify_prediction_f_and_cdef_ui.mjs
+rg -n "adjacentTool|#adjacentToolView|data-adjacent-type|renderAdjacentTool|copyAdjacentToolResults|adjacent-tool|派生转换" .\web\app.js .\web\index.html .\web\styles.css
+```
+
+The final `rg` returned no matches.
+
+Browser verification summary from `tmp/verify_prediction_f_and_cdef_ui.mjs`:
+
+- Spain F:
+  - one 4-number ticket.
+  - current sample ticket: `13,32,45,48`.
+  - C source tickets: 8.
+  - D source tickets: 8.
+  - E kill pool visible.
+- Poland F:
+  - one 4-number ticket.
+  - current sample ticket: `1,10,12,53`.
+  - C source tickets: 8.
+  - D source tickets: 8.
+  - E kill pool visible.
+- Spain and Poland CDE/F backtest:
+  - 4 panel cards.
+  - `F 命中` column present.
+  - `错杀/命中号码` column present.
+  - first page has 25 rows.
+  - next page works.
+  - table has no internal scroll.
+  - no horizontal overflow.
+  - no console errors.
+- Russia CDE/F tab stays disabled.
+
+Claude audit package for this change:
+
+- Folder: `F:\我的开发\CPGAME\claude\prediction_f_cde_audit_2026-06-03`
+- Entry file: `AUDIT_BRIEF.md`
+- Important files copied there:
+  - `keno_dashboard_server.py`
+  - `web\app.js`
+  - `web\index.html`
+  - `web\styles.css`
+  - `tmp\verify_prediction_f_and_cdef_ui.mjs`
+  - `git_diff_prediction_f_cde.patch`
+
+Suggested next-session first action:
+
+- Read Claude's audit suggestions.
+- Focus on correctness bugs and speed optimizations around F generation, CDE/F backtest payload calculation, caching, and frontend rendering.
+
+## 2026-06-03 Handoff - Prediction Panel D/E Rule Change
+
+User requested:
+
+- Spain and Poland: use C and D predictions, each currently 8 groups of 4-number tickets. Collect unique numbers from those C/D 4-number tickets, kill those unique numbers, then output new 4-number tickets.
+- Russia and Italy: change D because killing A+B+C leaves too few numbers. D should only kill C, then output 4-number tickets.
+
+Implemented.
+
+Backend changes in `keno_dashboard_server.py`:
+
+- Added prediction panel E:
+  - `PREDICTION_PANEL_E = "e"`.
+  - Label: `预测面板E`.
+  - Tracking method version: `strategy-ticket-e-v1`.
+  - Aliases include `e`, `panel_e`, `prediction_e`, `predictione`, `kill_cd`, `clean_cd`.
+- E is enabled only for:
+  - `spain_l_express_20_70`
+  - `poland_keno_20_70`
+- E rule:
+  - Generate A/B/C first.
+  - Generate D-source tickets using the normal Spain/Poland D rule.
+  - Collect unique main numbers from C 4-number tickets and D 4-number tickets.
+  - Use that C+D unique set as `excludedNumbers`.
+  - Generate 8 clean 4-number tickets from the remaining pool.
+  - Ticket label: `E CD杀号四码`.
+  - `sourcePanel = "cd"`, `sourcePanels = ["c", "d"]`, `structureType = "kill_cd_four"`.
+- E on Russia/Italy returns no tickets and an explanatory method string:
+  - Current intent is to avoid over-killing 20-number games.
+  - Russia/Italy should use D's new only-kill-C rule instead.
+- Changed D rule for:
+  - `russia_rapido_8_20`
+  - `italy_win_for_life_10_20`
+- Russia/Italy D now:
+  - Kills only unique main numbers from C 4-number tickets.
+  - Generates 8 clean 4-number tickets.
+  - Ticket label: `D C杀号四码`.
+  - `sourcePanel = "c"`, `sourcePanels = ["c"]`, `structureType = "kill_c_four"`.
+- Spain/Poland D stays as the prior A+B+C kill rule:
+  - Ticket label remains `D ABC杀号四码`.
+- D tracking method version was intentionally bumped:
+  - Old: `strategy-ticket-d-v1`.
+  - New: `strategy-ticket-d-v2`.
+  - Reason: D behavior changed for Russia/Italy, so new D tracking records must not be deduped or grouped with older ABC-kill D records.
+- Auto tracking now also generates E and reports:
+  - `summaryE`
+  - `trackingTotalE`
+
+Frontend changes:
+
+- `web/index.html`:
+  - Added top nav button `预测面板E`.
+  - First five top tabs are now A/B/C/D/E.
+  - A/B/C/D remain the first four tabs as user requested earlier.
+- `web/app.js`:
+  - Added E state slot under `predictionPanels`.
+  - Added `PREDICTION_PANEL_E = "e"`.
+  - Added `predictionE` routing/mapping/support in:
+    - `normalizePredictionPanel`
+    - `predictionPanelLabel`
+    - `predictionPanelForView`
+    - `predictionPanelForOptions`
+    - `currentGameSupportsView`
+    - `hydrateView`
+    - `isPredictionMainViewActive`
+    - `refreshCurrentView`
+    - `switchView`
+  - Loading text:
+    - E: `读取C/D四码票并生成CD杀号4码票`
+  - Kill panel labels:
+    - B: `面板A杀号`
+    - D on Russia/Italy: `C杀号`
+    - D on Spain/Poland: `ABC杀号`
+    - E: `CD杀号`
+  - Empty ticket area now displays the method/explanation instead of blank content, useful for Russia/Italy E where no tickets are generated.
+
+Verification script added:
+
+- `tmp/verify_prediction_e_rules_ui.mjs`
+  - Real Playwright browser check.
+  - Verifies top tabs A/B/C/D/E.
+  - Verifies Spain E renders as `CD杀号`, 8 ticket cards, no overlap with kill pool.
+  - Verifies Russia D renders as `C杀号`, 8 ticket cards, no overlap with kill pool.
+  - Checks no horizontal page overflow and no console errors.
+
+Verification commands passed:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py
+node --check .\web\app.js
+node --check .\tmp\verify_prediction_e_rules_ui.mjs
+node .\tmp\verify_prediction_e_rules_ui.mjs
+```
+
+Runtime verification snapshot after backend restart:
+
+- Current server: `http://127.0.0.1:8787`
+- Current backend process: `python PID 43156`
+
+API verification summary:
+
+```text
+Spain E:
+  game=spain_l_express_20_70
+  panel=e
+  sourcePanel=cd
+  killCount=22
+  tickets=8
+  firstTicket=5-15-29-33
+  label=E CD杀号四码
+  overlapWithKilledNumbers=0
+  trackingTotal=24
+
+Poland E:
+  game=poland_keno_20_70
+  panel=e
+  sourcePanel=cd
+  killCount=16
+  tickets=8
+  firstTicket=33-35-48-61
+  label=E CD杀号四码
+  overlapWithKilledNumbers=0
+  trackingTotal=24
+
+Russia D:
+  game=russia_rapido_8_20
+  panel=d
+  sourcePanel=c
+  killCount=9
+  tickets=8
+  firstTicket=2-5-6-13
+  label=D C杀号四码
+  overlapWithKilledNumbers=0
+  trackingTotal=12
+
+Italy D:
+  game=italy_win_for_life_10_20
+  panel=d
+  sourcePanel=c
+  killCount=11
+  tickets=8
+  firstTicket=14-15-17-18
+  label=D C杀号四码
+  overlapWithKilledNumbers=0
+  trackingTotal=16
+```
+
+Tracking verification:
+
+- Russia D latest records include:
+  - `methodVersion = strategy-ticket-d-v2`
+  - `strategyLabel = D C杀号四码`
+  - `structureLabel = C杀号四码`
+- Spain E latest records include:
+  - `methodVersion = strategy-ticket-e-v1`
+  - `strategyLabel = E CD杀号四码`
+  - `structureLabel = CD杀号四码`
+
+Browser verification summary:
+
+```text
+Top tabs: 预测面板A / 预测面板B / 预测面板C / 预测面板D / 预测面板E
+Backtest tab: not present in top navigation
+Spain E: CD杀号, killCount=22, ticketCards=8, firstTicket=5-15-29-33, overlap=[]
+Russia D: C杀号, killCount=9, ticketCards=8, firstTicket=2-5-6-13, overlap=[]
+pageOverflow=0
+console errors=[]
+```
+
+Important notes for next session:
+
+- Do not downgrade D back to `strategy-ticket-d-v1`; the version bump is intentional because the D rule changed.
+- Existing older D records with `strategy-ticket-d-v1` can still appear in tracking history. New D records should use `strategy-ticket-d-v2`.
+- Running prediction API checks creates/touches prediction tracking records. The tracking totals above already include records created during verification.
+- The working tree already had many unrelated modified/deleted runtime files and data files. Do not revert unrelated changes unless explicitly requested.
+
+## 2026-06-02 Late Handoff - Spain Settlement Lag
+
+User reported: `西班牙的结算总慢一期`.
+
+Diagnosis:
+
+- Settlement logic itself was working. When Spain history caught up from `2026-06-02T15:34:00+00:00` to `2026-06-02T15:46:00+00:00`, auto tracking immediately settled `20` prediction records.
+- The visible lag came from upstream Spain draw data arriving late into local history.
+- Verification snapshot around `2026-06-02T15:52:00+00:00`:
+  - Local newest Spain draw: `2026-06-02T15:46:00+00:00`.
+  - Oldest overdue target draw: `2026-06-02T15:50:00+00:00`.
+  - Pending overdue records across A/B/C for that target: `20`.
+  - LotoDate official supplement latest: `2026-06-02T15:46:00+00:00`.
+  - BC incremental fetch still did not provide `15:50`; refresh response showed source/history still behind the target.
+- So Spain can look "one draw late" because the target draw is over, but neither BC nor LotoDate has provided that draw to the local history yet.
+
+Backend changes in `keno_dashboard_server.py`:
+
+- Added `PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS = 20`.
+- Added `prediction_tracking_auto_sync_status(records, rows, config)`:
+  - Detects pending records whose `targetDrawTimeMs + grace <= now` while local latest history is still earlier than the target.
+  - Returns diagnostic fields such as `reason=history_behind_target`, latest local draw time, oldest/newest overdue target time, overdue pending record count, and grace seconds.
+- Kept `prediction_tracking_needs_auto_sync()` as a bool wrapper over the new status helper.
+- Updated `maybe_auto_sync_prediction_tracking()`:
+  - Uses the new overdue status.
+  - For overdue history-behind-target cases, retry cooldown is now `20` seconds instead of the old Spain-effective `120` seconds (`max(45, drawIntervalMinutes * 30)`).
+  - `autoSync` API response now includes `cooldownSeconds`, `trigger`, and `history_behind_target` diagnostics.
+- Updated `run_prediction_auto_once()`:
+  - After refresh, it loads current rows and tracking records and computes `tracking_wait`.
+  - If `waitingForDraw=True`, auto tracking updates summaries only and does not generate new A/B/C prediction tracking batches.
+  - Result payload now includes `waitingForDraw` and `trackingWait`.
+
+Verification run:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py
+```
+
+Runtime verification:
+
+- Restarted backend. Current server is `http://127.0.0.1:8787`, Python PID `11312`.
+- `/api/prediction-auto` for Spain returned `waitingForDraw=True` when local latest draw was `15:46` and overdue target was `15:50`.
+- `/api/prediction-tracking?game=spain_l_express_20_70&panel=a&status=pending&page=1&pageSize=200` returned `autoSync.reason=history_behind_target`.
+- Pending A-panel groups at the verification moment:
+  - `2026-06-02T15:50:00+00:00`: `6`
+  - `2026-06-02T15:54:00+00:00`: `6`
+
+Important next-session note:
+
+- Do not treat Spain pending-at-current-draw as a settlement bug until checking `autoSync.reason`.
+- If `reason=history_behind_target`, the system is waiting for source data. It should retry sync every ~20 seconds for overdue pending records and should not keep creating new future tracking batches while waiting.
+- If source data has arrived but records remain pending, then inspect `settle_prediction_tracking()` and `rows_by_time[target_ms]`.
+
+## 2026-06-02 Final Note Before Session Restart
+
+User is restarting the conversation. Continue from this state, do not redo the Slovakia removal from scratch.
+
+Final state:
+
+- Slovakia / `sk_keno_20_80` is fully removed from active app code/config/data.
+- `/api/games` has 4 games and defaults to `spain_l_express_20_70`.
+- `data/bc_keno_history.csv` is deleted and did not reappear after backend restart and browser verification.
+- `README_KENO.md`, `fetch_etipos_archive.py`, `data/bc_triples_report.csv`, and `data/triples_report.csv` were deleted as old Slovakia-only artifacts.
+- `keno_triple_omission.py` remains because the backend imports it, but it is now Keno 20/70/default-Spain oriented rather than Slovakia 20/80 oriented.
+- `tmp/verify_slovakia_removed_ui.mjs` intentionally contains `sk_keno_20_80` only as a negative assertion that API/UI must not expose it.
+- Audit package is refreshed under `F:\我的开发\CPGAME\claude`.
+- `claude/prediction_panel_spain_layout.png` is a PC desktop screenshot. Do not use mobile screenshots as the primary audit artifact.
+
+Final verification passed:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py .\fetch_bc_keno_history.py .\fetch_official_supplements.py .\keno_triple_omission.py
+node --check .\web\app.js
+node .\tmp\verify_slovakia_removed_ui.mjs
+node .\tmp\verify_prediction_layout_order.mjs
+node .\tmp\verify_modal_views_ui.mjs
+node .\tmp\verify_adjacent_tool_ui.mjs
+node .\tmp\verify_martingale_ui.mjs
+```
+
+The earlier self-check hang was caused by repeated history modal hydration:
+
+```text
+openToolModal("history") -> hydrateView("history") -> loadHistory() -> renderHistory() -> updateGameUi() -> openToolModal("history")
+```
+
+`openToolModal()` now returns early when the same modal is already open, so the browser no longer enters that loop.
+
+## 2026-06-02 Continuation - Slovakia Fully Removed
+
+User decided Slovakia should not remain as history-only. Current intended state:
+
+- `sk_keno_20_80` / Slovakia is removed entirely from the app.
+- No Slovakia game should be offered by `/api/games`, frontend selectors, pills, prediction tools, tracking, or auto config.
+- `data/bc_keno_history.csv` was intentionally deleted and should not be recreated.
+- Older HANDOFF sections below still mention Slovakia as previous project history only; this top section supersedes them.
+- Audit screenshots/files should prioritize PC desktop. Mobile checks can remain only as basic overflow safety; do not use mobile screenshots as primary audit evidence.
+
+Implemented:
+
+- Stopped old backend `python PID 39492`, because it had already recreated `data/bc_keno_history.csv` once while old Slovakia sync code was still running.
+- Updated `keno_dashboard_server.py`:
+  - Default game switched to Spain: `spain_l_express_20_70`.
+  - Default lottery ID switched to `115889`.
+  - Default history file switched to `data/bc_spain_l_express_20_70_history.csv`.
+  - Removed `LOTTERY_GAMES["sk_keno_20_80"]`.
+  - Removed Slovakia odds config from `DEFAULT_MAIN_ODDS_BY_GAME`.
+  - Removed eTIPOS / Slovakia supplement import and helper path.
+- Updated frontend defaults:
+  - `web/index.html` initial subtitle now points to BC.Game `115889` / Spain.
+  - `web/app.js` no longer has Slovakia martingale default odds.
+- Removed Slovakia from local runtime state:
+  - `data/prediction_auto_config.json` now has only Spain, Poland, Russia, and Italy enabled.
+  - `data/prediction_tracking.json`: removed 9 Slovakia records.
+  - `data/prediction_tracking.sqlite3`: removed 132 Slovakia records.
+  - `data/bc_keno_history.csv`: deleted.
+- Updated helper/diagnostic files:
+  - `fetch_bc_keno_history.py` remains because the server imports its generic BC parsing/fetch helpers, but standalone defaults now target Spain `115889` and output `data/bc_spain_l_express_20_70_history.csv`.
+  - `keno_triple_omission.py` remains because the server imports its probability table and combinatorics helpers, but it was changed from Slovakia 20/80 wording/defaults to Keno 20/70 wording/defaults.
+  - Deleted unused old Slovakia-only files:
+    - `fetch_etipos_archive.py`
+    - `README_KENO.md`
+    - `data/bc_triples_report.csv`
+    - `data/triples_report.csv`
+  - Removed Slovakia from `tmp/check_bc_totals.py`, `tmp/audit_history_gaps.py`, and `tmp/infer_operating_hours.py`.
+  - Deleted old Slovakia-only task doc `tmp/docs/keno_codex_tasks.txt`.
+  - Replaced the old Slovakia-disabled UI verifier with `tmp/verify_slovakia_removed_ui.mjs`.
+  - Changed `tmp/verify_prediction_layout_order.mjs` so `claude/prediction_panel_spain_layout.png` is written from the PC viewport only, not overwritten by the mobile pass.
+  - Updated `tmp/verify_modal_views_ui.mjs` sync-toast fixture from `5/5` to `4/4`.
+- Updated `DEPLOYMENT.md` so `data/bc_keno_history.csv` is no longer listed as an important runtime data file.
+
+Verification on the new backend:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py .\fetch_bc_keno_history.py
+node --check .\web\app.js
+node --check .\tmp\verify_slovakia_removed_ui.mjs
+node --check .\tmp\verify_martingale_ui.mjs
+node --check .\tmp\verify_prediction_layout_order.mjs
+node --check .\tmp\verify_adjacent_tool_ui.mjs
+node --check .\tmp\verify_modal_views_ui.mjs
+Invoke-RestMethod http://127.0.0.1:8787/api/games
+node .\tmp\verify_slovakia_removed_ui.mjs
+node .\tmp\verify_prediction_layout_order.mjs
+node .\tmp\verify_adjacent_tool_ui.mjs
+node .\tmp\verify_martingale_ui.mjs
+node .\tmp\verify_modal_views_ui.mjs
+```
+
+Observed:
+
+- `/api/games` returns exactly 4 games:
+  - `spain_l_express_20_70`
+  - `poland_keno_20_70`
+  - `russia_rapido_8_20`
+  - `italy_win_for_life_10_20`
+- `/api/games.defaultGame` is `spain_l_express_20_70`.
+- PC UI game select and game pills contain only those 4 games.
+- `data/bc_keno_history.csv` did not reappear after restarting the backend and running browser checks.
+- After the final code cleanup, the backend was restarted again and now listens as `python PID 6096`.
+- Prediction page PC layout still renders 6 ticket cards, 50 tracking rows, and adjacent stats below tracking.
+- Tool modals, adjacent conversion, martingale calculator, and history modal all open/close without the previous repeated-hydration hang.
+- Crash/hang root cause from the previous section remains the modal rehydration loop; Slovakia removal also removes the unsupported Slovakia fallback path that used to trigger it most easily.
+
+## 2026-06-02 Continuation - Tool Modals And Crash Fix
+
+User asked to inspect the already-applied screenshot changes, finish self-checking, document locally, and copy the current files to `claude` for Claude audit.
+
+Implemented / confirmed:
+
+- `web/index.html`
+  - Converted tool-style tabs into modal-capable views:
+    - `派生转换`
+    - `倍投计算`
+    - `模拟投注`
+    - `策略回测`
+    - `分析面板`
+    - `历史开奖`
+  - Added modal backdrops and close buttons for those views.
+- `web/styles.css`
+  - Added shared modal overlay, modal panel, close button, scroll containment, and mobile sizing styles.
+- `web/app.js`
+  - Added modal state:
+    - `state.activeModal`
+    - `TOOL_MODAL_VIEWS`
+    - `openToolModal()`
+    - `closeToolModal()`
+    - `hydrateView()`
+    - `renderTabState()`
+  - Tool tabs now open as overlays instead of replacing the prediction page.
+  - `Escape` and backdrop/close buttons close the active tool modal.
+  - `refreshCurrentView()` now respects the active modal.
+  - Unsupported tool requests fall back to the history modal.
+  - Improved all-game sync toast text to list only games with new rows, or explicitly say no new draw rows.
+
+Important crash / hang root cause found:
+
+- Slovakia is intentionally prediction-disabled.
+- With the new history modal fallback, `updateGameUi()` opened `history` when the active view was unsupported.
+- `history` hydration called `loadHistory()`, then `renderHistory()`, then `updateGameUi()`.
+- Because the history modal was already open but `openToolModal("history")` rehydrated it again, this created a loop:
+  - `openToolModal("history") -> loadHistory() -> renderHistory() -> updateGameUi() -> openToolModal("history")`
+- Symptom:
+  - Browser page became unresponsive for Slovakia / unsupported-view fallback.
+  - Playwright `page.evaluate()` and `waitForFunction()` appeared to hang.
+  - Earlier self-checks looked like "flash crash" or silent timeout.
+- Fix:
+  - `openToolModal()` now returns early when the requested modal is already open:
+    - if `state.activeModal === view` and the element has `modal-open`, only tab state is refreshed and hydration is not repeated.
+
+Verification after fix:
+
+```powershell
+node --check .\web\app.js
+python -m py_compile .\keno_dashboard_server.py
+node .\tmp\verify_slovakia_predictions_removed_ui.mjs
+node .\tmp\verify_adjacent_tool_ui.mjs
+node .\tmp\verify_martingale_ui.mjs
+node .\tmp\verify_prediction_layout_order.mjs
+```
+
+Observed:
+
+- Slovakia opens history as a modal, prediction/analysis are disabled, and history renders 100 rows.
+- Switching Spain -> prediction and back to Slovakia works.
+- Prediction layout still has tracking records above adjacent stats on desktop and mobile.
+- Adjacent conversion modal renders desktop/mobile with `pageOverflow=0`.
+- Martingale modal renders desktop/mobile with 12-row plan and `pageOverflow=0`.
+- No console errors were reported by the verification scripts.
+
+Verification script maintenance:
+
+- `tmp/verify_martingale_ui.mjs`
+  - Reworked repeated game/default-odds checks to use fresh pages per case.
+  - Replaced fragile `waitForFunction()` waits with explicit `page.evaluate()` polling.
+  - Added stage logs and hard-timeout cleanup.
+- `tmp/verify_prediction_layout_order.mjs`
+  - Replaced fragile `waitForFunction()` waits with explicit `page.evaluate()` polling.
+  - Added hard-timeout cleanup.
+
+Current caveats:
+
+- Runtime data files remain modified by live sync/tracking:
+  - `data/*.csv`
+  - `data/prediction_tracking.sqlite3`
+- User screenshot file remains untracked:
+  - `wechat_longscreenshot_2026-06-02_143150_432.png`
 
 ## 2026-06-02 Handoff - Auto Tracking Health Check
 

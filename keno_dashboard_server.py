@@ -30,7 +30,6 @@ from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
 import fetch_bc_keno_history
-import fetch_etipos_archive
 import fetch_official_supplements
 import keno_triple_omission
 
@@ -44,13 +43,12 @@ WEB_ROOT = ROOT / "web"
 DATA_ROOT = Path(os.environ.get("BCKENO_DATA_DIR", ROOT / "data")).resolve()
 LOG_ROOT = Path(os.environ.get("BCKENO_LOG_DIR", ROOT / "logs")).resolve()
 BACKUP_ROOT = Path(os.environ.get("BCKENO_BACKUP_DIR", ROOT / "backups")).resolve()
-DEFAULT_HISTORY = DATA_ROOT / "bc_keno_history.csv"
-DEFAULT_BETS = DATA_ROOT / "simulated_bets.jsonl"
+DEFAULT_HISTORY = DATA_ROOT / "bc_spain_l_express_20_70_history.csv"
 DEFAULT_PREDICTION_TRACKING = DATA_ROOT / "prediction_tracking.json"
 DEFAULT_PREDICTION_TRACKING_DB = DATA_ROOT / "prediction_tracking.sqlite3"
 DEFAULT_PREDICTION_AUTO_CONFIG = DATA_ROOT / "prediction_auto_config.json"
-DEFAULT_LOTTERY_ID = "74214"
-DEFAULT_GAME_KEY = "sk_keno_20_80"
+DEFAULT_LOTTERY_ID = "115889"
+DEFAULT_GAME_KEY = "spain_l_express_20_70"
 HOST = "127.0.0.1"
 PORT = 8787
 DEFAULT_PAGE_SIZE = 100
@@ -60,13 +58,13 @@ MAX_NUMBER_COLUMNS = 20
 NUMBER_COLUMNS = [f"n{i}" for i in range(1, MAX_NUMBER_COLUMNS + 1)]
 SUPPLEMENT_ID_PREFIXES = ("etipos-", "lotodate-", "polonia-loto-", "yesplay-", "winforlife-", "wflcloud-")
 DATA_LOCK = threading.Lock()
-BETS_LOCK = threading.Lock()
 ANALYSIS_CACHE_LOCK = threading.Lock()
 PREDICTION_CACHE_LOCK = threading.Lock()
 BACKTEST_CACHE_LOCK = threading.Lock()
 BACKTEST_STATUS_LOCK = threading.Lock()
 BACKTEST_SCAN_CACHE_LOCK = threading.Lock()
 BACKTEST_SCAN_STATUS_LOCK = threading.Lock()
+KILL_BACKTEST_CACHE_LOCK = threading.Lock()
 HISTORY_CACHE_LOCK = threading.Lock()
 PREDICTION_TRACKING_LOCK = threading.Lock()
 PREDICTION_TRACKING_AUTO_SYNC_LOCK = threading.Lock()
@@ -77,12 +75,14 @@ PREDICTION_AUTO_THREAD: threading.Thread | None = None
 PREDICTION_DB_INITIALIZED = False
 HISTORY_CACHE_MAX_ITEMS = 5
 ANALYSIS_CACHE_MAX_ITEMS = 5
-PREDICTION_CACHE_MAX_ITEMS = 5
+PREDICTION_CACHE_MAX_ITEMS = 20
+KILL_BACKTEST_CACHE_MAX_ITEMS = 10
 HISTORY_CACHE: dict[tuple[str, int, int], list[dict[str, Any]]] = {}
 ANALYSIS_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 PREDICTION_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 BACKTEST_CACHE: dict[str, dict[str, Any]] = {}
 BACKTEST_SCAN_CACHE: dict[str, dict[str, Any]] = {}
+KILL_BACKTEST_CACHE: dict[tuple[Any, ...], dict[str, Any]] = {}
 BACKTEST_STATUS: dict[str, Any] = {
     "ok": True,
     "status": "idle",
@@ -105,6 +105,7 @@ PREDICTION_AUTO_STATUS: dict[str, Any] = {
     "enabled": False,
     "running": False,
     "lastRunAt": "",
+    "lastCompletedAt": "",
     "nextRunAt": "",
     "message": "自动追踪未启动",
     "results": [],
@@ -120,25 +121,6 @@ LEGACY_VOID_REASONS = {
 }
 
 LOTTERY_GAMES: dict[str, dict[str, Any]] = {
-    "sk_keno_20_80": {
-        "key": "sk_keno_20_80",
-        "lotteryId": "74214",
-        "name": "斯洛伐克 E-Klub Keno",
-        "shortName": "斯洛伐克 20/80",
-        "country": "Slovakia",
-        "drawnNumbers": 20,
-        "totalNumbers": 80,
-        "drawIntervalMinutes": 2,
-        "historyPath": DEFAULT_HISTORY,
-        "supportsAnalysis": False,
-        "supportsPredictions": False,
-        "supportsPredictionTracking": False,
-        "supportsSimBets": False,
-        "supportsBacktest": False,
-        "supportsMartingale": False,
-        "officialSupplement": "lotodate",
-        "supplementUrl": "https://lotodate.ro/en/Extrageri/1-slovakia-eklub-keno-20-80",
-    },
     "spain_l_express_20_70": {
         "key": "spain_l_express_20_70",
         "lotteryId": "115889",
@@ -319,6 +301,7 @@ LOTTERY_GAMES["italy_win_for_life_10_20"]["predictionConditionKeys"] = LOTTERY_G
 PREDICTION_HORIZONS = 5
 PREDICTION_TRACKING_LEAD_SECONDS = 45
 PREDICTION_TRACKING_AUTO_SYNC_COOLDOWN_SECONDS = 45
+PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS = 20
 PREDICTION_RECENT_WINDOW = 240
 PREDICTION_NUMBER_WEIGHTS = [
     {"miss": 0.50, "momentum": 0.32, "history": 0.18},
@@ -401,7 +384,6 @@ BACKTEST_SCAN_MAX_RESULTS = 80
 BACKTEST_SHAPE_GROUP_LIMIT = 20000
 BACKTEST_SHAPE_FIXED_SCAN_LIMIT = 10000
 DEFAULT_MAIN_ODDS_BY_GAME = {
-    "sk_keno_20_80": {1: 3.6, 2: 15, 3: 60, 4: 250, 5: 1000, 6: 3800, 7: 12500, 8: 35000},
     "spain_l_express_20_70": {1: 3.2, 2: 11, 3: 40, 4: 150, 5: 500, 6: 2000, 7: 6500, 8: 18000},
     "poland_keno_20_70": {1: 3.2, 2: 11, 3: 40, 4: 150, 5: 500, 6: 2000, 7: 6500, 8: 18000},
     "italy_win_for_life_10_20": {1: 1.8, 2: 3.8, 3: 9, 4: 20, 5: 50, 6: 150, 7: 500, 8: 1650},
@@ -430,15 +412,77 @@ PREDICTION_TICKET_STRATEGIES = {
     ],
 }
 PREDICTION_TRACKING_METHOD_VERSION = "strategy-ticket-v1"
+PREDICTION_PANEL_DEFAULT = "a"
+PREDICTION_PANEL_B = "b"
+PREDICTION_PANEL_C = "c"
+PREDICTION_PANEL_D = "d"
+PREDICTION_PANEL_E = "e"
+PREDICTION_PANEL_F = "f"
+PREDICTION_PANEL_G = "g"
+PREDICTION_TRACKING_METHOD_BY_PANEL = {
+    PREDICTION_PANEL_DEFAULT: PREDICTION_TRACKING_METHOD_VERSION,
+    PREDICTION_PANEL_B: "strategy-ticket-b-v1",
+    PREDICTION_PANEL_C: "strategy-ticket-c-v1",
+    PREDICTION_PANEL_D: "strategy-ticket-d-v2",
+    PREDICTION_PANEL_E: "strategy-ticket-e-v1",
+    PREDICTION_PANEL_F: "strategy-ticket-f-v2",
+    PREDICTION_PANEL_G: "strategy-ticket-g-v1",
+}
+PREDICTION_PANEL_LABELS = {
+    PREDICTION_PANEL_DEFAULT: "预测面板A",
+    PREDICTION_PANEL_B: "预测面板B",
+    PREDICTION_PANEL_C: "预测面板C",
+    PREDICTION_PANEL_D: "预测面板D",
+    PREDICTION_PANEL_E: "预测面板E",
+    PREDICTION_PANEL_F: "预测面板F",
+    PREDICTION_PANEL_G: "预测面板G",
+}
 PREDICTION_TICKET_BACKTEST_WINDOW = 1000
 PREDICTION_TICKET_CHASE_PERIODS = 10
 PREDICTION_TICKET_TOP_COUNT = 3
+PREDICTION_PANEL_C_TOP_COUNT = 8
+PREDICTION_PANEL_C_CORE_PAIR_LIMIT = 6
+PREDICTION_PANEL_C_COMPANION_LIMIT = 2
+PREDICTION_PANEL_C_PREFILTER_LIMIT = 60
+PREDICTION_PANEL_C_OFFSETS = (2, 3, 5, 7, 10, 14, 20)
+PREDICTION_PANEL_C_BAND_DISTANCES = tuple(range(5, 11))
+PREDICTION_PANEL_C_STRUCTURE_PRIORITY = {
+    "cohit_free": 1.0,
+    "band_5_10": 0.88,
+    "offset_10": 0.78,
+    "same_tail": 0.72,
+    "adjacent_1": 0.68,
+    "offset_d": 0.62,
+}
+PREDICTION_PANEL_C_STRUCTURE_LABELS = {
+    "adjacent_1": "左右临码四码",
+    "offset_10": "±10同列四码",
+    "offset_d": "固定间隔四码",
+    "band_5_10": "5-10位窗口四码",
+    "same_tail": "同尾四码",
+    "cohit_free": "历史共现四码",
+}
+PREDICTION_PANEL_D_TOP_COUNT = 8
+PREDICTION_PANEL_D_POOL_SIZE = 18
+PREDICTION_PANEL_D_PREFILTER_LIMIT = 80
+PREDICTION_PANEL_E_TOP_COUNT = 8
+PREDICTION_PANEL_E_GAME_KEYS = {
+    "spain_l_express_20_70",
+    "poland_keno_20_70",
+}
+PREDICTION_PANEL_F_TOP_COUNT = 1
+PREDICTION_PANEL_G_TOP_COUNT = 1
+PREDICTION_PANEL_D_KILL_C_ONLY_GAME_KEYS = {
+    "russia_rapido_8_20",
+    "italy_win_for_life_10_20",
+}
 ADJACENT_DERIVED_STATS_GAME_KEYS = {
     "spain_l_express_20_70",
     "poland_keno_20_70",
     "italy_win_for_life_10_20",
     "russia_rapido_8_20",
 }
+ADJACENT_DERIVED_SOURCE_PICK_COUNTS = {1, 2, 4}
 ADJACENT_DERIVED_EXAMPLE_LIMIT = 4
 ADJACENT_DERIVED_HIT_DETAIL_LIMIT = 4
 BACKTEST_SIMPLE_SHAPE_RUN_LENGTHS = {
@@ -481,11 +525,102 @@ def game_from_options(options: dict[str, Any]) -> dict[str, Any]:
     return LOTTERY_GAMES[game_key_from_value(options.get("game") or options.get("lotteryId"))]
 
 
+def prediction_panel_from_value(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"g", "panel_g", "prediction_g", "predictiong", "kill_cde", "clean_cde"}:
+        return PREDICTION_PANEL_G
+    if text in {
+        "f",
+        "panel_f",
+        "prediction_f",
+        "predictionf",
+        "reversal_cd",
+        "kill_pool_reversal",
+        "resonance_cd",
+        "overlap_cd",
+    }:
+        return PREDICTION_PANEL_F
+    if text in {"e", "panel_e", "prediction_e", "predictione", "kill_cd", "clean_cd"}:
+        return PREDICTION_PANEL_E
+    if text in {"d", "panel_d", "prediction_d", "predictiond", "kill_abc", "clean_abc"}:
+        return PREDICTION_PANEL_D
+    if text in {"c", "panel_c", "prediction_c", "predictionc", "structure", "structure_c"}:
+        return PREDICTION_PANEL_C
+    if text in {"b", "panel_b", "prediction_b", "predictionb", "kill_a", "reverse_a"}:
+        return PREDICTION_PANEL_B
+    return PREDICTION_PANEL_DEFAULT
+
+
+def prediction_panel_from_query(query: dict[str, list[str]]) -> str:
+    return prediction_panel_from_value(query.get("panel", [PREDICTION_PANEL_DEFAULT])[0])
+
+
+def query_bool(query: dict[str, list[str]], key: str, default: bool) -> bool:
+    values = query.get(key)
+    if not values:
+        return default
+    text = str(values[0] or "").strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def prediction_panel_label(panel: str) -> str:
+    return PREDICTION_PANEL_LABELS.get(prediction_panel_from_value(panel), PREDICTION_PANEL_LABELS[PREDICTION_PANEL_DEFAULT])
+
+
+def prediction_method_version_for_panel(panel: str) -> str:
+    return PREDICTION_TRACKING_METHOD_BY_PANEL.get(
+        prediction_panel_from_value(panel),
+        PREDICTION_TRACKING_METHOD_VERSION,
+    )
+
+
+def prediction_record_panel(record: dict[str, Any]) -> str:
+    panel = prediction_panel_from_value(record.get("panel"))
+    if panel in {
+        PREDICTION_PANEL_B,
+        PREDICTION_PANEL_C,
+        PREDICTION_PANEL_D,
+        PREDICTION_PANEL_E,
+        PREDICTION_PANEL_F,
+        PREDICTION_PANEL_G,
+    }:
+        return panel
+    method_version = str(record.get("methodVersion") or "")
+    if method_version == prediction_method_version_for_panel(PREDICTION_PANEL_G):
+        return PREDICTION_PANEL_G
+    if method_version == prediction_method_version_for_panel(PREDICTION_PANEL_F):
+        return PREDICTION_PANEL_F
+    if method_version == prediction_method_version_for_panel(PREDICTION_PANEL_E):
+        return PREDICTION_PANEL_E
+    if method_version == prediction_method_version_for_panel(PREDICTION_PANEL_D):
+        return PREDICTION_PANEL_D
+    if method_version == prediction_method_version_for_panel(PREDICTION_PANEL_C):
+        return PREDICTION_PANEL_C
+    if method_version == prediction_method_version_for_panel(PREDICTION_PANEL_B):
+        return PREDICTION_PANEL_B
+    return PREDICTION_PANEL_DEFAULT
+
+
+def prediction_record_matches_panel(record: dict[str, Any], panel: str | None) -> bool:
+    if panel is None:
+        return True
+    return prediction_record_panel(record) == prediction_panel_from_value(panel)
+
+
+def prediction_records_for_panel(records: list[dict[str, Any]], panel: str | None) -> list[dict[str, Any]]:
+    if panel is None:
+        return records
+    return [record for record in records if prediction_record_matches_panel(record, panel)]
+
+
 def game_public_config(config: dict[str, Any]) -> dict[str, Any]:
     analysis_supported = supports_analysis(config)
     predictions_supported = supports_predictions(config)
     prediction_tracking_supported = supports_prediction_tracking(config)
-    sim_bets_supported = supports_sim_bets(config)
     backtest_supported = supports_backtest(config)
     martingale_supported = supports_martingale(config)
     return {
@@ -501,7 +636,6 @@ def game_public_config(config: dict[str, Any]) -> dict[str, Any]:
         "supportsAnalysis": analysis_supported,
         "supportsPredictions": predictions_supported,
         "supportsPredictionTracking": prediction_tracking_supported,
-        "supportsSimBets": sim_bets_supported,
         "supportsBacktest": backtest_supported,
         "supportsMartingale": martingale_supported,
         "officialSupplement": config.get("officialSupplement", ""),
@@ -694,15 +828,6 @@ def ensure_prediction_tracking_supported(config: dict[str, Any]) -> None:
         raise ValueError(f"{config['shortName']} 当前只保留开奖同步，不再生成预测追踪")
 
 
-def supports_sim_bets(config: dict[str, Any]) -> bool:
-    return supports_analysis(config) and bool(config.get("supportsSimBets", True))
-
-
-def ensure_sim_bets_supported(config: dict[str, Any]) -> None:
-    if not supports_sim_bets(config):
-        raise ValueError(f"{config['shortName']} 当前只保留开奖同步，不开放模拟投注")
-
-
 def supports_backtest(config: dict[str, Any]) -> bool:
     return supports_analysis(config) and bool(config.get("supportsBacktest", True))
 
@@ -849,6 +974,8 @@ def clear_data_caches() -> None:
             )
     with BACKTEST_SCAN_CACHE_LOCK:
         BACKTEST_SCAN_CACHE.clear()
+    with KILL_BACKTEST_CACHE_LOCK:
+        KILL_BACKTEST_CACHE.clear()
     with BACKTEST_SCAN_STATUS_LOCK:
         if BACKTEST_SCAN_STATUS.get("status") != "running":
             BACKTEST_SCAN_STATUS.clear()
@@ -966,6 +1093,27 @@ def row_source_rank(row: dict[str, Any]) -> int:
     if status.startswith("official-") or identifier.startswith(SUPPLEMENT_ID_PREFIXES):
         return 1
     return 2
+
+
+def dashboard_rows_signature(
+    rows: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
+) -> tuple[tuple[str, ...], ...]:
+    config = config or LOTTERY_GAMES[DEFAULT_GAME_KEY]
+    fieldnames = history_fieldnames()
+    ordered = sorted(rows, key=lambda item: parse_int(item.get("drawTimeMs"), 0), reverse=True)
+    return tuple(
+        tuple(str(dashboard_row_to_csv_row(row, config).get(field, "")) for field in fieldnames)
+        for row in ordered
+    )
+
+
+def dashboard_rows_changed(
+    before: list[dict[str, Any]],
+    after: list[dict[str, Any]],
+    config: dict[str, Any] | None = None,
+) -> bool:
+    return dashboard_rows_signature(before, config) != dashboard_rows_signature(after, config)
 
 
 def write_dashboard_rows(
@@ -1255,52 +1403,6 @@ def history_data_integrity(
     }
 
 
-def next_generated_event_id(existing_rows: list[dict[str, Any]], draw_time_ms: int) -> str:
-    older = [
-        row
-        for row in existing_rows
-        if row.get("drawTimeMs", 0) < draw_time_ms
-        and not str(row.get("drawEventId", "")).startswith("etipos-")
-    ]
-    if older:
-        anchor = max(older, key=lambda item: item["drawTimeMs"])
-    else:
-        official = [
-            row
-            for row in existing_rows
-            if not str(row.get("drawEventId", "")).startswith("etipos-")
-        ]
-        anchor = max(official, key=lambda item: item["drawTimeMs"]) if official else None
-    if anchor:
-        step = round((draw_time_ms - anchor["drawTimeMs"]) / 120000)
-        try:
-            return str(int(anchor["drawEventId"]) + max(1, step))
-        except (TypeError, ValueError):
-            pass
-    return f"etipos-{draw_time_ms}"
-
-
-def etipos_row_to_dashboard_row(
-    row: dict[str, Any],
-    existing_rows: list[dict[str, Any]],
-) -> dict[str, Any]:
-    draw_time_ms = parse_int(row.get("drawTimeMs"), 0)
-    generated_event_id = next_generated_event_id(existing_rows, draw_time_ms)
-    return {
-        "sourceIndex": 0,
-        "id": f"etipos-{draw_time_ms}",
-        "lotteryId": DEFAULT_LOTTERY_ID,
-        "lotteryCountry": "Slovakia",
-        "drawEventId": generated_event_id,
-        "drawTimeMs": draw_time_ms,
-        "drawTimeUtc": row.get("drawTimeUtc", ""),
-        "status": "official-etipos",
-        "bonusBall": "",
-        "numbers": row["numbers"],
-        "isCancelled": False,
-    }
-
-
 def official_row_to_dashboard_row(
     row: dict[str, Any],
     config: dict[str, Any],
@@ -1351,21 +1453,6 @@ def fetch_official_supplement(
     config: dict[str, Any],
     existing_rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    source = config.get("officialSupplement")
-    if source == "etipos":
-        recent = [
-            etipos_row_to_dashboard_row(row, existing_rows)
-            for row in fetch_etipos_archive.fetch_recent_archive(hours=2)
-        ]
-        dashboard_rows = select_supplement_rows(recent, existing_rows)
-        return dashboard_rows, {
-            "source": "etipos",
-            "checkedRows": len(recent),
-            "newRows": len(dashboard_rows),
-            "status": "ok",
-            "newestOfficialUtc": recent[0]["drawTimeUtc"] if recent else "",
-        }
-
     recent, meta = fetch_official_supplements.fetch_recent_official(config)
     dashboard_recent = [official_row_to_dashboard_row(row, config) for row in recent]
     dashboard_rows = select_supplement_rows(dashboard_recent, existing_rows)
@@ -1376,16 +1463,6 @@ def fetch_official_supplement(
         recent[0]["drawTimeUtc"] if recent else meta.get("newestOfficialUtc", "")
     )
     return dashboard_rows, meta
-
-
-def fetch_etipos_supplement(existing_rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Deprecated compatibility wrapper.
-
-    Slovakia's active supplement source is configured through
-    fetch_official_supplement(), currently using LotoDate. Keep this only for
-    older callers that still import the old eTIPOS helper name.
-    """
-    return fetch_official_supplement(LOTTERY_GAMES[DEFAULT_GAME_KEY], existing_rows)
 
 
 def fetch_rows_page(
@@ -1931,6 +2008,45 @@ def ticket_stats(
     }
 
 
+def ticket_stats_from_draw_sets(
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+    numbers: tuple[int, ...],
+    bonus_number: int | None,
+) -> dict[str, Any]:
+    def hit(draw_set: set[int], bonus_value: int) -> bool:
+        if not all(number in draw_set for number in numbers):
+            return False
+        return bonus_number is None or bonus_value == bonus_number
+
+    hit_draws = [
+        draw_index
+        for draw_index, (draw_set, bonus_value) in enumerate(zip(draw_sets_oldest, bonus_values_oldest), start=1)
+        if hit(draw_set, bonus_value)
+    ]
+    current_miss, max_miss, last_miss, last_hit_draw = miss_stats_from_hits(len(draw_sets_oldest), hit_draws)
+    recent_hits = sum(
+        1
+        for draw_set, bonus_value in zip(recent_draw_sets, recent_bonus_values)
+        if hit(draw_set, bonus_value)
+    )
+    ci_low, ci_high = wilson_interval(recent_hits, len(recent_draw_sets))
+    return {
+        "hits": len(hit_draws),
+        "hitRate": len(hit_draws) / len(draw_sets_oldest) if draw_sets_oldest else 0,
+        "currentMiss": current_miss,
+        "maxMiss": max_miss,
+        "lastMiss": last_miss,
+        "lastHitDraw": last_hit_draw,
+        "recentWindow": len(recent_draw_sets),
+        "recentHits": recent_hits,
+        "recentHitRate": recent_hits / len(recent_draw_sets) if recent_draw_sets else 0,
+        "recentHitRateCi": [ci_low, ci_high],
+    }
+
+
 def prediction_ticket_strategy_specs(config: dict[str, Any]) -> list[dict[str, Any]]:
     raw = PREDICTION_TICKET_STRATEGIES.get(str(config.get("key")))
     if isinstance(raw, list):
@@ -1948,6 +2064,13 @@ def prediction_strategy_tickets_for_spec(
     recent_counts: dict[int, int],
     recent_window: int,
     bonus_sets: list[list[dict[str, Any]]],
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+    *,
+    panel: str = PREDICTION_PANEL_DEFAULT,
+    excluded_numbers: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     if not spec or not rows:
         return []
@@ -1964,6 +2087,7 @@ def prediction_strategy_tickets_for_spec(
 
     total_numbers = int(config["totalNumbers"])
     draw_count = len(rows)
+    excluded_numbers = {int(number) for number in (excluded_numbers or set()) if int(number) > 0}
     scored = scored_numbers(
         list(range(1, total_numbers + 1)),
         PREDICTION_NUMBER_WEIGHTS[0],
@@ -1972,6 +2096,8 @@ def prediction_strategy_tickets_for_spec(
         recent_window,
         draw_count,
     )
+    if excluded_numbers:
+        scored = [item for item in scored if int(item["number"]) not in excluded_numbers]
     main_pool_size = min(total_numbers, 8 if pick_count == 1 else 12)
     main_pool = scored[:main_pool_size]
     score_by_number = {int(item["number"]): float(item["score"]) for item in scored}
@@ -2002,11 +2128,13 @@ def prediction_strategy_tickets_for_spec(
         for bonus_item in bonus_pool:
             bonus_number = int(bonus_item["number"]) if bonus_item else None
             bonus_score = float(bonus_item.get("score", 0)) if bonus_item else 0
-            stats = ticket_stats(
-                rows,
+            stats = ticket_stats_from_draw_sets(
+                draw_sets_oldest,
+                bonus_values_oldest,
+                recent_draw_sets,
+                recent_bonus_values,
                 numbers,
                 bonus_number,
-                recent_window=recent_eval_window,
             )
             candidates.append(
                 {
@@ -2033,9 +2161,11 @@ def prediction_strategy_tickets_for_spec(
         item["chasePeriods"] = PREDICTION_TICKET_CHASE_PERIODS
         item["missAllProbability"] = (1 - theoretical_hit_rate) ** PREDICTION_TICKET_CHASE_PERIODS
         item["sampleWarning"] = draw_count < 500 or int(item["recentWindow"]) < 200
-        item["label"] = str(spec["label"])
+        item["label"] = str(spec["label"]) if panel == PREDICTION_PANEL_DEFAULT else f"B {spec['label']}"
         item["mode"] = mode
         item["pickCount"] = pick_count
+        item["panel"] = prediction_panel_from_value(panel)
+        item["excludedNumbers"] = sorted(excluded_numbers)
         item["ticketLabel"] = "-".join(str(number) for number in item["numbers"])
         if item.get("bonusNumber"):
             item["ticketLabel"] = f"{item['ticketLabel']} + {item['bonusNumber']}"
@@ -2059,6 +2189,13 @@ def prediction_strategy_tickets(
     recent_counts: dict[int, int],
     recent_window: int,
     bonus_sets: list[list[dict[str, Any]]],
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+    *,
+    panel: str = PREDICTION_PANEL_DEFAULT,
+    excluded_numbers: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     tickets: list[dict[str, Any]] = []
     for spec in prediction_ticket_strategy_specs(config):
@@ -2071,9 +2208,852 @@ def prediction_strategy_tickets(
                 recent_counts,
                 recent_window,
                 bonus_sets,
+                draw_sets_oldest,
+                bonus_values_oldest,
+                recent_draw_sets,
+                recent_bonus_values,
+                panel=panel,
+                excluded_numbers=excluded_numbers,
             )
         )
     return tickets
+
+
+def prediction_kill_numbers_from_tickets(tickets: list[dict[str, Any]]) -> list[int]:
+    numbers: set[int] = set()
+    for ticket in tickets:
+        if not isinstance(ticket, dict):
+            continue
+        for number in ticket.get("numbers") or []:
+            parsed = parse_int(number, 0)
+            if parsed > 0:
+                numbers.add(parsed)
+    return sorted(numbers)
+
+
+def prediction_source_ticket_summaries(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for index, ticket in enumerate(tickets, start=1):
+        if not isinstance(ticket, dict):
+            continue
+        numbers = [
+            parse_int(number, 0)
+            for number in ticket.get("numbers") or []
+            if parse_int(number, 0) > 0
+        ]
+        if not numbers:
+            continue
+        summaries.append(
+            {
+                "index": index,
+                "panel": prediction_panel_from_value(ticket.get("panel")),
+                "label": str(ticket.get("label") or ""),
+                "ticketLabel": str(ticket.get("ticketLabel") or "-".join(str(number) for number in numbers)),
+                "numbers": numbers,
+                "structureType": str(ticket.get("structureType") or ""),
+                "structureLabel": str(ticket.get("structureLabel") or ""),
+                "coreNumbers": [parse_int(number, 0) for number in ticket.get("coreNumbers") or [] if parse_int(number, 0) > 0],
+                "companionNumbers": [
+                    parse_int(number, 0)
+                    for number in ticket.get("companionNumbers") or []
+                    if parse_int(number, 0) > 0
+                ],
+            }
+        )
+    return summaries
+
+
+def prediction_panel_c_ticket_sources(
+    tickets: list[dict[str, Any]],
+    source_panel: str,
+) -> list[dict[str, Any]]:
+    sources: list[dict[str, Any]] = []
+    for ticket in tickets:
+        if not isinstance(ticket, dict):
+            continue
+        if str(ticket.get("mode") or "main") != "main":
+            continue
+        numbers = sorted(
+            {
+                parse_int(number, 0)
+                for number in ticket.get("numbers") or []
+                if parse_int(number, 0) > 0
+            }
+        )
+        if not numbers:
+            continue
+        sources.append(
+            {
+                "panel": source_panel,
+                "numbers": numbers,
+                "pickCount": parse_int(ticket.get("pickCount"), len(numbers)),
+                "score": parse_float(ticket.get("score"), 0),
+                "label": str(ticket.get("ticketLabel") or "-".join(str(number) for number in numbers)),
+                "strategyLabel": str(ticket.get("label") or ""),
+            }
+        )
+    return sources
+
+
+def prediction_panel_c_core_pairs(
+    a_tickets: list[dict[str, Any]],
+    b_tickets: list[dict[str, Any]],
+    total_numbers: int,
+) -> list[dict[str, Any]]:
+    sources = prediction_panel_c_ticket_sources(a_tickets, PREDICTION_PANEL_DEFAULT) + prediction_panel_c_ticket_sources(
+        b_tickets,
+        PREDICTION_PANEL_B,
+    )
+    number_scores: dict[int, list[float]] = {}
+    number_panels: dict[int, set[str]] = {}
+    for source in sources:
+        score = parse_float(source.get("score"), 0)
+        panel = str(source.get("panel") or "")
+        for number in source.get("numbers") or []:
+            if 1 <= int(number) <= total_numbers:
+                number_scores.setdefault(int(number), []).append(score)
+                number_panels.setdefault(int(number), set()).add(panel)
+
+    pairs: dict[tuple[int, int], dict[str, Any]] = {}
+    for source in sources:
+        numbers = [number for number in source.get("numbers") or [] if 1 <= int(number) <= total_numbers]
+        if len(numbers) != 2 or parse_int(source.get("pickCount"), len(numbers)) != 2:
+            continue
+        pair = tuple(sorted(int(number) for number in numbers))
+        item = pairs.setdefault(
+            pair,
+            {
+                "numbers": pair,
+                "sourcePanels": set(),
+                "sourceLabels": [],
+                "scoreParts": [],
+            },
+        )
+        item["sourcePanels"].add(str(source.get("panel") or ""))
+        source_label = str(source.get("label") or "")
+        if source_label and source_label not in item["sourceLabels"]:
+            item["sourceLabels"].append(source_label)
+        item["scoreParts"].append(parse_float(source.get("score"), 0))
+
+    ranked_numbers = sorted(
+        number_scores,
+        key=lambda number: (
+            -(sum(number_scores[number]) / max(len(number_scores[number]), 1)),
+            number,
+        ),
+    )[:12]
+    for first, second in combinations(ranked_numbers, 2):
+        pair = tuple(sorted((int(first), int(second))))
+        if pair[0] == pair[1]:
+            continue
+        if pair not in pairs:
+            first_score = sum(number_scores.get(pair[0], [0])) / max(len(number_scores.get(pair[0], [])), 1)
+            second_score = sum(number_scores.get(pair[1], [0])) / max(len(number_scores.get(pair[1], [])), 1)
+            pairs[pair] = {
+                "numbers": pair,
+                "sourcePanels": set(number_panels.get(pair[0], set()) | number_panels.get(pair[1], set())),
+                "sourceLabels": [f"{pair[0]}-{pair[1]}"],
+                "scoreParts": [(first_score + second_score) / 2],
+            }
+
+    result: list[dict[str, Any]] = []
+    for pair, item in pairs.items():
+        score_parts = [parse_float(value, 0) for value in item.get("scoreParts") or []]
+        source_panels = sorted(panel for panel in item.get("sourcePanels", set()) if panel)
+        result.append(
+            {
+                "numbers": pair,
+                "sourcePanels": source_panels,
+                "sourceLabels": item.get("sourceLabels") or [f"{pair[0]}-{pair[1]}"],
+                "score": sum(score_parts) / max(len(score_parts), 1),
+                "sourceCount": len(score_parts),
+            }
+        )
+    result.sort(
+        key=lambda item: (
+            -parse_float(item.get("score"), 0),
+            -parse_int(item.get("sourceCount"), 0),
+            item.get("numbers") or (),
+        )
+    )
+    return result[:PREDICTION_PANEL_C_CORE_PAIR_LIMIT]
+
+
+def prediction_panel_c_cohit_scores(
+    rows: list[dict[str, Any]],
+    total_numbers: int,
+    eval_window: int,
+    core_numbers: set[int] | None = None,
+) -> dict[int, dict[int, dict[str, Any]]]:
+    eval_rows = rows[:eval_window]
+    draw_count = len(eval_rows)
+    draw_sets = [set(row.get("numbers") or []) for row in eval_rows]
+    number_hits = {
+        number: sum(1 for draw_set in draw_sets if number in draw_set)
+        for number in range(1, total_numbers + 1)
+    }
+    scores: dict[int, dict[int, dict[str, Any]]] = {}
+    if core_numbers:
+        cores = sorted(number for number in core_numbers if 1 <= number <= total_numbers)
+    else:
+        cores = list(range(1, total_numbers + 1))
+    for core in cores:
+        core_hits = number_hits.get(core, 0)
+        core_scores: dict[int, dict[str, Any]] = {}
+        if core_hits <= 0 or draw_count <= 0:
+            scores[core] = core_scores
+            continue
+        for companion in range(1, total_numbers + 1):
+            if companion == core:
+                continue
+            companion_hits = number_hits.get(companion, 0)
+            co_hits = sum(1 for draw_set in draw_sets if core in draw_set and companion in draw_set)
+            conditional = co_hits / core_hits if core_hits else 0
+            baseline = companion_hits / draw_count if draw_count else 0
+            lift = conditional - baseline
+            support = min(co_hits, 30) / 30
+            score = 0.58 * lift + 0.27 * conditional + 0.15 * support
+            core_scores[companion] = {
+                "score": score,
+                "coHits": co_hits,
+                "conditionalRate": conditional,
+                "baselineRate": baseline,
+                "lift": lift,
+            }
+        scores[core] = core_scores
+    return scores
+
+
+def prediction_panel_c_valid_companions(
+    core: int,
+    candidates: list[int] | set[int],
+    total_numbers: int,
+    excluded: set[int],
+    cohit_scores: dict[int, dict[int, dict[str, Any]]],
+    *,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for candidate in sorted(set(int(number) for number in candidates)):
+        if candidate < 1 or candidate > total_numbers or candidate in excluded:
+            continue
+        score_item = cohit_scores.get(core, {}).get(candidate, {})
+        items.append(
+            {
+                "number": candidate,
+                "score": parse_float(score_item.get("score"), 0),
+                "coHits": parse_int(score_item.get("coHits"), 0),
+                "conditionalRate": parse_float(score_item.get("conditionalRate"), 0),
+                "baselineRate": parse_float(score_item.get("baselineRate"), 0),
+                "lift": parse_float(score_item.get("lift"), 0),
+            }
+        )
+    items.sort(
+        key=lambda item: (
+            -parse_float(item.get("score"), 0),
+            -parse_int(item.get("coHits"), 0),
+            parse_int(item.get("number"), 0),
+        )
+    )
+    return items[:limit] if limit is not None else items
+
+
+def prediction_panel_c_candidates_for_structure(
+    structure_type: str,
+    core_pair: tuple[int, int],
+    total_numbers: int,
+    cohit_scores: dict[int, dict[int, dict[str, Any]]],
+) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    first, second = core_pair
+    excluded = {first, second}
+
+    def offset_candidates(core: int, offsets: tuple[int, ...]) -> set[int]:
+        result: set[int] = set()
+        for offset in offsets:
+            result.add(core - offset)
+            result.add(core + offset)
+        return result
+
+    if structure_type == "adjacent_1":
+        first_items = prediction_panel_c_valid_companions(first, {first - 1, first + 1}, total_numbers, excluded, cohit_scores)
+        second_items = prediction_panel_c_valid_companions(second, {second - 1, second + 1}, total_numbers, excluded, cohit_scores)
+    elif structure_type == "offset_10":
+        first_items = prediction_panel_c_valid_companions(first, {first - 10, first + 10}, total_numbers, excluded, cohit_scores)
+        second_items = prediction_panel_c_valid_companions(second, {second - 10, second + 10}, total_numbers, excluded, cohit_scores)
+    elif structure_type == "offset_d":
+        first_items = prediction_panel_c_valid_companions(
+            first,
+            offset_candidates(first, PREDICTION_PANEL_C_OFFSETS),
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+        second_items = prediction_panel_c_valid_companions(
+            second,
+            offset_candidates(second, PREDICTION_PANEL_C_OFFSETS),
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+    elif structure_type == "band_5_10":
+        first_items = prediction_panel_c_valid_companions(
+            first,
+            offset_candidates(first, PREDICTION_PANEL_C_BAND_DISTANCES),
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+        second_items = prediction_panel_c_valid_companions(
+            second,
+            offset_candidates(second, PREDICTION_PANEL_C_BAND_DISTANCES),
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+    elif structure_type == "same_tail":
+        first_items = prediction_panel_c_valid_companions(
+            first,
+            {number for number in range(1, total_numbers + 1) if number != first and number % 10 == first % 10},
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+        second_items = prediction_panel_c_valid_companions(
+            second,
+            {number for number in range(1, total_numbers + 1) if number != second and number % 10 == second % 10},
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+    elif structure_type == "cohit_free":
+        all_candidates = set(range(1, total_numbers + 1))
+        first_items = prediction_panel_c_valid_companions(
+            first,
+            all_candidates,
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+        second_items = prediction_panel_c_valid_companions(
+            second,
+            all_candidates,
+            total_numbers,
+            excluded,
+            cohit_scores,
+            limit=PREDICTION_PANEL_C_COMPANION_LIMIT,
+        )
+    else:
+        return []
+
+    pairs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for first_item in first_items:
+        for second_item in second_items:
+            if parse_int(first_item.get("number"), 0) == parse_int(second_item.get("number"), 0):
+                continue
+            pairs.append((first_item, second_item))
+    return pairs
+
+
+def prediction_panel_c_structure_tickets(
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+    a_tickets: list[dict[str, Any]],
+    b_tickets: list[dict[str, Any]],
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    game_key = str(config["key"])
+    odds = DEFAULT_MAIN_ODDS_BY_GAME.get(game_key, {}).get(4)
+    if not odds:
+        return []
+
+    total_numbers = int(config["totalNumbers"])
+    draw_count = len(rows)
+    recent_eval_window = min(PREDICTION_TICKET_BACKTEST_WINDOW, draw_count)
+    theoretical_hit_rate = hit_probability_for(config, 4)
+    fair_odds = 1 / theoretical_hit_rate if theoretical_hit_rate > 0 else 0
+    break_even_hit_rate = 1 / float(odds)
+    core_pairs = prediction_panel_c_core_pairs(a_tickets, b_tickets, total_numbers)
+    if not core_pairs:
+        return []
+
+    cohit_core_numbers = {
+        parse_int(number, 0)
+        for item in core_pairs
+        for number in (item.get("numbers") or [])
+    }
+    cohit_scores = prediction_panel_c_cohit_scores(rows, total_numbers, recent_eval_window, cohit_core_numbers)
+    recent_sets = recent_draw_sets
+    candidates_by_numbers: dict[tuple[int, ...], dict[str, Any]] = {}
+    for core_item in core_pairs:
+        core_pair = tuple(int(number) for number in core_item.get("numbers") or [])
+        if len(core_pair) != 2:
+            continue
+        for structure_type in PREDICTION_PANEL_C_STRUCTURE_LABELS:
+            companion_pairs = prediction_panel_c_candidates_for_structure(
+                structure_type,
+                core_pair,
+                total_numbers,
+                cohit_scores,
+            )
+            for first_companion, second_companion in companion_pairs:
+                companion_numbers = (
+                    parse_int(first_companion.get("number"), 0),
+                    parse_int(second_companion.get("number"), 0),
+                )
+                numbers = tuple(sorted((*core_pair, *companion_numbers)))
+                if len(numbers) != 4 or any(number < 1 or number > total_numbers for number in numbers):
+                    continue
+                companion_score = (
+                    parse_float(first_companion.get("score"), 0) + parse_float(second_companion.get("score"), 0)
+                ) / 2
+                recent_hits = sum(1 for draw_set in recent_sets if all(number in draw_set for number in numbers))
+                recent_hit_rate = recent_hits / len(recent_sets) if recent_sets else 0
+                item = {
+                    "numbers": list(numbers),
+                    "bonusNumber": None,
+                    "mode": "main",
+                    "pickCount": 4,
+                    "panel": PREDICTION_PANEL_C,
+                    "sourcePanel": "ab",
+                    "sourcePanels": core_item.get("sourcePanels") or [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B],
+                    "sourceCoreTicketLabels": core_item.get("sourceLabels") or [],
+                    "structureType": structure_type,
+                    "structureLabel": PREDICTION_PANEL_C_STRUCTURE_LABELS[structure_type],
+                    "coreNumbers": list(core_pair),
+                    "companionNumbers": list(companion_numbers),
+                    "sourceCoreScore": parse_float(core_item.get("score"), 0),
+                    "companionScore": companion_score,
+                    "structurePriority": PREDICTION_PANEL_C_STRUCTURE_PRIORITY.get(structure_type, 0),
+                    "recentWindow": len(recent_sets),
+                    "recentHits": recent_hits,
+                    "recentHitRate": recent_hit_rate,
+                    "prefilterScore": 0,
+                }
+                existing = candidates_by_numbers.get(numbers)
+                if existing is None or (
+                    parse_float(item.get("structurePriority"), 0),
+                    parse_float(item.get("companionScore"), 0),
+                    parse_float(item.get("sourceCoreScore"), 0),
+                ) > (
+                    parse_float(existing.get("structurePriority"), 0),
+                    parse_float(existing.get("companionScore"), 0),
+                    parse_float(existing.get("sourceCoreScore"), 0),
+                ):
+                    candidates_by_numbers[numbers] = item
+
+    candidates = list(candidates_by_numbers.values())
+    if not candidates:
+        return []
+
+    core_scores = [parse_float(item.get("sourceCoreScore"), 0) for item in candidates]
+    companion_scores = [parse_float(item.get("companionScore"), 0) for item in candidates]
+    edge_values = [parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate for item in candidates]
+    for item in candidates:
+        item["prefilterScore"] = (
+            0.25 * normalize_score(parse_float(item.get("sourceCoreScore"), 0), core_scores)
+            + 0.25 * normalize_score(parse_float(item.get("companionScore"), 0), companion_scores)
+            + 0.30 * normalize_score(parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate, edge_values)
+            + 0.20 * parse_float(item.get("structurePriority"), 0)
+        )
+
+    candidates.sort(
+        key=lambda item: (
+            -parse_float(item.get("prefilterScore"), 0),
+            -parse_float(item.get("structurePriority"), 0),
+            -parse_float(item.get("companionScore"), 0),
+            item.get("numbers") or [],
+        )
+    )
+    candidates = candidates[:PREDICTION_PANEL_C_PREFILTER_LIMIT]
+
+    miss_values: list[int] = []
+    for item in candidates:
+        stats = ticket_stats_from_draw_sets(
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            tuple(int(number) for number in item.get("numbers") or []),
+            None,
+        )
+        item.update(stats)
+        miss_values.append(parse_int(item.get("currentMiss"), 0))
+
+    core_scores = [parse_float(item.get("sourceCoreScore"), 0) for item in candidates]
+    companion_scores = [parse_float(item.get("companionScore"), 0) for item in candidates]
+    edge_values = [parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate for item in candidates]
+    for item in candidates:
+        item["score"] = (
+            0.22 * normalize_score(parse_float(item.get("sourceCoreScore"), 0), core_scores)
+            + 0.22 * normalize_score(parse_float(item.get("companionScore"), 0), companion_scores)
+            + 0.22 * normalize_score(parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate, edge_values)
+            + 0.16 * normalize_score(parse_int(item.get("currentMiss"), 0), miss_values)
+            + 0.18 * parse_float(item.get("structurePriority"), 0)
+        )
+        item["label"] = f"C {item['structureLabel']}"
+        item["theoreticalHitRate"] = theoretical_hit_rate
+        item["fairOdds"] = fair_odds
+        item["odds"] = float(odds)
+        item["breakEvenHitRate"] = break_even_hit_rate
+        item["evAtOdds"] = theoretical_hit_rate * float(odds) - 1
+        item["chasePeriods"] = PREDICTION_TICKET_CHASE_PERIODS
+        item["missAllProbability"] = (1 - theoretical_hit_rate) ** PREDICTION_TICKET_CHASE_PERIODS
+        item["sampleWarning"] = draw_count < 500 or parse_int(item.get("recentWindow"), 0) < 200
+        item["ticketLabel"] = "-".join(str(number) for number in item["numbers"])
+
+    candidates.sort(
+        key=lambda item: (
+            -parse_float(item.get("score"), 0),
+            -parse_float(item.get("structurePriority"), 0),
+            -parse_float(item.get("companionScore"), 0),
+            -parse_int(item.get("currentMiss"), 0),
+            item.get("numbers") or [],
+        )
+    )
+    return candidates[:PREDICTION_PANEL_C_TOP_COUNT]
+
+
+def prediction_panel_d_clean_four_tickets(
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+    excluded_numbers: set[int],
+    frequency: dict[int, dict[str, Any]],
+    recent_counts: dict[int, int],
+    recent_window: int,
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+    *,
+    panel: str = PREDICTION_PANEL_D,
+    top_count: int = PREDICTION_PANEL_D_TOP_COUNT,
+    pool_size: int = PREDICTION_PANEL_D_POOL_SIZE,
+    prefilter_limit: int = PREDICTION_PANEL_D_PREFILTER_LIMIT,
+    label: str = "D ABC杀号四码",
+    source_panel: str = "abc",
+    source_panels: list[str] | None = None,
+    structure_type: str = "kill_abc_four",
+    structure_label: str = "ABC杀号四码",
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    game_key = str(config["key"])
+    odds = DEFAULT_MAIN_ODDS_BY_GAME.get(game_key, {}).get(4)
+    if not odds:
+        return []
+
+    total_numbers = int(config["totalNumbers"])
+    draw_count = len(rows)
+    clean_numbers = [
+        number
+        for number in range(1, total_numbers + 1)
+        if number not in excluded_numbers
+    ]
+    if len(clean_numbers) < 4:
+        return []
+
+    scored = scored_numbers(
+        clean_numbers,
+        PREDICTION_NUMBER_WEIGHTS[0],
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_count,
+    )
+    pool = scored[: min(pool_size, len(scored))]
+    score_by_number = {int(item["number"]): float(item["score"]) for item in scored}
+    miss_by_number = {int(item["number"]): int(item["currentMiss"]) for item in scored}
+    recent_by_number = {
+        int(item["number"]): parse_int(item.get("recentHits"), 0) / recent_window if recent_window else 0
+        for item in scored
+    }
+    pool_miss_values = [miss_by_number.get(int(item["number"]), 0) for item in scored]
+    pool_recent_values = [recent_by_number.get(int(item["number"]), 0.0) for item in scored]
+
+    theoretical_hit_rate = hit_probability_for(config, 4)
+    fair_odds = 1 / theoretical_hit_rate if theoretical_hit_rate > 0 else 0
+    break_even_hit_rate = 1 / float(odds)
+    rough_candidates: list[dict[str, Any]] = []
+    for combo in combinations((int(item["number"]) for item in pool), 4):
+        numbers = tuple(sorted(combo))
+        number_scores = [score_by_number.get(number, 0.0) for number in numbers]
+        number_misses = [miss_by_number.get(number, 0) for number in numbers]
+        number_recent = [recent_by_number.get(number, 0.0) for number in numbers]
+        rough_score = (
+            0.46 * (sum(number_scores) / len(number_scores))
+            + 0.34 * (sum(normalize_score(value, pool_miss_values) for value in number_misses) / len(number_misses))
+            + 0.20 * (sum(normalize_score(value, pool_recent_values) for value in number_recent) / len(number_recent))
+        )
+        rough_candidates.append(
+            {
+                "numbers": list(numbers),
+                "roughScore": rough_score,
+                "sourceCoreScore": sum(number_scores) / len(number_scores),
+                "companionScore": sum(number_recent) / len(number_recent),
+            }
+        )
+
+    rough_candidates.sort(
+        key=lambda item: (
+            -parse_float(item.get("roughScore"), 0),
+            item.get("numbers") or [],
+        )
+    )
+    candidates = rough_candidates[:prefilter_limit]
+    if not candidates:
+        return []
+
+    miss_values: list[int] = []
+    edge_values: list[float] = []
+    for item in candidates:
+        stats = ticket_stats_from_draw_sets(
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            tuple(int(number) for number in item.get("numbers") or []),
+            None,
+        )
+        item.update(stats)
+        miss_values.append(parse_int(item.get("currentMiss"), 0))
+        edge_values.append(parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate)
+
+    rough_scores = [parse_float(item.get("roughScore"), 0) for item in candidates]
+    for item in candidates:
+        item["score"] = (
+            0.36 * normalize_score(parse_float(item.get("roughScore"), 0), rough_scores)
+            + 0.34 * normalize_score(parse_int(item.get("currentMiss"), 0), miss_values)
+            + 0.30 * normalize_score(parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate, edge_values)
+        )
+        item["label"] = label
+        item["bonusNumber"] = None
+        item["mode"] = "main"
+        item["pickCount"] = 4
+        item["panel"] = panel
+        item["sourcePanel"] = source_panel
+        item["sourcePanels"] = source_panels or []
+        item["structureType"] = structure_type
+        item["structureLabel"] = structure_label
+        item["coreNumbers"] = []
+        item["companionNumbers"] = []
+        item["excludedNumbers"] = sorted(excluded_numbers)
+        item["theoreticalHitRate"] = theoretical_hit_rate
+        item["fairOdds"] = fair_odds
+        item["odds"] = float(odds)
+        item["breakEvenHitRate"] = break_even_hit_rate
+        item["evAtOdds"] = theoretical_hit_rate * float(odds) - 1
+        item["chasePeriods"] = PREDICTION_TICKET_CHASE_PERIODS
+        item["missAllProbability"] = (1 - theoretical_hit_rate) ** PREDICTION_TICKET_CHASE_PERIODS
+        item["sampleWarning"] = draw_count < 500 or parse_int(item.get("recentWindow"), 0) < 200
+        item["ticketLabel"] = "-".join(str(number) for number in item["numbers"])
+
+    candidates.sort(
+        key=lambda item: (
+            -parse_float(item.get("score"), 0),
+            -parse_int(item.get("currentMiss"), 0),
+            -parse_float(item.get("recentHitRate"), 0),
+            item.get("numbers") or [],
+        )
+    )
+    return candidates[:top_count]
+
+
+def prediction_ticket_number_counts(tickets: list[dict[str, Any]]) -> dict[int, int]:
+    counts: dict[int, int] = {}
+    for ticket in tickets:
+        if not isinstance(ticket, dict):
+            continue
+        seen: set[int] = set()
+        for number in ticket.get("numbers") or []:
+            parsed = parse_int(number, 0)
+            if parsed > 0:
+                seen.add(parsed)
+        for number in seen:
+            counts[number] = counts.get(number, 0) + 1
+    return counts
+
+
+def prediction_panel_source_number_map(
+    source_tickets_by_panel: dict[str, list[dict[str, Any]]],
+) -> tuple[list[int], dict[int, set[str]], dict[int, dict[str, int]], dict[int, int]]:
+    source_panels_by_number: dict[int, set[str]] = {}
+    source_counts_by_number: dict[int, dict[str, int]] = {}
+    source_ticket_counts_by_number: dict[int, int] = {}
+    for panel, tickets in source_tickets_by_panel.items():
+        panel_key = prediction_panel_from_value(panel)
+        counts = prediction_ticket_number_counts(tickets)
+        for number, count in counts.items():
+            if count <= 0:
+                continue
+            source_panels_by_number.setdefault(number, set()).add(panel_key)
+            source_counts_by_number.setdefault(number, {})[panel_key] = count
+            source_ticket_counts_by_number[number] = source_ticket_counts_by_number.get(number, 0) + count
+    return (
+        sorted(source_panels_by_number),
+        source_panels_by_number,
+        source_counts_by_number,
+        source_ticket_counts_by_number,
+    )
+
+
+def prediction_panel_f_false_kill_recall_ticket(
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+    source_tickets_by_panel: dict[str, list[dict[str, Any]]],
+    frequency: dict[int, dict[str, Any]],
+    recent_counts: dict[int, int],
+    recent_window: int,
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    game_key = str(config["key"])
+    odds = DEFAULT_MAIN_ODDS_BY_GAME.get(game_key, {}).get(4)
+    if not odds:
+        return []
+
+    total_numbers = int(config["totalNumbers"])
+    draw_count = len(rows)
+    source_pool, source_panels_by_number, source_counts_by_number, source_ticket_counts_by_number = (
+        prediction_panel_source_number_map(source_tickets_by_panel)
+    )
+    if not source_pool:
+        return []
+
+    scored = scored_numbers(
+        list(range(1, total_numbers + 1)),
+        PREDICTION_NUMBER_WEIGHTS[0],
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_count,
+    )
+    score_by_number = {int(item["number"]): float(item["score"]) for item in scored}
+    miss_by_number = {int(item["number"]): int(item["currentMiss"]) for item in scored}
+    recent_by_number = {
+        int(item["number"]): parse_int(item.get("recentHits"), 0) / recent_window if recent_window else 0
+        for item in scored
+    }
+
+    source_count_values = [len(source_panels_by_number.get(number, set())) for number in source_pool]
+    source_ticket_count_values = [source_ticket_counts_by_number.get(number, 0) for number in source_pool]
+    number_score_values = [score_by_number.get(number, 0.0) for number in source_pool]
+    miss_values_all = [miss_by_number.get(number, 0) for number in source_pool]
+    recent_values_all = [recent_by_number.get(number, 0.0) for number in source_pool]
+    candidate_scores: dict[int, float] = {}
+    for number in source_pool:
+        source_count = len(source_panels_by_number.get(number, set()))
+        source_ticket_count = source_ticket_counts_by_number.get(number, 0)
+        candidate_scores[number] = (
+            0.32 * normalize_score(source_count, source_count_values)
+            + 0.22 * normalize_score(source_ticket_count, source_ticket_count_values)
+            + 0.22 * normalize_score(score_by_number.get(number, 0.0), number_score_values)
+            + 0.14 * normalize_score(miss_by_number.get(number, 0), miss_values_all)
+            + 0.10 * normalize_score(recent_by_number.get(number, 0.0), recent_values_all)
+        )
+
+    selected = sorted(
+        source_pool,
+        key=lambda number: (
+            candidate_scores.get(number, 0.0),
+            len(source_panels_by_number.get(number, set())),
+            source_ticket_counts_by_number.get(number, 0),
+            score_by_number.get(number, 0.0),
+            recent_by_number.get(number, 0.0),
+            -number,
+        ),
+        reverse=True,
+    )[:4]
+    numbers = tuple(sorted(selected[:4]))
+    if len(numbers) != 4:
+        return []
+
+    theoretical_hit_rate = hit_probability_for(config, 4)
+    fair_odds = 1 / theoretical_hit_rate if theoretical_hit_rate > 0 else 0
+    break_even_hit_rate = 1 / float(odds)
+    stats = ticket_stats_from_draw_sets(
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+        numbers,
+        None,
+    )
+    source_counts = [source_ticket_counts_by_number.get(number, 0) for number in numbers]
+    miss_values = [miss_by_number.get(number, 0) for number in numbers]
+    recent_values = [recent_by_number.get(number, 0.0) for number in numbers]
+    average_score = sum(score_by_number.get(number, 0.0) for number in numbers) / 4
+    average_miss = sum(miss_values) / 4
+    average_recent = sum(recent_values) / 4
+    item = {
+        "numbers": list(numbers),
+        "roughScore": average_score,
+        "sourceCoreScore": sum(source_counts) / max(1, len(numbers)),
+        "companionScore": average_recent,
+        **stats,
+        "score": (
+            sum(candidate_scores.get(number, 0.0) for number in numbers) / 4
+        ),
+        "label": "F ABCDE误杀号召回四码",
+        "bonusNumber": None,
+        "mode": "main",
+        "pickCount": 4,
+        "panel": PREDICTION_PANEL_F,
+        "sourcePanel": "abcde_false_kill_pool",
+        "sourcePanels": [
+            PREDICTION_PANEL_DEFAULT,
+            PREDICTION_PANEL_B,
+            PREDICTION_PANEL_C,
+            PREDICTION_PANEL_D,
+            PREDICTION_PANEL_E,
+        ],
+        "structureType": "abcde_false_kill_recall_four",
+        "structureLabel": "ABCDE误杀召回四码",
+        "coreNumbers": [],
+        "companionNumbers": list(numbers),
+        "recallNumbers": list(numbers),
+        "reversalNumbers": list(numbers),
+        "sourcePoolNumbers": source_pool,
+        "sourcePoolCount": len(source_pool),
+        "excludedNumbers": source_pool,
+        "falseKillSourceNumbers": source_pool,
+        "numberSourcePanels": {
+            str(number): sorted(source_panels_by_number.get(number, set()))
+            for number in source_pool
+        },
+        "numberSourceCounts": {
+            str(number): dict(sorted(source_counts_by_number.get(number, {}).items()))
+            for number in source_pool
+        },
+        "sourceCounts": {str(number): source_ticket_counts_by_number.get(number, 0) for number in numbers},
+        "corePoolNumbers": [],
+        "fillPoolNumbers": source_pool,
+        "theoreticalHitRate": theoretical_hit_rate,
+        "fairOdds": fair_odds,
+        "odds": float(odds),
+        "breakEvenHitRate": break_even_hit_rate,
+        "evAtOdds": theoretical_hit_rate * float(odds) - 1,
+        "chasePeriods": PREDICTION_TICKET_CHASE_PERIODS,
+        "missAllProbability": (1 - theoretical_hit_rate) ** PREDICTION_TICKET_CHASE_PERIODS,
+        "sampleWarning": draw_count < 500 or parse_int(stats.get("recentWindow"), 0) < 200,
+        "ticketLabel": "-".join(str(number) for number in numbers),
+    }
+    return [item]
 
 
 def group_prediction_items(
@@ -2146,91 +3126,331 @@ def condition_prediction_item(
 
 def prediction_payload(
     rows: list[dict[str, Any]],
-    triples: dict[str, Any],
-    pattern_summary: list[dict[str, Any]],
-    pair_stats: dict[str, Any],
-    quad_stats: dict[str, Any],
     config: dict[str, Any] | None = None,
     timeline_newest: dict[str, Any] | None = None,
+    panel: str = PREDICTION_PANEL_DEFAULT,
 ) -> dict[str, Any]:
     config = config or LOTTERY_GAMES[DEFAULT_GAME_KEY]
+    panel = prediction_panel_from_value(panel)
     total_numbers = int(config["totalNumbers"])
     half = total_numbers // 2
-    big_numbers = list(range(half + 1, total_numbers + 1))
-    small_numbers = list(range(1, half + 1))
     frequency = {item["number"]: item for item in number_frequency(rows, config)}
     recent_window = min(PREDICTION_RECENT_WINDOW, len(rows))
     recent_counts = recent_number_counts(rows, recent_window, config)
     draw_count = len(rows)
-    big_sets = [
-        scored_numbers(big_numbers, weights, frequency, recent_counts, recent_window, draw_count)[:5]
-        for weights in PREDICTION_NUMBER_WEIGHTS
-    ]
-    small_sets = [
-        scored_numbers(small_numbers, weights, frequency, recent_counts, recent_window, draw_count)[:5]
-        for weights in PREDICTION_NUMBER_WEIGHTS
-    ]
     bonus_sets = bonus_ball_prediction_sets(rows, config, recent_window)
-    strategy_tickets = prediction_strategy_tickets(
+    recent_eval_window = min(PREDICTION_TICKET_BACKTEST_WINDOW, draw_count)
+    draw_sets_oldest = [set(row.get("numbers") or []) for row in reversed(rows)]
+    bonus_values_oldest = [parse_int(row.get("bonusBall"), 0) for row in reversed(rows)]
+    recent_rows = rows[:recent_eval_window]
+    recent_draw_sets = [set(row.get("numbers") or []) for row in recent_rows]
+    recent_bonus_values = [parse_int(row.get("bonusBall"), 0) for row in recent_rows]
+    base_strategy_tickets = prediction_strategy_tickets(
         rows,
         config,
         frequency,
         recent_counts,
         recent_window,
         bonus_sets,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+        panel=PREDICTION_PANEL_DEFAULT,
     )
-    condition_keys = list(
-        config.get(
-            "predictionConditionKeys",
-            [
-                "hasDoublePair",
-                "hasTriplePairSet",
-                "hasTriple",
-                "hasQuadPairSet",
-                "hasFivePairSet",
-                "hasPairTriple",
-                "hasDoubleTriple",
-                "hasTripleDoublePair",
-                "hasQuad",
-                "hasQuadPair",
-                "hasFive",
-                "hasSix",
-            ],
+    game_key = str(config["key"])
+    needs_b_tickets = panel in {
+        PREDICTION_PANEL_B,
+        PREDICTION_PANEL_C,
+        PREDICTION_PANEL_D,
+        PREDICTION_PANEL_E,
+        PREDICTION_PANEL_F,
+        PREDICTION_PANEL_G,
+    }
+    needs_c_tickets = panel in {
+        PREDICTION_PANEL_C,
+        PREDICTION_PANEL_D,
+        PREDICTION_PANEL_E,
+        PREDICTION_PANEL_F,
+        PREDICTION_PANEL_G,
+    }
+    d_kill_c_only = game_key in PREDICTION_PANEL_D_KILL_C_ONLY_GAME_KEYS
+    e_supported = game_key in PREDICTION_PANEL_E_GAME_KEYS
+    excluded_numbers = prediction_kill_numbers_from_tickets(base_strategy_tickets) if needs_b_tickets else []
+    b_strategy_tickets = (
+        prediction_strategy_tickets(
+            rows,
+            config,
+            frequency,
+            recent_counts,
+            recent_window,
+            bonus_sets,
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            panel=PREDICTION_PANEL_B,
+            excluded_numbers=set(excluded_numbers),
         )
+        if needs_b_tickets
+        else []
     )
+    c_strategy_tickets: list[dict[str, Any]] = []
+    if needs_c_tickets:
+        c_strategy_tickets = prediction_panel_c_structure_tickets(
+            rows,
+            config,
+            base_strategy_tickets,
+            b_strategy_tickets,
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+        )
+    d_source_tickets: list[dict[str, Any]] = []
+    e_source_tickets: list[dict[str, Any]] = []
+    if panel == PREDICTION_PANEL_D:
+        if d_kill_c_only:
+            excluded_numbers = prediction_kill_numbers_from_tickets(c_strategy_tickets)
+        else:
+            excluded_numbers = sorted(
+                set(prediction_kill_numbers_from_tickets(base_strategy_tickets))
+                | set(prediction_kill_numbers_from_tickets(b_strategy_tickets))
+                | set(prediction_kill_numbers_from_tickets(c_strategy_tickets))
+            )
+    if panel in {PREDICTION_PANEL_E, PREDICTION_PANEL_F, PREDICTION_PANEL_G} and e_supported:
+        d_source_excluded_numbers = sorted(
+            set(prediction_kill_numbers_from_tickets(base_strategy_tickets))
+            | set(prediction_kill_numbers_from_tickets(b_strategy_tickets))
+            | set(prediction_kill_numbers_from_tickets(c_strategy_tickets))
+        )
+        d_source_tickets = prediction_panel_d_clean_four_tickets(
+            rows,
+            config,
+            set(d_source_excluded_numbers),
+            frequency,
+            recent_counts,
+            recent_window,
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            label="D ABC杀号四码",
+            source_panel="abc",
+            source_panels=[PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_C],
+            structure_type="kill_abc_four",
+            structure_label="ABC杀号四码",
+        )
+        excluded_numbers = sorted(
+            set(prediction_kill_numbers_from_tickets(c_strategy_tickets))
+            | set(prediction_kill_numbers_from_tickets(d_source_tickets))
+        )
+        e_source_tickets = prediction_panel_d_clean_four_tickets(
+            rows,
+            config,
+            set(excluded_numbers),
+            frequency,
+            recent_counts,
+            recent_window,
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            panel=PREDICTION_PANEL_E,
+            top_count=PREDICTION_PANEL_E_TOP_COUNT,
+            label="E CD杀号四码",
+            source_panel="cd",
+            source_panels=[PREDICTION_PANEL_C, PREDICTION_PANEL_D],
+            structure_type="kill_cd_four",
+            structure_label="CD杀号四码",
+        )
+    elif panel in {PREDICTION_PANEL_E, PREDICTION_PANEL_F, PREDICTION_PANEL_G}:
+        excluded_numbers = []
+    if panel == PREDICTION_PANEL_B:
+        strategy_tickets = b_strategy_tickets
+    elif panel == PREDICTION_PANEL_C:
+        strategy_tickets = c_strategy_tickets
+    elif panel == PREDICTION_PANEL_D:
+        strategy_tickets = prediction_panel_d_clean_four_tickets(
+            rows,
+            config,
+            set(excluded_numbers),
+            frequency,
+            recent_counts,
+            recent_window,
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            label="D C杀号四码" if d_kill_c_only else "D ABC杀号四码",
+            source_panel=PREDICTION_PANEL_C if d_kill_c_only else "abc",
+            source_panels=[PREDICTION_PANEL_C]
+            if d_kill_c_only
+            else [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_C],
+            structure_type="kill_c_four" if d_kill_c_only else "kill_abc_four",
+            structure_label="C杀号四码" if d_kill_c_only else "ABC杀号四码",
+        )
+    elif panel == PREDICTION_PANEL_E:
+        strategy_tickets = e_source_tickets if e_supported else []
+    elif panel == PREDICTION_PANEL_F:
+        source_tickets_by_panel = {
+            PREDICTION_PANEL_DEFAULT: base_strategy_tickets,
+            PREDICTION_PANEL_B: b_strategy_tickets,
+            PREDICTION_PANEL_C: c_strategy_tickets,
+            PREDICTION_PANEL_D: d_source_tickets,
+            PREDICTION_PANEL_E: e_source_tickets,
+        }
+        excluded_numbers = prediction_panel_source_number_map(source_tickets_by_panel)[0] if e_supported else []
+        strategy_tickets = (
+            prediction_panel_f_false_kill_recall_ticket(
+                rows,
+                config,
+                source_tickets_by_panel,
+                frequency,
+                recent_counts,
+                recent_window,
+                draw_sets_oldest,
+                bonus_values_oldest,
+                recent_draw_sets,
+                recent_bonus_values,
+            )
+            if e_supported
+            else []
+        )
+    elif panel == PREDICTION_PANEL_G:
+        g_source_tickets_by_panel = {
+            PREDICTION_PANEL_C: c_strategy_tickets,
+            PREDICTION_PANEL_D: d_source_tickets,
+            PREDICTION_PANEL_E: e_source_tickets,
+        }
+        excluded_numbers = prediction_panel_source_number_map(g_source_tickets_by_panel)[0] if e_supported else []
+        strategy_tickets = (
+            prediction_panel_d_clean_four_tickets(
+                rows,
+                config,
+                set(excluded_numbers),
+                frequency,
+                recent_counts,
+                recent_window,
+                draw_sets_oldest,
+                bonus_values_oldest,
+                recent_draw_sets,
+                recent_bonus_values,
+                panel=PREDICTION_PANEL_G,
+                top_count=PREDICTION_PANEL_G_TOP_COUNT,
+                label="G CDE杀号后四码",
+                source_panel="cde",
+                source_panels=[PREDICTION_PANEL_C, PREDICTION_PANEL_D, PREDICTION_PANEL_E],
+                structure_type="kill_cde_follow_four",
+                structure_label="CDE候选杀号后四码",
+            )
+            if e_supported
+            else []
+        )
+    else:
+        strategy_tickets = base_strategy_tickets
     forecasts = []
     newest = timeline_newest or (rows[0] if rows else None)
     newest_ms = parse_int(newest.get("drawTimeMs") if newest else 0, 0)
     forecast_times = future_prediction_draw_times(newest_ms, config)
     first_ms = parse_int(forecast_times[0].get("drawTimeMs"), 0) if forecast_times else 0
     end_ms = parse_int(forecast_times[-1].get("drawTimeMs"), 0) if forecast_times else 0
-    condition_items = [
-        item
-        for key in condition_keys
-        if (item := condition_prediction_item(rows, pattern_summary, key)) is not None
-    ]
-    condition_items.sort(
-        key=lambda item: (-item["score"], -item["currentMiss"], -item["share"])
-    )
     for index, forecast_time in enumerate(forecast_times):
         forecasts.append(
             {
                 "drawOffset": parse_int(forecast_time.get("drawOffset"), index + 1),
                 "drawTimeMs": parse_int(forecast_time.get("drawTimeMs"), 0),
                 "drawTimeUtc": str(forecast_time.get("drawTimeUtc") or ""),
-                "bigNumbers": big_sets[index],
-                "smallNumbers": small_sets[index],
                 "bonusBallNumbers": bonus_sets[index] if bonus_sets else [],
-                "patterns": {
-                    "pairs": group_prediction_items(pair_stats["items"], "pair", index + 1),
-                    "triples": group_prediction_items(triples["items"], "triple", index + 1),
-                    "quads": group_prediction_items(quad_stats["items"], "quad", index + 1),
-                    "conditions": condition_items[:10],
-                },
+                "patterns": {},
             }
         )
+    method = "当前遗漏 + 近240期动量偏差 + 全样本偏差 + 连号遗漏 z-score 的启发式排序"
+    if panel == PREDICTION_PANEL_B:
+        method = f"预测面板B：先排除面板A候选票主球 {len(excluded_numbers)} 个，再按同一排序逻辑生成候选票"
+    if panel == PREDICTION_PANEL_C:
+        method = "预测面板C：用面板A/B主号候选形成核心对，再按临码、±10、固定间隔、5-10窗口、同尾和历史共现派生4码结构票"
+    if panel == PREDICTION_PANEL_D:
+        method = (
+            f"预测面板D：先排除面板C的4码票唯一主球 {len(excluded_numbers)} 个，再从剩余号码生成4码主号票"
+            if d_kill_c_only
+            else f"预测面板D：先排除面板A/B/C全部候选主球 {len(excluded_numbers)} 个，再从剩余号码生成4码主号票"
+        )
+    if panel == PREDICTION_PANEL_E:
+        method = (
+            f"预测面板E：统计面板C和面板D各8组4码里的唯一主球 {len(excluded_numbers)} 个并杀掉，再从剩余号码生成4码主号票"
+            if e_supported
+            else "预测面板E：当前仅用于西班牙和波兰，俄罗斯/意大利先使用只杀C的面板D"
+        )
+    if panel == PREDICTION_PANEL_F:
+        method = (
+            f"预测面板F：从A/B/C/D/E排除链路的 {len(excluded_numbers)} 个候选号码中按来源强度、综合分、遗漏和近窗表现召回，生成1张4码预测票"
+            if e_supported
+            else "预测面板F：当前仅用于西班牙和波兰，俄罗斯/意大利先使用原预测面板"
+        )
+    if panel == PREDICTION_PANEL_G:
+        method = (
+            f"预测面板G：统计面板C/D/E候选票里的唯一主球 {len(excluded_numbers)} 个并杀掉，再从剩余号码生成1张4码预测票"
+            if e_supported
+            else "预测面板G：当前仅用于西班牙和波兰，俄罗斯/意大利先使用原预测面板"
+        )
+    source_panel = ""
+    source_panels: list[str] = []
+    if panel == PREDICTION_PANEL_B:
+        source_panel = PREDICTION_PANEL_DEFAULT
+    elif panel == PREDICTION_PANEL_C:
+        source_panel = "ab"
+        source_panels = [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B]
+    elif panel == PREDICTION_PANEL_D:
+        source_panel = PREDICTION_PANEL_C if d_kill_c_only else "abc"
+        source_panels = (
+            [PREDICTION_PANEL_C]
+            if d_kill_c_only
+            else [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_C]
+        )
+    elif panel == PREDICTION_PANEL_E:
+        source_panel = "cd"
+        source_panels = [PREDICTION_PANEL_C, PREDICTION_PANEL_D]
+    elif panel == PREDICTION_PANEL_F:
+        source_panel = "abcde_false_kill_pool"
+        source_panels = [
+            PREDICTION_PANEL_DEFAULT,
+            PREDICTION_PANEL_B,
+            PREDICTION_PANEL_C,
+            PREDICTION_PANEL_D,
+            PREDICTION_PANEL_E,
+        ]
+    elif panel == PREDICTION_PANEL_G:
+        source_panel = "cde_candidate_kill_pool"
+        source_panels = [PREDICTION_PANEL_C, PREDICTION_PANEL_D, PREDICTION_PANEL_E]
+    source_tickets: dict[str, list[dict[str, Any]]] = {}
+    if panel == PREDICTION_PANEL_E and e_supported:
+        source_tickets = {
+            PREDICTION_PANEL_C: prediction_source_ticket_summaries(c_strategy_tickets),
+            PREDICTION_PANEL_D: prediction_source_ticket_summaries(d_source_tickets),
+        }
+    elif panel == PREDICTION_PANEL_F and e_supported:
+        source_tickets = {
+            PREDICTION_PANEL_DEFAULT: prediction_source_ticket_summaries(base_strategy_tickets),
+            PREDICTION_PANEL_B: prediction_source_ticket_summaries(b_strategy_tickets),
+            PREDICTION_PANEL_C: prediction_source_ticket_summaries(c_strategy_tickets),
+            PREDICTION_PANEL_D: prediction_source_ticket_summaries(d_source_tickets),
+            PREDICTION_PANEL_E: prediction_source_ticket_summaries(e_source_tickets),
+        }
+    elif panel == PREDICTION_PANEL_G and e_supported:
+        source_tickets = {
+            PREDICTION_PANEL_C: prediction_source_ticket_summaries(c_strategy_tickets),
+            PREDICTION_PANEL_D: prediction_source_ticket_summaries(d_source_tickets),
+            PREDICTION_PANEL_E: prediction_source_ticket_summaries(e_source_tickets),
+        }
     return {
-        "method": "当前遗漏 + 近240期动量偏差 + 全样本偏差 + 连号遗漏 z-score 的启发式排序",
+        "panel": panel,
+        "panelLabel": prediction_panel_label(panel),
+        "sourcePanel": source_panel,
+        "sourcePanels": source_panels,
+        "sourceTickets": source_tickets,
+        "excludedNumbers": excluded_numbers,
+        "method": method,
         "recentWindow": min(PREDICTION_RECENT_WINDOW, len(rows)),
         "smallRange": [1, half],
         "bigRange": [half + 1, total_numbers],
@@ -2246,8 +3466,6 @@ def prediction_payload(
             if end_ms
             else "",
         },
-        "topBigNumbers": big_sets[0],
-        "topSmallNumbers": small_sets[0],
         "bonusBall": {
             "enabled": bool(bonus_sets),
             "range": [1, int(config.get("bonusBallTotalNumbers") or config["totalNumbers"])],
@@ -2745,13 +3963,14 @@ def predictions_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     ensure_predictions_supported(config)
     history_path = game_history_path(config)
     row_limit = parse_int(query.get("drawLimit", ["0"])[0], 0)
+    panel = prediction_panel_from_query(query)
     schedule_bucket = prediction_schedule_cache_bucket(config)
     with DATA_LOCK:
         try:
             stat = history_path.stat()
-            cache_key = (config["key"], stat.st_mtime_ns, stat.st_size, row_limit, schedule_bucket)
+            cache_key = (config["key"], stat.st_mtime_ns, stat.st_size, row_limit, schedule_bucket, panel)
         except FileNotFoundError:
-            cache_key = (config["key"], 0, 0, row_limit, schedule_bucket)
+            cache_key = (config["key"], 0, 0, row_limit, schedule_bucket, panel)
 
     with PREDICTION_CACHE_LOCK:
         cached = lru_cache_get(PREDICTION_CACHE, cache_key)
@@ -2770,17 +3989,13 @@ def predictions_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         rows = rows[:row_limit]
     latest_timeline = all_rows[0] if all_rows else None
 
-    triples = triple_stats_payload(rows, config)
-    pattern_summary = run_pattern_summary_stats(rows, config)
-    pairs = pair_groups(config)
-    quads = quad_groups(config)
-    pair_stats = streak_stats_for_groups(rows, pairs, "pair", len(pairs), config)
-    quad_stats = streak_stats_for_groups(rows, quads, "quad", len(quads), config)
     newest = rows[0] if rows else None
     oldest = rows[-1] if rows else None
     payload = {
         "generatedAt": utc_now_iso(),
         "cacheHit": False,
+        "panel": panel,
+        "panelLabel": prediction_panel_label(panel),
         "game": game_public_config(config),
         "historyFile": file_info(history_path),
         "dataIntegrity": data_integrity,
@@ -2790,19 +4005,424 @@ def predictions_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         "oldestDraw": oldest,
         "predictions": prediction_payload(
             rows,
-            triples,
-            pattern_summary,
-            pair_stats,
-            quad_stats,
             config,
             latest_timeline,
+            panel=panel,
         ),
-        "gapAudit": gap_audit(all_rows, config),
     }
     payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
     with PREDICTION_CACHE_LOCK:
         lru_cache_set(PREDICTION_CACHE, cache_key, payload, PREDICTION_CACHE_MAX_ITEMS)
     payload["predictionTracking"] = touch_prediction_tracking_for_payload(payload, config, rows)
+    return payload
+
+
+CDE_KILL_BACKTEST_GAME_KEYS = {
+    "spain_l_express_20_70",
+    "poland_keno_20_70",
+}
+CDE_KILL_BACKTEST_MAX_WINDOW = 60
+CDE_KILL_BACKTEST_MAX_TRAIN_WINDOW = 360
+CDE_KILL_BACKTEST_MAX_DETAIL_LIMIT = 60
+
+
+def prediction_context_tickets(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    frequency = {item["number"]: item for item in number_frequency(rows, config)}
+    recent_window = min(PREDICTION_RECENT_WINDOW, len(rows))
+    recent_counts = recent_number_counts(rows, recent_window, config)
+    draw_count = len(rows)
+    bonus_sets = bonus_ball_prediction_sets(rows, config, recent_window)
+    recent_eval_window = min(PREDICTION_TICKET_BACKTEST_WINDOW, draw_count)
+    draw_sets_oldest = [set(row.get("numbers") or []) for row in reversed(rows)]
+    bonus_values_oldest = [parse_int(row.get("bonusBall"), 0) for row in reversed(rows)]
+    recent_rows = rows[:recent_eval_window]
+    recent_draw_sets = [set(row.get("numbers") or []) for row in recent_rows]
+    recent_bonus_values = [parse_int(row.get("bonusBall"), 0) for row in recent_rows]
+    a_tickets = prediction_strategy_tickets(
+        rows,
+        config,
+        frequency,
+        recent_counts,
+        recent_window,
+        bonus_sets,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+        panel=PREDICTION_PANEL_DEFAULT,
+    )
+    a_kill_numbers = prediction_kill_numbers_from_tickets(a_tickets)
+    b_tickets = prediction_strategy_tickets(
+        rows,
+        config,
+        frequency,
+        recent_counts,
+        recent_window,
+        bonus_sets,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+        panel=PREDICTION_PANEL_B,
+        excluded_numbers=set(a_kill_numbers),
+    )
+    c_tickets = prediction_panel_c_structure_tickets(
+        rows,
+        config,
+        a_tickets,
+        b_tickets,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+    )
+    d_excluded_numbers = sorted(
+        set(a_kill_numbers)
+        | set(prediction_kill_numbers_from_tickets(b_tickets))
+        | set(prediction_kill_numbers_from_tickets(c_tickets))
+    )
+    d_tickets = prediction_panel_d_clean_four_tickets(
+        rows,
+        config,
+        set(d_excluded_numbers),
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+        label="D ABC杀号四码",
+        source_panel="abc",
+        source_panels=[PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_C],
+        structure_type="kill_abc_four",
+        structure_label="ABC杀号四码",
+    )
+    e_excluded_numbers = sorted(
+        set(prediction_kill_numbers_from_tickets(c_tickets))
+        | set(prediction_kill_numbers_from_tickets(d_tickets))
+    )
+    e_tickets = prediction_panel_d_clean_four_tickets(
+        rows,
+        config,
+        set(e_excluded_numbers),
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+        panel=PREDICTION_PANEL_E,
+        top_count=PREDICTION_PANEL_E_TOP_COUNT,
+        label="E CD杀号四码",
+        source_panel="cd",
+        source_panels=[PREDICTION_PANEL_C, PREDICTION_PANEL_D],
+        structure_type="kill_cd_four",
+        structure_label="CD杀号四码",
+    )
+    source_tickets_by_panel = {
+        PREDICTION_PANEL_DEFAULT: a_tickets,
+        PREDICTION_PANEL_B: b_tickets,
+        PREDICTION_PANEL_C: c_tickets,
+        PREDICTION_PANEL_D: d_tickets,
+        PREDICTION_PANEL_E: e_tickets,
+    }
+    f_tickets = prediction_panel_f_false_kill_recall_ticket(
+        rows,
+        config,
+        source_tickets_by_panel,
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+    )
+    g_source_tickets_by_panel = {
+        PREDICTION_PANEL_C: c_tickets,
+        PREDICTION_PANEL_D: d_tickets,
+        PREDICTION_PANEL_E: e_tickets,
+    }
+    g_excluded_numbers = prediction_panel_source_number_map(g_source_tickets_by_panel)[0]
+    g_tickets = prediction_panel_d_clean_four_tickets(
+        rows,
+        config,
+        set(g_excluded_numbers),
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_sets_oldest,
+        bonus_values_oldest,
+        recent_draw_sets,
+        recent_bonus_values,
+        panel=PREDICTION_PANEL_G,
+        top_count=PREDICTION_PANEL_G_TOP_COUNT,
+        label="G CDE杀号后四码",
+        source_panel="cde",
+        source_panels=[PREDICTION_PANEL_C, PREDICTION_PANEL_D, PREDICTION_PANEL_E],
+        structure_type="kill_cde_follow_four",
+        structure_label="CDE候选杀号后四码",
+    )
+    return {
+        "aTickets": a_tickets,
+        "bTickets": b_tickets,
+        "cTickets": c_tickets,
+        "dTickets": d_tickets,
+        "eTickets": e_tickets,
+        "fTickets": f_tickets,
+        "gTickets": g_tickets,
+        "cKillNumbers": prediction_kill_numbers_from_tickets(c_tickets),
+        "dKillNumbers": d_excluded_numbers,
+        "eKillNumbers": e_excluded_numbers,
+        "fNumbers": prediction_kill_numbers_from_tickets(f_tickets),
+        "gNumbers": prediction_kill_numbers_from_tickets(g_tickets),
+        "fSourcePoolNumbers": prediction_panel_source_number_map(source_tickets_by_panel)[0],
+        "gKillNumbers": g_excluded_numbers,
+    }
+
+
+def cde_kill_backtest_panel_result(kill_numbers: list[int], target_row: dict[str, Any]) -> dict[str, Any]:
+    kill_numbers = sorted({int(number) for number in kill_numbers if int(number) > 0})
+    draw_numbers = sorted({int(number) for number in target_row.get("numbers") or []})
+    draw_set = set(draw_numbers)
+    wrong_numbers = [number for number in kill_numbers if number in draw_set]
+    right_numbers = [number for number in kill_numbers if number not in draw_set]
+    kill_count = len(kill_numbers)
+    wrong_count = len(wrong_numbers)
+    right_count = len(right_numbers)
+    return {
+        "killNumbers": kill_numbers,
+        "killCount": kill_count,
+        "rightKilledNumbers": right_numbers,
+        "rightKillCount": right_count,
+        "wrongKilledNumbers": wrong_numbers,
+        "wrongKillCount": wrong_count,
+        "rightKillRate": right_count / kill_count if kill_count else 0,
+        "wrongKillRate": wrong_count / kill_count if kill_count else 0,
+    }
+
+
+def cde_prediction_backtest_panel_result(numbers: list[int], target_row: dict[str, Any]) -> dict[str, Any]:
+    numbers = sorted({int(number) for number in numbers if int(number) > 0})
+    draw_numbers = sorted({int(number) for number in target_row.get("numbers") or []})
+    draw_set = set(draw_numbers)
+    hit_numbers = [number for number in numbers if number in draw_set]
+    miss_numbers = [number for number in numbers if number not in draw_set]
+    pick_count = len(numbers)
+    hit_count = len(hit_numbers)
+    miss_count = len(miss_numbers)
+    return {
+        "pickNumbers": numbers,
+        "pickCount": pick_count,
+        "hitNumbers": hit_numbers,
+        "hitCount": hit_count,
+        "missNumbers": miss_numbers,
+        "missCount": miss_count,
+        "hitRate": hit_count / pick_count if pick_count else 0,
+        "missRate": miss_count / pick_count if pick_count else 0,
+        "killNumbers": numbers,
+        "killCount": pick_count,
+        "rightKilledNumbers": miss_numbers,
+        "rightKillCount": miss_count,
+        "wrongKilledNumbers": hit_numbers,
+        "wrongKillCount": hit_count,
+        "rightKillRate": miss_count / pick_count if pick_count else 0,
+        "wrongKillRate": hit_count / pick_count if pick_count else 0,
+    }
+
+
+def cde_kill_backtest_summary(panel_results: list[dict[str, Any]], panel: str, label: str) -> dict[str, Any]:
+    rounds = len(panel_results)
+    kill_total = sum(parse_int(item.get("killCount"), 0) for item in panel_results)
+    right_total = sum(parse_int(item.get("rightKillCount"), 0) for item in panel_results)
+    wrong_total = sum(parse_int(item.get("wrongKillCount"), 0) for item in panel_results)
+    wrong_counts: dict[int, int] = {}
+    kill_counts: dict[int, int] = {}
+    for item in panel_results:
+        wrong_count = parse_int(item.get("wrongKillCount"), 0)
+        kill_count = parse_int(item.get("killCount"), 0)
+        wrong_counts[wrong_count] = wrong_counts.get(wrong_count, 0) + 1
+        kill_counts[kill_count] = kill_counts.get(kill_count, 0) + 1
+    average_wrong = wrong_total / rounds if rounds else 0
+    average_right = right_total / rounds if rounds else 0
+    average_kill = kill_total / rounds if rounds else 0
+    zero_wrong = wrong_counts.get(0, 0)
+    one_or_less_wrong = sum(count for wrong_count, count in wrong_counts.items() if wrong_count <= 1)
+    two_or_less_wrong = sum(count for wrong_count, count in wrong_counts.items() if wrong_count <= 2)
+    return {
+        "panel": panel,
+        "label": label,
+        "rounds": rounds,
+        "killTotal": kill_total,
+        "rightKillTotal": right_total,
+        "wrongKillTotal": wrong_total,
+        "averageKillCount": average_kill,
+        "averageRightKillCount": average_right,
+        "averageWrongKillCount": average_wrong,
+        "rightKillRate": right_total / kill_total if kill_total else 0,
+        "wrongKillRate": wrong_total / kill_total if kill_total else 0,
+        "zeroWrongRounds": zero_wrong,
+        "zeroWrongRate": zero_wrong / rounds if rounds else 0,
+        "oneOrLessWrongRounds": one_or_less_wrong,
+        "oneOrLessWrongRate": one_or_less_wrong / rounds if rounds else 0,
+        "twoOrLessWrongRounds": two_or_less_wrong,
+        "twoOrLessWrongRate": two_or_less_wrong / rounds if rounds else 0,
+        "wrongDistribution": [
+            {"wrongKillCount": count, "rounds": rounds_count, "share": rounds_count / rounds if rounds else 0}
+            for count, rounds_count in sorted(wrong_counts.items())
+        ],
+        "killCountDistribution": [
+            {"killCount": count, "rounds": rounds_count, "share": rounds_count / rounds if rounds else 0}
+            for count, rounds_count in sorted(kill_counts.items())
+        ],
+    }
+
+
+def prediction_hit_backtest_summary(panel_results: list[dict[str, Any]], panel: str, label: str) -> dict[str, Any]:
+    summary = cde_kill_backtest_summary(panel_results, panel, label)
+    summary["metricType"] = "prediction_hit"
+    summary["hitTotal"] = summary["wrongKillTotal"]
+    summary["missTotal"] = summary["rightKillTotal"]
+    summary["averageHitCount"] = summary["averageWrongKillCount"]
+    summary["averageMissCount"] = summary["averageRightKillCount"]
+    summary["hitRate"] = summary["wrongKillRate"]
+    summary["missRate"] = summary["rightKillRate"]
+    summary["zeroHitRounds"] = summary["zeroWrongRounds"]
+    summary["zeroHitRate"] = summary["zeroWrongRate"]
+    summary["hitDistribution"] = [
+        {
+            "hitCount": parse_int(item.get("wrongKillCount"), 0),
+            "rounds": parse_int(item.get("rounds"), 0),
+            "share": parse_float(item.get("share"), 0),
+        }
+        for item in summary.get("wrongDistribution", [])
+    ]
+    return summary
+
+
+def cde_kill_backtest_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    config = game_from_query(query)
+    ensure_predictions_supported(config)
+    if str(config["key"]) not in CDE_KILL_BACKTEST_GAME_KEYS:
+        raise ValueError("C/D/E/F/G 回测当前只支持西班牙和波兰")
+    history_path = game_history_path(config)
+    window = max(10, min(parse_int(query.get("window", ["30"])[0], 30), CDE_KILL_BACKTEST_MAX_WINDOW))
+    train_window = max(80, min(parse_int(query.get("trainWindow", ["240"])[0], 240), CDE_KILL_BACKTEST_MAX_TRAIN_WINDOW))
+    detail_limit = max(20, min(parse_int(query.get("detailLimit", ["60"])[0], 60), CDE_KILL_BACKTEST_MAX_DETAIL_LIMIT))
+    with DATA_LOCK:
+        try:
+            stat = history_path.stat()
+            cache_key = (config["key"], stat.st_mtime_ns, stat.st_size, window, train_window, detail_limit)
+        except FileNotFoundError:
+            cache_key = (config["key"], 0, 0, window, train_window, detail_limit)
+
+    with KILL_BACKTEST_CACHE_LOCK:
+        cached = lru_cache_get(KILL_BACKTEST_CACHE, cache_key)
+    if cached is not None:
+        payload = dict(cached)
+        payload["cacheHit"] = True
+        payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
+        return payload
+
+    started = time.monotonic()
+    with DATA_LOCK:
+        all_rows = load_history_rows(history_path, config)
+    data_integrity = history_data_integrity(all_rows, config)
+    rows = valid_draw_rows(all_rows, config)
+    if len(rows) < 100:
+        raise ValueError("有效历史少于 100 期，暂不能做 C/D/E/F/G 回测")
+
+    rows_oldest = list(reversed(rows))
+    max_rounds = max(0, min(window, len(rows_oldest) - 80))
+    start_index = max(80, len(rows_oldest) - max_rounds)
+    detail_items: list[dict[str, Any]] = []
+    panel_items: dict[str, list[dict[str, Any]]] = {
+        PREDICTION_PANEL_C: [],
+        PREDICTION_PANEL_D: [],
+        PREDICTION_PANEL_E: [],
+        PREDICTION_PANEL_F: [],
+        PREDICTION_PANEL_G: [],
+    }
+    skipped = 0
+    for index in range(start_index, len(rows_oldest)):
+        target = rows_oldest[index]
+        history_slice_oldest = rows_oldest[max(0, index - train_window) : index]
+        history_rows = list(reversed(history_slice_oldest))
+        if len(history_rows) < 80:
+            skipped += 1
+            continue
+        tickets = prediction_context_tickets(history_rows, config)
+        panel_result_map = {
+            PREDICTION_PANEL_C: cde_kill_backtest_panel_result(tickets["cKillNumbers"], target),
+            PREDICTION_PANEL_D: cde_kill_backtest_panel_result(tickets["dKillNumbers"], target),
+            PREDICTION_PANEL_E: cde_kill_backtest_panel_result(tickets["eKillNumbers"], target),
+            PREDICTION_PANEL_F: cde_prediction_backtest_panel_result(tickets["fNumbers"], target),
+            PREDICTION_PANEL_G: cde_prediction_backtest_panel_result(tickets["gNumbers"], target),
+        }
+        for panel, panel_result in panel_result_map.items():
+            panel_items[panel].append(panel_result)
+        detail_items.append(
+            {
+                "drawIndex": index + 1,
+                "drawEventId": target.get("drawEventId", ""),
+                "drawTimeMs": parse_int(target.get("drawTimeMs"), 0),
+                "drawTimeUtc": target.get("drawTimeUtc", ""),
+                "drawNumbers": target.get("numbers") or [],
+                "panels": panel_result_map,
+            }
+        )
+
+    kill_panel_summaries = [
+        cde_kill_backtest_summary(panel_items[PREDICTION_PANEL_C], PREDICTION_PANEL_C, "C 四码票唯一号"),
+        cde_kill_backtest_summary(panel_items[PREDICTION_PANEL_D], PREDICTION_PANEL_D, "D ABC杀号池"),
+        cde_kill_backtest_summary(panel_items[PREDICTION_PANEL_E], PREDICTION_PANEL_E, "E CD杀号池"),
+    ]
+    f_summary = prediction_hit_backtest_summary(panel_items[PREDICTION_PANEL_F], PREDICTION_PANEL_F, "F ABCDE误杀召回四码预测")
+    g_summary = prediction_hit_backtest_summary(panel_items[PREDICTION_PANEL_G], PREDICTION_PANEL_G, "G CDE杀号后四码预测")
+    panel_summaries = kill_panel_summaries + [f_summary, g_summary]
+    best_panel = min(
+        kill_panel_summaries,
+        key=lambda item: (
+            parse_float(item.get("averageWrongKillCount"), 999),
+            parse_float(item.get("wrongKillRate"), 999),
+            -parse_float(item.get("averageRightKillCount"), 0),
+        ),
+    ) if kill_panel_summaries else None
+    newest = rows[0] if rows else None
+    oldest = rows[-1] if rows else None
+    detail_items = sorted(detail_items, key=lambda item: parse_int(item.get("drawTimeMs"), 0), reverse=True)[:detail_limit]
+    payload = {
+        "ok": True,
+        "generatedAt": utc_now_iso(),
+        "cacheHit": False,
+        "game": game_public_config(config),
+        "historyFile": file_info(history_path),
+        "dataIntegrity": data_integrity,
+        "drawCount": len(rows),
+        "newestDraw": newest,
+        "oldestDraw": oldest,
+        "window": window,
+        "actualRounds": sum(1 for _ in panel_items[PREDICTION_PANEL_C]),
+        "skippedRounds": skipped,
+        "trainWindow": train_window,
+        "detailLimit": detail_limit,
+        "elapsedMs": round((time.monotonic() - started) * 1000),
+        "bestPanel": best_panel,
+        "summaries": panel_summaries,
+        "items": detail_items,
+        "notes": [
+            "杀错 = 杀号池与当期开奖主号的交集，数字越低越好。",
+            "杀对 = 杀号池中没有开出的号码，数字越高说明排除池避开了开奖号。",
+            "F = 开奖前从A/B/C/D/E排除链路的候选池中召回1张4码预测票；F的交集按命中数理解，数字越高越好。",
+            "G = 开奖前先杀掉C/D/E候选票号码池，再从剩余号码生成1张4码预测票；G的交集按命中数理解，数字越高越好。",
+            "每期只使用目标开奖之前的历史生成 C/D/E/F/G 结果，不读取未来开奖。",
+        ],
+    }
+    payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
+    with KILL_BACKTEST_CACHE_LOCK:
+        lru_cache_set(KILL_BACKTEST_CACHE, cache_key, payload, KILL_BACKTEST_CACHE_MAX_ITEMS)
     return payload
 
 
@@ -2865,30 +4485,6 @@ def draws_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     }
 
 
-def parse_iso_to_ms(value: Any) -> int:
-    if value is None:
-        return 0
-    if isinstance(value, (int, float)):
-        return int(value)
-    text = str(value).strip()
-    if not text:
-        return 0
-    if re.fullmatch(r"\d+", text):
-        return int(text)
-    if text.endswith("Z"):
-        text = text[:-1] + "+00:00"
-    parsed = datetime.fromisoformat(text)
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=UTC)
-    return int(parsed.timestamp() * 1000)
-
-
-def ms_to_utc_iso(value: int) -> str:
-    if value <= 0:
-        return ""
-    return datetime.fromtimestamp(value / 1000, tz=UTC).isoformat(timespec="seconds")
-
-
 def parse_bet_numbers(value: Any, total_numbers: int = 80) -> list[int]:
     if value is None:
         return []
@@ -2914,149 +4510,6 @@ def parse_bet_numbers(value: Any, total_numbers: int = 80) -> list[int]:
     return numbers
 
 
-def validate_run_numbers(numbers: list[int], expected_length: int) -> None:
-    if len(numbers) != expected_length:
-        raise ValueError(f"该玩法需要填写 {expected_length} 个连续号码")
-    ordered = sorted(numbers)
-    expected = list(range(ordered[0], ordered[0] + expected_length))
-    if ordered != expected:
-        raise ValueError(f"该玩法需要填写 {expected_length} 个连续号码")
-
-
-def default_odds_for_bet_type(
-    config: dict[str, Any],
-    bet_type: str,
-    numbers: list[int] | None = None,
-) -> float:
-    bet_config = BET_TYPES[bet_type]
-    pick_count = None
-    if bet_type == "numbers":
-        pick_count = len(numbers or []) or 3
-    elif bet_config.get("exactNumbers"):
-        pick_count = int(bet_config["exactNumbers"])
-    if pick_count:
-        game_odds = DEFAULT_MAIN_ODDS_BY_GAME.get(str(config.get("key")), {})
-        return float(game_odds.get(pick_count, bet_config["defaultOdds"]))
-    return float(bet_config["defaultOdds"])
-
-
-def bet_type_options(config: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        {
-            "key": key,
-            "label": bet_config["label"],
-            "requiresNumbers": bet_config["requiresNumbers"],
-            "defaultOdds": default_odds_for_bet_type(config, key),
-            "exactNumbers": bet_config.get("exactNumbers"),
-            "minNumbers": bet_config.get("minNumbers"),
-            "maxNumbers": bet_config.get("maxNumbers"),
-        }
-        for key, bet_config in BET_TYPES.items()
-    ]
-
-
-def load_sim_bets(path: Path = DEFAULT_BETS) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-
-    bets: list[dict[str, Any]] = []
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            text = line.strip()
-            if not text:
-                continue
-            try:
-                item = json.loads(text)
-            except json.JSONDecodeError:
-                continue
-            if isinstance(item, dict) and item.get("id"):
-                bets.append(item)
-    return bets
-
-
-def write_sim_bets(bets: list[dict[str, Any]], path: Path = DEFAULT_BETS) -> None:
-    temp_path = path.with_suffix(path.suffix + ".tmp")
-    with temp_path.open("w", encoding="utf-8") as fh:
-        for bet in bets:
-            fh.write(json.dumps(bet, ensure_ascii=False, separators=(",", ":")))
-            fh.write("\n")
-    replace_path_with_retry(temp_path, path)
-
-
-def bet_game_key(bet: dict[str, Any]) -> str:
-    return game_key_from_value(
-        bet.get("gameKey")
-        or bet.get("game")
-        or bet.get("lotteryId")
-        or DEFAULT_GAME_KEY
-    )
-
-
-def normalize_bet_payload(
-    payload: dict[str, Any],
-    config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    config = config or game_from_options(payload)
-    bet_type = str(payload.get("betType") or "").strip()
-    if bet_type not in BET_TYPES:
-        raise ValueError("未知投注类型")
-
-    target_ms = parse_int(payload.get("targetDrawTimeMs"), 0)
-    if target_ms <= 0:
-        try:
-            target_ms = parse_iso_to_ms(payload.get("targetDrawTimeUtc"))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("目标开奖时间无效") from exc
-    if target_ms <= 0:
-        raise ValueError("必须选择目标开奖时间")
-
-    bet_config = BET_TYPES[bet_type]
-    numbers = parse_bet_numbers(payload.get("numbers"), int(config["totalNumbers"]))
-    if bet_config["requiresNumbers"] and not numbers:
-        raise ValueError("该玩法需要填写号码")
-    if bet_type == "numbers":
-        minimum = int(bet_config.get("minNumbers") or 1)
-        maximum = int(bet_config.get("maxNumbers") or int(config["drawnNumbers"]))
-        maximum = min(maximum, int(config["drawnNumbers"]))
-        if len(numbers) < minimum or len(numbers) > maximum:
-            raise ValueError(f"号码组选需要填写 {minimum}-{maximum} 个号码")
-    if bet_config.get("exactNumbers"):
-        validate_run_numbers(numbers, int(bet_config["exactNumbers"]))
-
-    stake = parse_float(payload.get("stake"), 1)
-    odds = parse_float(payload.get("odds"), default_odds_for_bet_type(config, bet_type, numbers))
-    if stake <= 0:
-        raise ValueError("投入金额必须大于 0")
-    if odds <= 1:
-        raise ValueError("赔率必须大于 1")
-
-    note = str(payload.get("note") or "").strip()
-    return {
-        "id": uuid.uuid4().hex,
-        "createdAt": utc_now_iso(),
-        "targetDrawTimeMs": target_ms,
-        "targetDrawTimeUtc": ms_to_utc_iso(target_ms),
-        "gameKey": config["key"],
-        "lotteryId": config["lotteryId"],
-        "gameShortName": config["shortName"],
-        "betType": bet_type,
-        "betLabel": bet_config["label"],
-        "numbers": numbers,
-        "stake": round(stake, 4),
-        "odds": round(odds, 4),
-        "note": note[:160],
-        "status": "pending",
-        "settledAt": "",
-        "payout": 0,
-        "profit": 0,
-        "result": None,
-    }
-
-
-def format_groups(groups: list[tuple[int, ...]], limit: int = 8) -> list[str]:
-    return ["-".join(str(number) for number in group) for group in groups[:limit]]
-
-
 def draw_result_snapshot(draw: dict[str, Any]) -> dict[str, Any]:
     return {
         "drawEventId": draw.get("drawEventId", ""),
@@ -3065,236 +4518,6 @@ def draw_result_snapshot(draw: dict[str, Any]) -> dict[str, Any]:
         "numbers": draw.get("numbers", []),
         "bonusBall": draw.get("bonusBall", ""),
     }
-
-
-def evaluate_bet_against_draw(
-    bet: dict[str, Any],
-    draw: dict[str, Any],
-    config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    config = config or LOTTERY_GAMES[bet_game_key(bet)]
-    total_numbers = int(config["totalNumbers"])
-    draw_numbers = list(draw.get("numbers") or [])
-    draw_set = set(draw_numbers)
-    bet_type = str(bet.get("betType") or "")
-    numbers = [int(number) for number in bet.get("numbers") or []]
-    matched_numbers = [number for number in numbers if number in draw_set]
-    matched_groups: list[str] = []
-    reason = ""
-
-    if bet_type == "numbers":
-        won = bool(numbers) and len(matched_numbers) == len(numbers)
-        reason = f"命中 {len(matched_numbers)}/{len(numbers)} 个指定号码"
-    elif bet_type in {"pair", "triple", "quad"}:
-        ordered = sorted(numbers)
-        won = bool(ordered) and all(number in draw_set for number in ordered)
-        if won:
-            matched_groups = ["-".join(str(number) for number in ordered)]
-        reason = f"{'-'.join(str(number) for number in ordered)} {'命中' if won else '未命中'}"
-    else:
-        flags = run_condition_flags_for(draw_set, total_numbers)
-        won = flags.get(bet_type, False)
-        pair_windows = find_run_windows(draw_set, 2, total_numbers)
-        triple_windows = find_run_windows(draw_set, 3, total_numbers)
-        quad_windows = find_run_windows(draw_set, 4, total_numbers)
-        five_windows = find_run_windows(draw_set, 5, total_numbers)
-        six_windows = find_run_windows(draw_set, 6, total_numbers)
-        if bet_type in {"hasPair", "hasDoublePair", "hasTriplePairSet", "hasQuadPairSet", "hasFivePairSet"}:
-            matched_groups = format_groups(pair_windows)
-        elif bet_type in {"hasTriple", "hasPairTriple", "hasDoubleTriple", "hasTripleDoublePair"}:
-            matched_groups = format_groups(triple_windows) + format_groups(pair_windows)
-        elif bet_type == "hasQuad":
-            matched_groups = format_groups(quad_windows)
-        elif bet_type == "hasQuadPair":
-            matched_groups = format_groups(quad_windows) + format_groups(pair_windows)
-        elif bet_type == "hasFive":
-            matched_groups = format_groups(five_windows)
-        elif bet_type == "hasSix":
-            matched_groups = format_groups(six_windows)
-        reason = f"{BET_TYPES.get(bet_type, {}).get('label', bet_type)} {'出现' if won else '未出现'}"
-
-    stake = parse_float(bet.get("stake"), 0)
-    odds = parse_float(bet.get("odds"), 0)
-    payout = round(stake * odds, 4) if won else 0
-    profit = round(payout - stake, 4) if won else round(-stake, 4)
-    return {
-        "won": won,
-        "reason": reason,
-        "matchedNumbers": matched_numbers,
-        "matchedGroups": matched_groups,
-        "draw": draw_result_snapshot(draw),
-        "payout": payout,
-        "profit": profit,
-        "settledAt": utc_now_iso(),
-    }
-
-
-def settle_sim_bets(
-    bets: list[dict[str, Any]],
-    rows: list[dict[str, Any]] | None = None,
-    config: dict[str, Any] | None = None,
-) -> int:
-    config = config or LOTTERY_GAMES[DEFAULT_GAME_KEY]
-    rows = rows if rows is not None else load_history_rows(game_history_path(config), config)
-    rows = valid_draw_rows(rows, config)
-    rows_by_time = {
-        parse_int(row.get("drawTimeMs"), 0): row
-        for row in rows
-        if parse_int(row.get("drawTimeMs"), 0) > 0
-    }
-    settled = 0
-    for bet in bets:
-        if bet_game_key(bet) != config["key"]:
-            continue
-        if bet.get("status") != "pending":
-            continue
-        target_ms = parse_int(bet.get("targetDrawTimeMs"), 0)
-        draw = rows_by_time.get(target_ms)
-        if draw is None:
-            continue
-        result = evaluate_bet_against_draw(bet, draw, config)
-        bet["status"] = "won" if result["won"] else "lost"
-        bet["settledAt"] = result["settledAt"]
-        bet["payout"] = result["payout"]
-        bet["profit"] = result["profit"]
-        bet["result"] = result
-        settled += 1
-    return settled
-
-
-def sim_bets_summary(bets: list[dict[str, Any]]) -> dict[str, Any]:
-    total = len(bets)
-    pending = sum(1 for bet in bets if bet.get("status") == "pending")
-    won = sum(1 for bet in bets if bet.get("status") == "won")
-    lost = sum(1 for bet in bets if bet.get("status") == "lost")
-    settled = won + lost
-    stake_total = sum(parse_float(bet.get("stake"), 0) for bet in bets)
-    pending_stake = sum(
-        parse_float(bet.get("stake"), 0)
-        for bet in bets
-        if bet.get("status") == "pending"
-    )
-    payout_total = sum(parse_float(bet.get("payout"), 0) for bet in bets)
-    profit_total = sum(parse_float(bet.get("profit"), 0) for bet in bets)
-    return {
-        "total": total,
-        "pending": pending,
-        "won": won,
-        "lost": lost,
-        "settled": settled,
-        "stakeTotal": round(stake_total, 4),
-        "pendingStake": round(pending_stake, 4),
-        "payoutTotal": round(payout_total, 4),
-        "profitTotal": round(profit_total, 4),
-        "hitRate": won / settled if settled else 0,
-    }
-
-
-def sim_bets_response(
-    bets: list[dict[str, Any]],
-    *,
-    settled_now: int = 0,
-    created: dict[str, Any] | None = None,
-    deleted: dict[str, Any] | None = None,
-    config: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    if config is not None:
-        scoped_bets = [bet for bet in bets if bet_game_key(bet) == config["key"]]
-    else:
-        scoped_bets = bets
-    ordered = sorted(
-        scoped_bets,
-        key=lambda bet: (
-            str(bet.get("createdAt") or ""),
-            parse_int(bet.get("targetDrawTimeMs"), 0),
-        ),
-        reverse=True,
-    )
-    all_ordered = sorted(
-        bets,
-        key=lambda bet: (
-            str(bet.get("createdAt") or ""),
-            parse_int(bet.get("targetDrawTimeMs"), 0),
-        ),
-        reverse=True,
-    )
-    return {
-        "ok": True,
-        "game": game_public_config(config) if config is not None else None,
-        "generatedAt": utc_now_iso(),
-        "betFile": file_info(DEFAULT_BETS),
-        "betTypes": bet_type_options(config or LOTTERY_GAMES[DEFAULT_GAME_KEY]),
-        "settledNow": settled_now,
-        "created": created,
-        "deleted": deleted,
-        "summary": sim_bets_summary(scoped_bets),
-        "allSummary": sim_bets_summary(bets),
-        "items": ordered[:500],
-        "allItems": all_ordered[:500],
-    }
-
-
-def sim_bets_payload(query: dict[str, list[str]]) -> dict[str, Any]:
-    config = game_from_query(query)
-    ensure_sim_bets_supported(config)
-    with DATA_LOCK:
-        rows = load_history_rows(game_history_path(config), config)
-    with BETS_LOCK:
-        bets = load_sim_bets()
-        settled_now = settle_sim_bets(bets, rows, config)
-        if settled_now:
-            write_sim_bets(bets)
-        return sim_bets_response(bets, settled_now=settled_now, config=config)
-
-
-def create_sim_bet(payload: dict[str, Any]) -> dict[str, Any]:
-    config = game_from_options(payload)
-    ensure_sim_bets_supported(config)
-    bet = normalize_bet_payload(payload, config)
-    with DATA_LOCK:
-        rows = load_history_rows(game_history_path(config), config)
-    with BETS_LOCK:
-        bets = load_sim_bets()
-        bets.append(bet)
-        settled_now = settle_sim_bets(bets, rows, config)
-        write_sim_bets(bets)
-        return sim_bets_response(bets, settled_now=settled_now, created=bet, config=config)
-
-
-def delete_sim_bet(bet_id: str, query: dict[str, list[str]]) -> dict[str, Any]:
-    bet_id = str(bet_id or "").strip()
-    if not bet_id:
-        raise ValueError("投注记录 ID 无效")
-    config = game_from_query(query)
-    ensure_sim_bets_supported(config)
-    with BETS_LOCK:
-        bets = load_sim_bets()
-        deleted: dict[str, Any] | None = None
-        remaining: list[dict[str, Any]] = []
-        for bet in bets:
-            if str(bet.get("id") or "") == bet_id and bet_game_key(bet) == config["key"]:
-                deleted = bet
-                continue
-            remaining.append(bet)
-        if deleted is None:
-            raise KeyError("投注记录不存在或不属于当前彩种")
-        write_sim_bets(remaining)
-        return sim_bets_response(remaining, deleted=deleted, config=config)
-
-
-def settle_sim_bet_store(
-    rows: list[dict[str, Any]] | None = None,
-    config: dict[str, Any] | None = None,
-) -> int:
-    config = config or LOTTERY_GAMES[DEFAULT_GAME_KEY]
-    with BETS_LOCK:
-        bets = load_sim_bets()
-        if not bets:
-            return 0
-        settled_now = settle_sim_bets(bets, rows, config)
-        if settled_now:
-            write_sim_bets(bets)
-        return settled_now
 
 
 def load_prediction_tracking_json(path: Path = DEFAULT_PREDICTION_TRACKING) -> list[dict[str, Any]]:
@@ -3427,6 +4650,7 @@ def load_prediction_tracking_for_game(
     status_filter: str = "all",
     limit: int | None = None,
     offset: int = 0,
+    panel: str | None = None,
 ) -> list[dict[str, Any]]:
     init_prediction_tracking_db()
     params: list[Any] = [game_key]
@@ -3440,15 +4664,77 @@ def load_prediction_tracking_for_game(
         WHERE {where}
         ORDER BY target_draw_time_ms DESC, created_at DESC, id DESC
     """
-    if limit is not None:
+    if limit is not None and panel is None:
         sql += " LIMIT ? OFFSET ?"
         params.extend([limit, max(0, offset)])
     with prediction_tracking_db_connect() as conn:
         rows = conn.execute(sql, params).fetchall()
-    return prediction_tracking_records_from_rows(rows)
+    records = prediction_tracking_records_from_rows(rows)
+    if panel is not None:
+        records = prediction_records_for_panel(records, panel)
+        if limit is not None:
+            start = max(0, offset)
+            records = records[start : start + limit]
+    return records
 
 
-def prediction_tracking_count(game_key: str | None = None, status_filter: str = "all") -> int:
+def load_prediction_tracking_for_ids(record_ids: list[str]) -> list[dict[str, Any]]:
+    ids = [str(record_id or "").strip() for record_id in record_ids if str(record_id or "").strip()]
+    if not ids:
+        return []
+    init_prediction_tracking_db()
+    records: list[dict[str, Any]] = []
+    with prediction_tracking_db_connect() as conn:
+        for start in range(0, len(ids), 200):
+            chunk = ids[start : start + 200]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = conn.execute(
+                f"SELECT record_json FROM prediction_records WHERE id IN ({placeholders})",
+                chunk,
+            ).fetchall()
+            records.extend(prediction_tracking_records_from_rows(rows))
+    return records
+
+
+def load_pending_prediction_tracking_for_batch_keys(
+    batch_keys: set[tuple[str, str, int]],
+) -> list[dict[str, Any]]:
+    wanted = {
+        (str(game_key), str(method_version), int(target_ms))
+        for game_key, method_version, target_ms in batch_keys
+        if game_key and method_version and int(target_ms) > 0
+    }
+    if not wanted:
+        return []
+    target_pairs = sorted({(game_key, target_ms) for game_key, _method, target_ms in wanted})
+    records: list[dict[str, Any]] = []
+    init_prediction_tracking_db()
+    with prediction_tracking_db_connect() as conn:
+        for game_key, target_ms in target_pairs:
+            rows = conn.execute(
+                """
+                SELECT record_json
+                FROM prediction_records
+                WHERE game_key = ? AND target_draw_time_ms = ? AND status = 'pending'
+                """,
+                [game_key, target_ms],
+            ).fetchall()
+            for record in prediction_tracking_records_from_rows(rows):
+                if prediction_tracking_batch_key(record) in wanted:
+                    records.append(record)
+    return records
+
+
+def prediction_tracking_count(
+    game_key: str | None = None,
+    status_filter: str = "all",
+    panel: str | None = None,
+) -> int:
+    if panel is not None:
+        records = load_prediction_tracking_for_game(game_key, status_filter=status_filter, panel=panel) if game_key else load_prediction_tracking()
+        if game_key is None and status_filter != "all":
+            records = [record for record in records if record.get("status") == status_filter]
+        return len(prediction_records_for_panel(records, panel))
     init_prediction_tracking_db()
     params: list[Any] = []
     where_parts: list[str] = []
@@ -3496,6 +4782,7 @@ def prediction_tracking_game_key(record: dict[str, Any]) -> str:
 def prediction_tracking_record_id(fields: dict[str, Any]) -> str:
     key = {
         "gameKey": fields.get("gameKey"),
+        "panel": prediction_panel_from_value(fields.get("panel")),
         "methodVersion": fields.get("methodVersion"),
         "basedOnDrawTimeMs": parse_int(fields.get("basedOnDrawTimeMs"), 0),
         "targetDrawTimeMs": parse_int(fields.get("targetDrawTimeMs"), 0),
@@ -3521,6 +4808,8 @@ def prediction_tracking_records_from_payload(
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
     predictions = payload.get("predictions") if isinstance(payload.get("predictions"), dict) else {}
+    panel = prediction_panel_from_value(predictions.get("panel") or payload.get("panel"))
+    method_version = prediction_method_version_for_panel(panel)
     tickets = predictions.get("strategyTickets") if isinstance(predictions.get("strategyTickets"), list) else []
     forecasts = predictions.get("forecasts") if isinstance(predictions.get("forecasts"), list) else []
     target = forecasts[0] if forecasts else {}
@@ -3554,7 +4843,9 @@ def prediction_tracking_records_from_payload(
         record = {
             "createdAt": utc_now_iso(),
             "predictionGeneratedAt": generated_at,
-            "methodVersion": PREDICTION_TRACKING_METHOD_VERSION,
+            "methodVersion": method_version,
+            "panel": panel,
+            "panelLabel": prediction_panel_label(panel),
             "method": method,
             "gameKey": config["key"],
             "lotteryId": config["lotteryId"],
@@ -3586,6 +4877,20 @@ def prediction_tracking_records_from_payload(
             "chasePeriods": parse_int(ticket.get("chasePeriods"), 0),
             "missAllProbability": parse_float(ticket.get("missAllProbability"), 0),
             "score": parse_float(ticket.get("score"), 0),
+            "excludedNumbers": [int(number) for number in ticket.get("excludedNumbers") or predictions.get("excludedNumbers") or []],
+            "sourcePanel": str(ticket.get("sourcePanel") or predictions.get("sourcePanel") or ""),
+            "sourcePanels": ticket.get("sourcePanels") or predictions.get("sourcePanels") or [],
+            "sourceCoreTicketLabels": ticket.get("sourceCoreTicketLabels") or [],
+            "structureType": str(ticket.get("structureType") or ""),
+            "structureLabel": str(ticket.get("structureLabel") or ""),
+            "coreNumbers": [int(number) for number in ticket.get("coreNumbers") or []],
+            "companionNumbers": [int(number) for number in ticket.get("companionNumbers") or []],
+            "recallNumbers": [int(number) for number in ticket.get("recallNumbers") or []],
+            "reversalNumbers": [int(number) for number in ticket.get("reversalNumbers") or []],
+            "sourcePoolNumbers": [int(number) for number in ticket.get("sourcePoolNumbers") or []],
+            "sourcePoolCount": parse_int(ticket.get("sourcePoolCount"), 0),
+            "sourceCoreScore": parse_float(ticket.get("sourceCoreScore"), 0),
+            "companionScore": parse_float(ticket.get("companionScore"), 0),
             "status": "pending",
             "settledAt": "",
             "payout": 0,
@@ -3619,6 +4924,36 @@ def add_prediction_tracking_snapshot(
         records.append(record)
         existing_ids.add(record["id"])
         created.append(record)
+    return created
+
+
+def add_prediction_tracking_snapshot_lightweight(
+    payload: dict[str, Any],
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    candidate_records = prediction_tracking_records_from_payload(payload, config)
+    if not candidate_records:
+        return []
+    existing_records = load_prediction_tracking_for_ids(
+        [str(record.get("id") or "") for record in candidate_records]
+    )
+    existing_ids = {str(record.get("id") or "") for record in existing_records}
+    existing_pending_batches = {
+        prediction_tracking_batch_key(record)
+        for record in load_pending_prediction_tracking_for_batch_keys(
+            {prediction_tracking_batch_key(record) for record in candidate_records}
+        )
+    }
+    created: list[dict[str, Any]] = []
+    for record in candidate_records:
+        if prediction_tracking_batch_key(record) in existing_pending_batches:
+            continue
+        if str(record.get("id") or "") in existing_ids:
+            continue
+        existing_ids.add(str(record.get("id") or ""))
+        created.append(record)
+    if created:
+        write_prediction_tracking(created)
     return created
 
 
@@ -3845,6 +5180,7 @@ def prediction_tracking_group_summaries(
                 prediction_tracking_game_key(record),
                 str(record.get("methodVersion") or ""),
                 str(record.get("strategyLabel") or ""),
+                str(record.get("structureType") or ""),
                 str(record.get("mode") or ""),
                 str(record.get("pickCount") or ""),
             ]
@@ -3860,6 +5196,8 @@ def prediction_tracking_group_summaries(
                 "gameKey": prediction_tracking_game_key(first),
                 "gameShortName": first.get("gameShortName", ""),
                 "strategyLabel": first.get("strategyLabel", ""),
+                "structureType": first.get("structureType", ""),
+                "structureLabel": first.get("structureLabel", ""),
                 "mode": first.get("mode", ""),
                 "pickCount": parse_int(first.get("pickCount"), 0),
                 "odds": parse_float(first.get("odds"), 0),
@@ -3948,6 +5286,8 @@ def adjacent_ticket_candidates_for_numbers(
             candidates.append(("p2_cross_halo_pair", "2球交叉临码二码", combo))
         for combo in adjacent_four_ball_candidates(numbers, total_numbers):
             candidates.append(("p2_local_four_ball", "2球局部四码全中", combo))
+    if pick_count == 4 and len(numbers) == 4:
+        candidates.append(("p4_original_ticket", "4球原结构四码", tuple(sorted(numbers))))
     return candidates
 
 
@@ -4176,7 +5516,12 @@ def adjacent_scheme_summary(
     return {"items": items}
 
 
-def adjacent_derived_stats(records: list[dict[str, Any]], config: dict[str, Any] | None) -> dict[str, Any]:
+def adjacent_derived_stats(
+    records: list[dict[str, Any]],
+    config: dict[str, Any] | None,
+    *,
+    panel: str | None = None,
+) -> dict[str, Any]:
     if config is None or str(config.get("key")) not in ADJACENT_DERIVED_STATS_GAME_KEYS:
         return {"enabled": False, "items": [], "note": "当前彩种暂未启用临码派生统计"}
 
@@ -4186,9 +5531,10 @@ def adjacent_derived_stats(records: list[dict[str, Any]], config: dict[str, Any]
         record
         for record in records
         if prediction_tracking_game_key(record) == config["key"]
+        and prediction_record_matches_panel(record, panel)
         and record.get("status") in {"won", "lost"}
         and str(record.get("mode") or "main") == "main"
-        and parse_int(record.get("pickCount"), 0) in {1, 2}
+        and parse_int(record.get("pickCount"), 0) in ADJACENT_DERIVED_SOURCE_PICK_COUNTS
         and isinstance(record.get("result"), dict)
         and isinstance((record.get("result") or {}).get("draw"), dict)
     ]
@@ -4291,6 +5637,20 @@ def adjacent_derived_stats(records: list[dict[str, Any]], config: dict[str, Any]
                     config=config,
                 )
 
+        if pick_count == 4 and len(numbers) == 4:
+            for variant_key, variant_label, combo in adjacent_ticket_candidates_for_numbers(numbers, pick_count, total_numbers):
+                add_adjacent_derived_stat_sample(
+                    groups,
+                    key=variant_key,
+                    label=variant_label,
+                    category="ticket",
+                    source_pick_count=4,
+                    derived_numbers=combo,
+                    draw_set=draw_set,
+                    record=record,
+                    config=config,
+                )
+
     scheme_summary = adjacent_scheme_summary(source_records, config, total_numbers)
     items = [
         adjacent_derived_stats_summary(
@@ -4324,6 +5684,8 @@ def adjacent_derived_stats(records: list[dict[str, Any]], config: dict[str, Any]
     return {
         "enabled": True,
         "gameKey": config["key"],
+        "panel": prediction_panel_from_value(panel),
+        "panelLabel": prediction_panel_label(prediction_panel_from_value(panel)),
         "sourceSettledRecords": len(source_records),
         "items": items,
         "schemeSummary": scheme_summary,
@@ -4331,7 +5693,12 @@ def adjacent_derived_stats(records: list[dict[str, Any]], config: dict[str, Any]
     }
 
 
-def adjacent_derived_hit_rows(records: list[dict[str, Any]], config: dict[str, Any]) -> list[dict[str, Any]]:
+def adjacent_derived_hit_rows(
+    records: list[dict[str, Any]],
+    config: dict[str, Any],
+    *,
+    panel: str | None = None,
+) -> list[dict[str, Any]]:
     if str(config.get("key")) not in ADJACENT_DERIVED_STATS_GAME_KEYS:
         return []
     total_numbers = int(config["totalNumbers"])
@@ -4340,9 +5707,10 @@ def adjacent_derived_hit_rows(records: list[dict[str, Any]], config: dict[str, A
         record
         for record in records
         if prediction_tracking_game_key(record) == config["key"]
+        and prediction_record_matches_panel(record, panel)
         and record.get("status") in {"won", "lost"}
         and str(record.get("mode") or "main") == "main"
-        and parse_int(record.get("pickCount"), 0) in {1, 2}
+        and parse_int(record.get("pickCount"), 0) in ADJACENT_DERIVED_SOURCE_PICK_COUNTS
         and isinstance(record.get("result"), dict)
         and isinstance((record.get("result") or {}).get("draw"), dict)
     ]
@@ -4433,6 +5801,7 @@ def adjacent_derived_hit_group_rows(rows: list[dict[str, Any]]) -> list[dict[str
 def adjacent_derived_hits_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     config = game_from_query(query)
     ensure_prediction_tracking_supported(config)
+    panel = prediction_panel_from_query(query)
     page = max(1, parse_int(query.get("page", ["1"])[0], 1))
     page_size = max(10, min(parse_int(query.get("pageSize", ["50"])[0], 50), 200))
     search = str(query.get("q", [""])[0] or "").strip().lower()
@@ -4440,7 +5809,7 @@ def adjacent_derived_hits_payload(query: dict[str, list[str]]) -> dict[str, Any]
     group_by = str(query.get("groupBy", ["record"])[0] or "record").strip()
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
-    rows = adjacent_derived_hit_rows(records, config)
+    rows = adjacent_derived_hit_rows(records, config, panel=panel)
     if strategy != "all":
         rows = [row for row in rows if str(row.get("strategyKey") or "") == strategy]
     if search:
@@ -4468,6 +5837,8 @@ def adjacent_derived_hits_payload(query: dict[str, list[str]]) -> dict[str, Any]
         "ok": True,
         "generatedAt": utc_now_iso(),
         "game": game_public_config(config),
+        "panel": panel,
+        "panelLabel": prediction_panel_label(panel),
         "q": search,
         "strategy": strategy,
         "groupBy": group_by,
@@ -4482,13 +5853,16 @@ def adjacent_derived_hits_payload(query: dict[str, list[str]]) -> dict[str, Any]
 def adjacent_derived_stats_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     config = game_from_query(query)
     ensure_prediction_tracking_supported(config)
+    panel = prediction_panel_from_query(query)
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
     return {
         "ok": True,
         "generatedAt": utc_now_iso(),
         "game": game_public_config(config),
-        "adjacentStats": adjacent_derived_stats(records, config),
+        "panel": panel,
+        "panelLabel": prediction_panel_label(panel),
+        "adjacentStats": adjacent_derived_stats(records, config, panel=panel),
     }
 
 
@@ -4508,12 +5882,15 @@ def prediction_tracking_response(
     auto_sync: dict[str, Any] | None = None,
     groups: list[dict[str, Any]] | None = None,
     adjacent_stats: dict[str, Any] | None = None,
+    panel: str | None = PREDICTION_PANEL_DEFAULT,
 ) -> dict[str, Any]:
+    panel_key = prediction_panel_from_value(panel) if panel is not None else None
     scoped_records = (
         [record for record in records if prediction_tracking_game_key(record) == config["key"]]
         if config is not None
         else records
     )
+    scoped_records = prediction_records_for_panel(scoped_records, panel_key)
     allowed_statuses = {"pending", "won", "lost", "cancelled", "void"}
     status_filter = status_filter if status_filter in allowed_statuses else "all"
     page_size = max(10, min(page_size, 200))
@@ -4533,25 +5910,32 @@ def prediction_tracking_response(
         )
         total_items = len(ordered)
     else:
-        ordered = list(page_items)
+        ordered = prediction_records_for_panel(list(page_items), panel_key)
         total_items = len(ordered) if total_items is None else total_items
     total_page = max(1, math.ceil(total_items / page_size))
     page = max(1, min(page, total_page))
     start = (page - 1) * page_size
     end = start + page_size
     summary = prediction_tracking_summary(scoped_records)
-    all_summary = {"total": all_total} if all_total is not None else prediction_tracking_summary(records)
+    all_summary = (
+        {"total": all_total}
+        if all_total is not None
+        else prediction_tracking_summary(prediction_records_for_panel(records, panel_key))
+    )
+    created_items = prediction_records_for_panel(created or [], panel_key)
     group_items = groups if groups is not None else prediction_tracking_group_summaries(scoped_records)
     return {
         "ok": True,
         "game": game_public_config(config) if config is not None else None,
+        "panel": panel_key,
+        "panelLabel": prediction_panel_label(panel_key),
         "generatedAt": utc_now_iso(),
         "trackingFile": file_info(DEFAULT_PREDICTION_TRACKING),
         "trackingDb": file_info(DEFAULT_PREDICTION_TRACKING_DB),
         "settledNow": settled_now,
         "autoSync": auto_sync,
-        "createdNow": len(created or []),
-        "created": (created or [])[:10],
+        "createdNow": len(created_items),
+        "created": created_items[:10],
         "deleted": deleted,
         "summary": summary,
         "allSummary": all_summary,
@@ -4574,17 +5958,62 @@ def prediction_tracking_touch_response(
     settled_now: int = 0,
     created: list[dict[str, Any]] | None = None,
     config: dict[str, Any] | None = None,
+    panel: str | None = PREDICTION_PANEL_DEFAULT,
 ) -> dict[str, Any]:
+    panel_key = prediction_panel_from_value(panel) if panel is not None else None
     scoped_records = (
         [record for record in records if prediction_tracking_game_key(record) == config["key"]]
         if config is not None
         else records
     )
+    scoped_records = prediction_records_for_panel(scoped_records, panel_key)
     return {
+        "panel": panel_key,
+        "panelLabel": prediction_panel_label(panel_key),
         "settledNow": settled_now,
-        "createdNow": len(created or []),
+        "createdNow": len(prediction_records_for_panel(created or [], panel_key)),
         "summary": prediction_tracking_summary(scoped_records),
-        "allSummary": {"total": prediction_tracking_count()},
+        "allSummary": {"total": prediction_tracking_count(panel=panel_key)},
+    }
+
+
+def prediction_tracking_auto_sync_status(
+    records: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    latest_ms = max(
+        (parse_int(row.get("drawTimeMs"), 0) for row in rows),
+        default=0,
+    )
+    now_ms = int(time.time() * 1000)
+    interval_ms = int(float(config.get("drawIntervalMinutes") or 0) * 60000)
+    grace_ms = max(15000, min(interval_ms // 2 if interval_ms > 0 else 15000, 60000))
+    overdue_targets: list[int] = []
+    overdue_records = 0
+    if records:
+        for record in records:
+            if prediction_tracking_game_key(record) != config["key"]:
+                continue
+            if record.get("status") != "pending":
+                continue
+            target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+            if target_ms > 0 and target_ms + grace_ms <= now_ms and latest_ms < target_ms:
+                overdue_records += 1
+                overdue_targets.append(target_ms)
+    oldest_overdue_target = min(overdue_targets, default=0)
+    newest_overdue_target = max(overdue_targets, default=0)
+    return {
+        "needsSync": overdue_records > 0,
+        "reason": "history_behind_target" if overdue_records > 0 else "",
+        "latestDrawTimeMs": latest_ms,
+        "latestDrawTimeUtc": draw_time_utc_from_ms(latest_ms),
+        "oldestOverdueTargetTimeMs": oldest_overdue_target,
+        "oldestOverdueTargetTimeUtc": draw_time_utc_from_ms(oldest_overdue_target),
+        "newestOverdueTargetTimeMs": newest_overdue_target,
+        "newestOverdueTargetTimeUtc": draw_time_utc_from_ms(newest_overdue_target),
+        "overduePendingRecords": overdue_records,
+        "graceSeconds": round(grace_ms / 1000, 3),
     }
 
 
@@ -4593,24 +6022,7 @@ def prediction_tracking_needs_auto_sync(
     rows: list[dict[str, Any]],
     config: dict[str, Any],
 ) -> bool:
-    if not records:
-        return False
-    latest_ms = max(
-        (parse_int(row.get("drawTimeMs"), 0) for row in rows),
-        default=0,
-    )
-    now_ms = int(time.time() * 1000)
-    interval_ms = int(float(config.get("drawIntervalMinutes") or 0) * 60000)
-    grace_ms = max(15000, min(interval_ms // 2 if interval_ms > 0 else 15000, 60000))
-    for record in records:
-        if prediction_tracking_game_key(record) != config["key"]:
-            continue
-        if record.get("status") != "pending":
-            continue
-        target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
-        if target_ms > 0 and target_ms + grace_ms <= now_ms and latest_ms < target_ms:
-            return True
-    return False
+    return bool(prediction_tracking_auto_sync_status(records, rows, config)["needsSync"])
 
 
 def maybe_auto_sync_prediction_tracking(
@@ -4619,16 +6031,24 @@ def maybe_auto_sync_prediction_tracking(
 ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
-    if not prediction_tracking_needs_auto_sync(records, rows, config):
+    auto_sync_status = prediction_tracking_auto_sync_status(records, rows, config)
+    if not auto_sync_status["needsSync"]:
         return rows, None
 
     now = time.monotonic()
     with PREDICTION_TRACKING_AUTO_SYNC_LOCK:
         last_attempt = PREDICTION_TRACKING_AUTO_SYNC_LAST_ATTEMPT.get(config["key"], 0.0)
-        interval_minutes = float(config.get("drawIntervalMinutes") or 0)
-        cooldown_seconds = max(PREDICTION_TRACKING_AUTO_SYNC_COOLDOWN_SECONDS, interval_minutes * 30)
+        cooldown_seconds = PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS
         if now - last_attempt < cooldown_seconds:
-            return rows, {"skipped": True, "reason": "cooldown"}
+            retry_after = max(0.0, cooldown_seconds - (now - last_attempt))
+            return rows, {
+                **auto_sync_status,
+                "skipped": True,
+                "reason": "cooldown",
+                "triggerReason": auto_sync_status["reason"],
+                "cooldownSeconds": cooldown_seconds,
+                "retryAfterSeconds": round(retry_after, 1),
+            }
         PREDICTION_TRACKING_AUTO_SYNC_LAST_ATTEMPT[config["key"]] = now
 
     result = refresh_history(
@@ -4643,6 +6063,15 @@ def maybe_auto_sync_prediction_tracking(
     )
     with DATA_LOCK:
         refreshed_rows = load_history_rows(game_history_path(config), config)
+    result = dict(result)
+    result.update(
+        {
+            "skipped": False,
+            "reason": auto_sync_status["reason"],
+            "cooldownSeconds": cooldown_seconds,
+            "trigger": auto_sync_status,
+        }
+    )
     return refreshed_rows, result
 
 
@@ -4650,15 +6079,35 @@ def touch_prediction_tracking_for_payload(
     payload: dict[str, Any],
     config: dict[str, Any],
     rows: list[dict[str, Any]] | None = None,
+    *,
+    allow_auto_sync: bool = False,
 ) -> dict[str, Any]:
+    predictions = payload.get("predictions") if isinstance(payload.get("predictions"), dict) else {}
+    panel = prediction_panel_from_value(predictions.get("panel") or payload.get("panel"))
+    auto_sync: dict[str, Any] | None = None
+    if not allow_auto_sync:
+        auto_sync = {"skipped": True, "reason": "prediction_payload_no_auto_sync"}
+        with PREDICTION_TRACKING_LOCK:
+            created = add_prediction_tracking_snapshot_lightweight(payload, config)
+        return {
+            "panel": panel,
+            "panelLabel": prediction_panel_label(panel),
+            "settledNow": 0,
+            "createdNow": len(prediction_records_for_panel(created, panel)),
+            "summary": {},
+            "allSummary": {},
+            "lightweight": True,
+            "autoSync": auto_sync,
+        }
+
     if rows is None:
         with DATA_LOCK:
             rows = load_history_rows(game_history_path(config), config)
-    auto_sync: dict[str, Any] | None = None
-    try:
-        rows, auto_sync = maybe_auto_sync_prediction_tracking(config, rows)
-    except Exception as exc:
-        auto_sync = {"ok": False, "error": str(exc)}
+    if allow_auto_sync:
+        try:
+            rows, auto_sync = maybe_auto_sync_prediction_tracking(config, rows)
+        except Exception as exc:
+            auto_sync = {"ok": False, "error": str(exc)}
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
         changed_records: list[dict[str, Any]] = []
@@ -4666,36 +6115,44 @@ def touch_prediction_tracking_for_payload(
         created = add_prediction_tracking_snapshot(records, payload, config)
         if settled_now or created:
             write_prediction_tracking(changed_records + created)
+        settled_for_panel = len(prediction_records_for_panel(changed_records, panel)) if settled_now else 0
         return prediction_tracking_touch_response(
             records,
-            settled_now=settled_now,
+            settled_now=settled_for_panel,
             created=created,
             config=config,
+            panel=panel,
         ) | {"autoSync": auto_sync}
 
 
 def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     config = game_from_query(query)
     ensure_prediction_tracking_supported(config)
+    panel = prediction_panel_from_query(query)
     page = max(1, parse_int(query.get("page", ["1"])[0], 1))
     page_size = max(10, min(parse_int(query.get("pageSize", ["50"])[0], 50), 200))
     status_filter = str(query.get("status", ["all"])[0] or "all")
     allowed_statuses = {"pending", "won", "lost", "cancelled", "void"}
     status_filter = status_filter if status_filter in allowed_statuses else "all"
+    allow_auto_sync = query_bool(query, "autoSync", True)
     with DATA_LOCK:
         rows = load_history_rows(game_history_path(config), config)
     auto_sync: dict[str, Any] | None = None
-    try:
-        rows, auto_sync = maybe_auto_sync_prediction_tracking(config, rows)
-    except Exception as exc:
-        auto_sync = {"ok": False, "error": str(exc)}
+    if allow_auto_sync:
+        try:
+            rows, auto_sync = maybe_auto_sync_prediction_tracking(config, rows)
+        except Exception as exc:
+            auto_sync = {"ok": False, "error": str(exc)}
+    else:
+        auto_sync = {"skipped": True, "reason": "request_disabled"}
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
         changed_records: list[dict[str, Any]] = []
         settled_now = settle_prediction_tracking(records, rows, config, changed_records)
         if settled_now:
             write_prediction_tracking(changed_records)
-        total_items = prediction_tracking_count(config["key"], status_filter)
+        settled_for_panel = len(prediction_records_for_panel(changed_records, panel)) if settled_now else 0
+        total_items = prediction_tracking_count(config["key"], status_filter, panel=panel)
         total_page = max(1, math.ceil(total_items / page_size))
         page = max(1, min(page, total_page))
         page_items = load_prediction_tracking_for_game(
@@ -4703,12 +6160,14 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             status_filter=status_filter,
             limit=page_size,
             offset=(page - 1) * page_size,
+            panel=panel,
         )
-    groups = prediction_tracking_group_summaries(records)
-    all_total = prediction_tracking_count()
+    panel_records = prediction_records_for_panel(records, panel)
+    groups = prediction_tracking_group_summaries(panel_records)
+    all_total = prediction_tracking_count(panel=panel)
     return prediction_tracking_response(
         records,
-        settled_now=settled_now,
+        settled_now=settled_for_panel,
         config=config,
         page=page,
         page_size=page_size,
@@ -4718,6 +6177,7 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         all_total=all_total,
         auto_sync=auto_sync,
         groups=groups,
+        panel=panel,
     )
 
 
@@ -4739,6 +6199,7 @@ def settle_prediction_tracking_store(
 
 def settle_prediction_tracking_request(payload: dict[str, Any]) -> dict[str, Any]:
     config = game_from_options(payload)
+    panel = prediction_panel_from_value(payload.get("panel"))
     with DATA_LOCK:
         rows = load_history_rows(game_history_path(config), config)
     with PREDICTION_TRACKING_LOCK:
@@ -4747,7 +6208,8 @@ def settle_prediction_tracking_request(payload: dict[str, Any]) -> dict[str, Any
         settled_now = settle_prediction_tracking(records, rows, config, changed_records)
         if settled_now:
             write_prediction_tracking(changed_records)
-        return prediction_tracking_response(records, settled_now=settled_now, config=config)
+        settled_for_panel = len(prediction_records_for_panel(changed_records, panel)) if settled_now else 0
+        return prediction_tracking_response(records, settled_now=settled_for_panel, config=config, panel=panel)
 
 
 def delete_prediction_tracking(record_id: str, query: dict[str, list[str]]) -> dict[str, Any]:
@@ -4755,6 +6217,7 @@ def delete_prediction_tracking(record_id: str, query: dict[str, list[str]]) -> d
     if not record_id:
         raise ValueError("追踪记录 ID 无效")
     config = game_from_query(query)
+    panel = prediction_panel_from_query(query)
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
         deleted: dict[str, Any] | None = None
@@ -4767,7 +6230,7 @@ def delete_prediction_tracking(record_id: str, query: dict[str, list[str]]) -> d
         if deleted is None:
             raise KeyError("追踪记录不存在或不属于当前彩种")
         delete_prediction_tracking_records([record_id])
-        return prediction_tracking_response(remaining, deleted=deleted, config=config)
+        return prediction_tracking_response(remaining, deleted=deleted, config=config, panel=panel)
 
 
 def default_prediction_auto_config() -> dict[str, Any]:
@@ -4778,7 +6241,7 @@ def default_prediction_auto_config() -> dict[str, Any]:
         "maxPages": 2,
         "pageSize": 100,
         "sleep": 0.05,
-        "skipSupplement": True,
+        "skipSupplement": False,
         "games": {
             key: {"enabled": supports_predictions(config)}
             for key, config in LOTTERY_GAMES.items()
@@ -4807,6 +6270,7 @@ def load_prediction_auto_config() -> dict[str, Any]:
     config["maxPages"] = max(1, min(parse_int(config.get("maxPages"), 2), 20))
     config["pageSize"] = max(10, min(parse_int(config.get("pageSize"), 100), 100))
     config["sleep"] = max(0, min(parse_float(config.get("sleep"), 0.05), 5))
+    config["skipSupplement"] = bool(config.get("skipSupplement", False))
     return config
 
 
@@ -4864,10 +6328,31 @@ def prediction_auto_history_marker(config: dict[str, Any]) -> tuple[int, int, st
     )
 
 
-def prediction_tracking_summary_for_config(config: dict[str, Any]) -> dict[str, Any]:
+def prediction_tracking_summary_for_config(
+    config: dict[str, Any],
+    *,
+    panel: str | None = None,
+) -> dict[str, Any]:
+    with PREDICTION_TRACKING_LOCK:
+        records = load_prediction_tracking_for_game(config["key"], panel=panel)
+    return prediction_tracking_summary(records)
+
+
+def prediction_tracking_panel_summaries_for_config(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
-    return prediction_tracking_summary(records)
+    return {
+        panel: prediction_tracking_summary(prediction_records_for_panel(records, panel))
+        for panel in [
+            PREDICTION_PANEL_DEFAULT,
+            PREDICTION_PANEL_B,
+            PREDICTION_PANEL_C,
+            PREDICTION_PANEL_D,
+            PREDICTION_PANEL_E,
+            PREDICTION_PANEL_F,
+            PREDICTION_PANEL_G,
+        ]
+    }
 
 
 def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -4885,32 +6370,88 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                         "pageSize": parse_int(config.get("pageSize"), 100),
                         "maxPages": parse_int(config.get("maxPages"), 2),
                         "sleep": parse_float(config.get("sleep"), 0.05),
-                        "skipSupplement": bool(config.get("skipSupplement", True)),
+                        "skipSupplement": bool(config.get("skipSupplement", False)),
                     }
                 )
             new_rows = parse_int((refresh_result or {}).get("newRows"), 0)
             settled_from_refresh = parse_int((refresh_result or {}).get("settledPredictions"), 0)
             marker = prediction_auto_history_marker(game_config)
             previous_marker = PREDICTION_AUTO_HISTORY_MARKERS.get(key)
+            with DATA_LOCK:
+                tracking_rows = load_history_rows(game_history_path(game_config), game_config)
+            with PREDICTION_TRACKING_LOCK:
+                tracking_records = load_prediction_tracking_for_game(key)
+            tracking_wait = prediction_tracking_auto_sync_status(tracking_records, tracking_rows, game_config)
+            waiting_for_draw = bool(config.get("sync", True) and tracking_wait.get("needsSync"))
             should_generate_prediction = (
                 not config.get("sync", True)
                 or previous_marker is None
                 or previous_marker != marker
                 or new_rows > 0
                 or settled_from_refresh > 0
-            )
+            ) and not waiting_for_draw
             skipped_prediction = False
             if should_generate_prediction:
-                prediction = predictions_payload({"game": [key]})
-                tracking = prediction.get("predictionTracking") or {}
+                prediction_a = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_DEFAULT]})
+                prediction_b = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_B]})
+                prediction_c = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_C]})
+                prediction_d = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_D]})
+                prediction_e = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_E]})
+                prediction_f = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_F]})
+                prediction_g = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_G]})
+                tracking_a = prediction_a.get("predictionTracking") or {}
+                tracking_b = prediction_b.get("predictionTracking") or {}
+                tracking_c = prediction_c.get("predictionTracking") or {}
+                tracking_d = prediction_d.get("predictionTracking") or {}
+                tracking_e = prediction_e.get("predictionTracking") or {}
+                tracking_f = prediction_f.get("predictionTracking") or {}
+                tracking_g = prediction_g.get("predictionTracking") or {}
+                panel_summaries = prediction_tracking_panel_summaries_for_config(game_config)
+                tracking = {
+                    "settledNow": parse_int(tracking_a.get("settledNow"), 0)
+                    + parse_int(tracking_b.get("settledNow"), 0)
+                    + parse_int(tracking_c.get("settledNow"), 0)
+                    + parse_int(tracking_d.get("settledNow"), 0)
+                    + parse_int(tracking_e.get("settledNow"), 0)
+                    + parse_int(tracking_f.get("settledNow"), 0)
+                    + parse_int(tracking_g.get("settledNow"), 0),
+                    "createdNow": parse_int(tracking_a.get("createdNow"), 0)
+                    + parse_int(tracking_b.get("createdNow"), 0)
+                    + parse_int(tracking_c.get("createdNow"), 0)
+                    + parse_int(tracking_d.get("createdNow"), 0)
+                    + parse_int(tracking_e.get("createdNow"), 0)
+                    + parse_int(tracking_f.get("createdNow"), 0)
+                    + parse_int(tracking_g.get("createdNow"), 0),
+                    "summaryA": panel_summaries.get(PREDICTION_PANEL_DEFAULT) or {},
+                    "summaryB": panel_summaries.get(PREDICTION_PANEL_B) or {},
+                    "summaryC": panel_summaries.get(PREDICTION_PANEL_C) or {},
+                    "summaryD": panel_summaries.get(PREDICTION_PANEL_D) or {},
+                    "summaryE": panel_summaries.get(PREDICTION_PANEL_E) or {},
+                    "summaryF": panel_summaries.get(PREDICTION_PANEL_F) or {},
+                    "summaryG": panel_summaries.get(PREDICTION_PANEL_G) or {},
+                }
                 PREDICTION_AUTO_HISTORY_MARKERS[key] = marker
             else:
+                panel_summaries = prediction_tracking_panel_summaries_for_config(game_config)
                 tracking = {
                     "settledNow": 0,
                     "createdNow": 0,
-                    "summary": prediction_tracking_summary_for_config(game_config),
+                    "summaryA": panel_summaries.get(PREDICTION_PANEL_DEFAULT) or {},
+                    "summaryB": panel_summaries.get(PREDICTION_PANEL_B) or {},
+                    "summaryC": panel_summaries.get(PREDICTION_PANEL_C) or {},
+                    "summaryD": panel_summaries.get(PREDICTION_PANEL_D) or {},
+                    "summaryE": panel_summaries.get(PREDICTION_PANEL_E) or {},
+                    "summaryF": panel_summaries.get(PREDICTION_PANEL_F) or {},
+                    "summaryG": panel_summaries.get(PREDICTION_PANEL_G) or {},
                 }
                 skipped_prediction = True
+            tracking_summary_a = tracking.get("summaryA") or {}
+            tracking_summary_b = tracking.get("summaryB") or {}
+            tracking_summary_c = tracking.get("summaryC") or {}
+            tracking_summary_d = tracking.get("summaryD") or {}
+            tracking_summary_e = tracking.get("summaryE") or {}
+            tracking_summary_f = tracking.get("summaryF") or {}
+            tracking_summary_g = tracking.get("summaryG") or {}
             results.append(
                 {
                     "game": key,
@@ -4918,8 +6459,23 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "newRows": new_rows,
                     "settledPredictions": settled_from_refresh + parse_int(tracking.get("settledNow"), 0),
                     "createdPredictions": parse_int(tracking.get("createdNow"), 0),
-                    "trackingTotal": parse_int((tracking.get("summary") or {}).get("total"), 0),
+                    "trackingTotal": parse_int(tracking_summary_a.get("total"), 0)
+                    + parse_int(tracking_summary_b.get("total"), 0)
+                    + parse_int(tracking_summary_c.get("total"), 0)
+                    + parse_int(tracking_summary_d.get("total"), 0)
+                    + parse_int(tracking_summary_e.get("total"), 0)
+                    + parse_int(tracking_summary_f.get("total"), 0)
+                    + parse_int(tracking_summary_g.get("total"), 0),
+                    "trackingTotalA": parse_int(tracking_summary_a.get("total"), 0),
+                    "trackingTotalB": parse_int(tracking_summary_b.get("total"), 0),
+                    "trackingTotalC": parse_int(tracking_summary_c.get("total"), 0),
+                    "trackingTotalD": parse_int(tracking_summary_d.get("total"), 0),
+                    "trackingTotalE": parse_int(tracking_summary_e.get("total"), 0),
+                    "trackingTotalF": parse_int(tracking_summary_f.get("total"), 0),
+                    "trackingTotalG": parse_int(tracking_summary_g.get("total"), 0),
                     "skippedPrediction": skipped_prediction,
+                    "waitingForDraw": waiting_for_draw,
+                    "trackingWait": tracking_wait if waiting_for_draw else None,
                     "generatedAt": utc_now_iso(),
                 }
             )
@@ -4951,11 +6507,13 @@ def prediction_auto_worker() -> None:
         results, errors = run_prediction_auto_once(config)
         poll_seconds = parse_int(config.get("pollSeconds"), 60)
         next_run_ts = time.time() + poll_seconds
+        completed_at = utc_now_iso()
         set_prediction_auto_status(
             status="running",
             running=True,
             enabled=True,
             lastRunAt=started_at,
+            lastCompletedAt=completed_at,
             nextRunAt=datetime.fromtimestamp(next_run_ts, tz=UTC).isoformat(timespec="seconds"),
             message=f"自动追踪完成：{len(results)} 个彩种，{len(errors)} 个错误",
             results=results,
@@ -5015,11 +6573,14 @@ def prediction_auto_request(payload: dict[str, Any]) -> dict[str, Any]:
         config = load_prediction_auto_config()
         if isinstance(payload.get("config"), dict):
             config.update({key: value for key, value in payload["config"].items() if key != "games"})
+        started_at = utc_now_iso()
         results, errors = run_prediction_auto_once(config)
+        completed_at = utc_now_iso()
         set_prediction_auto_status(
             status="stopped",
             running=False,
-            lastRunAt=utc_now_iso(),
+            lastRunAt=started_at,
+            lastCompletedAt=completed_at,
             message=f"手动自动追踪轮询完成：{len(results)} 个彩种，{len(errors)} 个错误",
             results=results,
             errors=errors,
@@ -6460,6 +8021,7 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
         fetched_rows: list[dict[str, Any]] = []
         meta: dict[str, Any] = {}
         rows: list[dict[str, Any]] = list(existing_rows)
+        history_file_changed = False
         sync_meta: dict[str, Any] = {
             "hitExisting": False,
             "pagesFetched": 0,
@@ -6496,6 +8058,7 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
             written_rows, meta = fetch_bc_keno_history.fetch_history_to_csv(namespace, out)
             rows = load_history_rows(out, config)
             written_rows = len(rows) if rows else written_rows
+            history_file_changed = dashboard_rows_changed(existing_rows, rows, config)
             if skip_supplement:
                 etipos_rows = []
                 etipos_meta = {"source": config.get("officialSupplement", ""), "status": "skipped", "newRows": 0}
@@ -6506,8 +8069,13 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
                     etipos_rows = []
                     etipos_meta = {"source": config.get("officialSupplement", ""), "error": str(exc), "newRows": 0}
             if etipos_rows:
-                rows = merge_history_rows(rows, etipos_rows)
-                write_dashboard_rows(out, rows, config)
+                merged_rows = merge_history_rows(rows, etipos_rows)
+                if dashboard_rows_changed(rows, merged_rows, config):
+                    rows = merged_rows
+                    write_dashboard_rows(out, rows, config)
+                    history_file_changed = True
+                else:
+                    rows = merged_rows
                 written_rows = len(rows)
             new_rows = max(0, written_rows - len(existing_rows))
             oldest_row = meta.get("oldest_row") or {}
@@ -6522,6 +8090,7 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
                     "oldestFetchedUtc": oldest_row.get("draw_time_utc", ""),
                     "newestExistingUtc": draw_time_utc_from_ms(newest_existing_ms),
                     "stopReason": "full_sync_complete",
+                    "historyFileChanged": history_file_changed,
                 }
             )
         else:
@@ -6629,7 +8198,9 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
                     etipos_rows = []
                     etipos_meta = {"source": config.get("officialSupplement", ""), "error": str(exc), "newRows": 0}
             rows = merge_history_rows(merged_before_etipos, etipos_rows)
-            write_dashboard_rows(out, rows, config)
+            history_file_changed = dashboard_rows_changed(existing_rows, rows, config)
+            if history_file_changed:
+                write_dashboard_rows(out, rows, config)
             written_rows = len(rows)
             new_rows = max(0, written_rows - len(existing_rows))
             possible_gap = bool(existing_rows and not hit_existing)
@@ -6649,6 +8220,7 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
                     "newestFetchedUtc": draw_time_utc_from_ms(newest_fetched_ms),
                     "newestExistingUtc": draw_time_utc_from_ms(newest_existing_ms),
                     "stopReason": stop_reason,
+                    "historyFileChanged": history_file_changed,
                 }
             )
 
@@ -6656,7 +8228,6 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
         sync_meta["dataIntegrity"] = history_data_integrity(rows, config, meta)
         meta = dict(meta)
         meta.update(sync_meta)
-        settled_bets = settle_sim_bet_store(rows, config)
         settled_predictions = settle_prediction_tracking_store(rows, config)
 
     return {
@@ -6667,7 +8238,7 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
         "bcNewRows": len(fetched_rows) if not fetch_all else new_rows,
         "etiposNewRows": etipos_meta.get("newRows", 0),
         "writtenRows": written_rows,
-        "settledBets": settled_bets,
+        "historyFileChanged": history_file_changed,
         "settledPredictions": settled_predictions,
         "hitExisting": sync_meta["hitExisting"],
         "pagesFetched": sync_meta["pagesFetched"],
@@ -6714,7 +8285,6 @@ def refresh_all_games(options: dict[str, Any]) -> dict[str, Any]:
         "newRows": sum(parse_int(item.get("newRows"), 0) for item in results),
         "bcNewRows": sum(parse_int(item.get("bcNewRows"), 0) for item in results),
         "etiposNewRows": sum(parse_int(item.get("etiposNewRows"), 0) for item in results),
-        "settledBets": sum(parse_int(item.get("settledBets"), 0) for item in results),
         "settledPredictions": sum(parse_int(item.get("settledPredictions"), 0) for item in results),
         "writtenRows": sum(parse_int(item.get("writtenRows"), 0) for item in results),
     }
@@ -6742,7 +8312,6 @@ def refresh_all_games(options: dict[str, Any]) -> dict[str, Any]:
         "newRows": totals["newRows"],
         "bcNewRows": totals["bcNewRows"],
         "etiposNewRows": totals["etiposNewRows"],
-        "settledBets": totals["settledBets"],
         "settledPredictions": totals["settledPredictions"],
         "writtenRows": totals["writtenRows"],
         "possibleGap": bool(possible_gap_games),
@@ -6781,6 +8350,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/analysis":
             try:
                 self.send_json(analysis_payload(parse_qs(parsed.query)))
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+            except Exception as exc:
+                self.send_error_json(500, str(exc))
+            return
+        if parsed.path == "/api/cde-kill-backtest":
+            try:
+                self.send_json(cde_kill_backtest_payload(parse_qs(parsed.query)))
             except ValueError as exc:
                 self.send_error_json(400, str(exc))
             except Exception as exc:
@@ -6832,14 +8409,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self.send_error_json(500, str(exc))
             return
-        if parsed.path == "/api/sim-bets":
-            try:
-                self.send_json(sim_bets_payload(parse_qs(parsed.query)))
-            except ValueError as exc:
-                self.send_error_json(400, str(exc))
-            except Exception as exc:
-                self.send_error_json(500, str(exc))
-            return
         if parsed.path == "/api/backtest/status":
             self.send_json(backtest_status_payload())
             return
@@ -6865,16 +8434,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.send_json(refresh_all_games(options))
             except RequestBodyTooLarge as exc:
                 self.send_error_json(413, str(exc))
-            except Exception as exc:
-                self.send_error_json(500, str(exc))
-            return
-        if parsed.path == "/api/sim-bets":
-            try:
-                self.send_json(create_sim_bet(self.read_json_body()))
-            except RequestBodyTooLarge as exc:
-                self.send_error_json(413, str(exc))
-            except ValueError as exc:
-                self.send_error_json(400, str(exc))
             except Exception as exc:
                 self.send_error_json(500, str(exc))
             return
@@ -6928,17 +8487,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
             try:
                 record_id = unquote(parsed.path.rsplit("/", 1)[-1])
                 self.send_json(delete_prediction_tracking(record_id, parse_qs(parsed.query)))
-            except ValueError as exc:
-                self.send_error_json(400, str(exc))
-            except KeyError as exc:
-                self.send_error_json(404, str(exc).strip("'"))
-            except Exception as exc:
-                self.send_error_json(500, str(exc))
-            return
-        if parsed.path.startswith("/api/sim-bets/"):
-            try:
-                bet_id = unquote(parsed.path.rsplit("/", 1)[-1])
-                self.send_json(delete_sim_bet(bet_id, parse_qs(parsed.query)))
             except ValueError as exc:
                 self.send_error_json(400, str(exc))
             except KeyError as exc:

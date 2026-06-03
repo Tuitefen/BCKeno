@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Fetch BC.Game lottery draw history for Slovakia E-Klub Keno 20/80.
+Fetch BC.Game lottery draw history to CSV.
 
 The public page calls:
   POST https://bcgame.nz/api/platform-lottery/lottery-detail/history
@@ -11,8 +11,9 @@ keno_triple_omission.py.
 
 Examples:
   python fetch_bc_keno_history.py
-  python fetch_bc_keno_history.py --limit 5000 --out bc_keno_history.csv
-  python fetch_bc_keno_history.py --all --out bc_keno_history_all.csv
+  python fetch_bc_keno_history.py --analyze --report-out data/bc_spain_triples_report.csv
+  python fetch_bc_keno_history.py --lottery-id 115889 --limit 5000 --out data/bc_spain_l_express_20_70_history.csv
+  python fetch_bc_keno_history.py --all --out data/bc_spain_l_express_20_70_history.csv
 """
 
 from __future__ import annotations
@@ -33,10 +34,10 @@ from urllib.request import Request, urlopen
 
 API_URL = "https://bcgame.nz/api/platform-lottery/lottery-detail/history"
 LOTTERY_URL = "https://bcgame.nz/zh-CN/lottery/detail/{lottery_id}?tab=1"
-DEFAULT_LOTTERY_ID = "74214"
+DEFAULT_LOTTERY_ID = "115889"
 ROOT = Path(__file__).resolve().parent
 DATA_ROOT = Path(os.environ.get("BCKENO_DATA_DIR", ROOT / "data")).resolve()
-DEFAULT_OUTPUT = DATA_ROOT / "bc_keno_history.csv"
+DEFAULT_OUTPUT = DATA_ROOT / "bc_spain_l_express_20_70_history.csv"
 MAX_NUMBER_COLUMNS = 20
 NUMBER_COLUMNS = [f"n{i}" for i in range(1, MAX_NUMBER_COLUMNS + 1)]
 CANCELLED_STATUS_CODES = {"60"}
@@ -403,13 +404,11 @@ def fetch_history_to_csv(args: argparse.Namespace, path: Path) -> tuple[int, dic
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Fetch BC.Game Slovakia E-Klub Keno 20/80 draw history to CSV."
-    )
+    parser = argparse.ArgumentParser(description="Fetch BC.Game lottery draw history to CSV.")
     parser.add_argument("--lottery-id", default=DEFAULT_LOTTERY_ID)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--expected-count", type=int, default=20)
-    parser.add_argument("--total-numbers", type=int, default=80)
+    parser.add_argument("--total-numbers", type=int, default=70)
     parser.add_argument(
         "--limit",
         type=int,
@@ -430,8 +429,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--report-out",
         type=Path,
-        default=DATA_ROOT / "bc_triples_report.csv",
-        help="Output CSV for --analyze. Default: data/bc_triples_report.csv.",
+        default=DATA_ROOT / "bc_spain_triples_report.csv",
+        help="Output CSV for --analyze. Default: data/bc_spain_triples_report.csv.",
     )
     parser.add_argument(
         "--top",

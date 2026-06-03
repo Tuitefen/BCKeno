@@ -11,7 +11,82 @@ const state = {
   adjacentHitQuery: "",
   adjacentHits: null,
   predictionAuto: null,
-  bets: null,
+  predictionAutoPollTimer: null,
+  predictionAutoLastCompletedAt: "",
+  predictionTrackingRefreshInFlight: false,
+  predictionPanel: "a",
+  predictionPanels: {
+    a: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+    b: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+    c: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+    d: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+    e: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+    f: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+    g: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+  },
   backtest: null,
   backtestPollTimer: null,
   backtestScan: null,
@@ -23,6 +98,7 @@ const state = {
   martingaleDefaultKey: "",
   historyPage: 1,
   history: null,
+  cdeBacktestPage: 1,
   loading: false,
   activeView: "prediction",
   lastSync: null,
@@ -30,6 +106,7 @@ const state = {
   responseCache: new Map(),
   currentGapAudit: null,
   currentIntegrity: null,
+  activeModal: null,
 };
 
 const els = {
@@ -44,7 +121,6 @@ const els = {
   lastSyncTime: document.querySelector("#lastSyncTime"),
   lastBcRows: document.querySelector("#lastBcRows"),
   lastEtiposRows: document.querySelector("#lastEtiposRows"),
-  lastSettledBets: document.querySelector("#lastSettledBets"),
   lastSettledPredictions: document.querySelector("#lastSettledPredictions"),
   lastSyncError: document.querySelector("#lastSyncError"),
   syncBtn: document.querySelector("#syncBtn"),
@@ -59,6 +135,15 @@ const els = {
   sortBy: document.querySelector("#sortBy"),
   sortOrder: document.querySelector("#sortOrder"),
   resultLimit: document.querySelector("#resultLimit"),
+  cdeBacktestTrain: document.querySelector("#cdeBacktestTrain"),
+  cdeBacktestMeta: document.querySelector("#cdeBacktestMeta"),
+  cdeBacktestStats: document.querySelector("#cdeBacktestStats"),
+  cdeBacktestPanelCards: document.querySelector("#cdeBacktestPanelCards"),
+  cdeBacktestNotes: document.querySelector("#cdeBacktestNotes"),
+  cdeBacktestRows: document.querySelector("#cdeBacktestRows"),
+  cdeBacktestPrevBtn: document.querySelector("#cdeBacktestPrevBtn"),
+  cdeBacktestNextBtn: document.querySelector("#cdeBacktestNextBtn"),
+  cdeBacktestPageInfo: document.querySelector("#cdeBacktestPageInfo"),
   applyBtn: document.querySelector("#applyBtn"),
   p3: document.querySelector("#p3"),
   p3Wait: document.querySelector("#p3Wait"),
@@ -68,20 +153,23 @@ const els = {
   anyRun: document.querySelector("#anyRun"),
   observedWindows: document.querySelector("#observedWindows"),
   expectedWindows: document.querySelector("#expectedWindows"),
+  predictionTitle: document.querySelector("#predictionTitle"),
   predictionWindow: document.querySelector("#predictionWindow"),
   predictionMethod: document.querySelector("#predictionMethod"),
-  bigPredictionBalls: document.querySelector("#bigPredictionBalls"),
-  smallPredictionBalls: document.querySelector("#smallPredictionBalls"),
-  bonusPredictionCard: document.querySelector("#bonusPredictionCard"),
-  bonusPredictionTitle: document.querySelector("#bonusPredictionTitle"),
-  bonusPredictionRange: document.querySelector("#bonusPredictionRange"),
-  bonusPredictionBalls: document.querySelector("#bonusPredictionBalls"),
+  predictionKillPanel: document.querySelector("#predictionKillPanel"),
+  predictionKillLabel: document.querySelector("#predictionKillLabel"),
+  predictionKillSummary: document.querySelector("#predictionKillSummary"),
+  predictionKillNumbers: document.querySelector("#predictionKillNumbers"),
+  predictionKillSources: document.querySelector("#predictionKillSources"),
   predictionStrategyTickets: document.querySelector("#predictionStrategyTickets"),
+  predictionStrategyHealth: document.querySelector("#predictionStrategyHealth"),
   predictionTrackingPanel: document.querySelector("#predictionTrackingPanel"),
   predictionTrackingMeta: document.querySelector("#predictionTrackingMeta"),
   predictionTrackingStats: document.querySelector("#predictionTrackingStats"),
   predictionTrackingWarning: document.querySelector("#predictionTrackingWarning"),
   predictionTrackingGroups: document.querySelector("#predictionTrackingGroups"),
+  predictionAdjacentStatsWrap: document.querySelector("#predictionAdjacentStatsWrap"),
+  predictionAdjacentStatsSummary: document.querySelector("#predictionAdjacentStatsSummary"),
   predictionAdjacentStats: document.querySelector("#predictionAdjacentStats"),
   predictionTrackingRows: document.querySelector("#predictionTrackingRows"),
   predictionTrackingStatusFilter: document.querySelector("#predictionTrackingStatusFilter"),
@@ -92,13 +180,7 @@ const els = {
   predictionAutoToggleBtn: document.querySelector("#predictionAutoToggleBtn"),
   predictionAutoRunBtn: document.querySelector("#predictionAutoRunBtn"),
   predictionNotice: document.querySelector("#predictionNotice"),
-  adjacentToolMeta: document.querySelector("#adjacentToolMeta"),
-  adjacentToolNumbers: document.querySelector("#adjacentToolNumbers"),
-  adjacentToolGenerateBtn: document.querySelector("#adjacentToolGenerateBtn"),
-  adjacentToolCopyBtn: document.querySelector("#adjacentToolCopyBtn"),
-  adjacentToolHint: document.querySelector("#adjacentToolHint"),
-  adjacentToolSummary: document.querySelector("#adjacentToolSummary"),
-  adjacentToolResults: document.querySelector("#adjacentToolResults"),
+  martingaleView: document.querySelector("#martingaleView"),
   martingaleGameMeta: document.querySelector("#martingaleGameMeta"),
   martingaleModeGroup: document.querySelector("#martingaleModeGroup"),
   martingalePlayGroup: document.querySelector("#martingalePlayGroup"),
@@ -109,6 +191,8 @@ const els = {
   martingaleUnit: document.querySelector("#martingaleUnit"),
   martingaleMaxStake: document.querySelector("#martingaleMaxStake"),
   martingaleStopLoss: document.querySelector("#martingaleStopLoss"),
+  riskFlatStake: document.querySelector("#riskFlatStake"),
+  riskKellyFraction: document.querySelector("#riskKellyFraction"),
   generateMartingaleBtn: document.querySelector("#generateMartingaleBtn"),
   martingaleInputHint: document.querySelector("#martingaleInputHint"),
   martingaleResultMeta: document.querySelector("#martingaleResultMeta"),
@@ -126,24 +210,17 @@ const els = {
   martingaleBreakReason: document.querySelector("#martingaleBreakReason"),
   martingaleAlert: document.querySelector("#martingaleAlert"),
   martingaleRows: document.querySelector("#martingaleRows"),
-  betTargetTime: document.querySelector("#betTargetTime"),
-  betType: document.querySelector("#betType"),
-  betNumbers: document.querySelector("#betNumbers"),
-  betStake: document.querySelector("#betStake"),
-  betOdds: document.querySelector("#betOdds"),
-  betNote: document.querySelector("#betNote"),
-  createBetBtn: document.querySelector("#createBetBtn"),
-  betFormHint: document.querySelector("#betFormHint"),
-  betCount: document.querySelector("#betCount"),
-  pendingBets: document.querySelector("#pendingBets"),
-  pendingStake: document.querySelector("#pendingStake"),
-  wonBets: document.querySelector("#wonBets"),
-  hitRate: document.querySelector("#hitRate"),
-  lostBets: document.querySelector("#lostBets"),
-  profitTotal: document.querySelector("#profitTotal"),
-  payoutTotal: document.querySelector("#payoutTotal"),
-  betTable: document.querySelector("#betTable"),
-  betTableAllBody: document.querySelector("#betTableAllBody"),
+  riskBudgetMeta: document.querySelector("#riskBudgetMeta"),
+  riskBudgetBreakEven: document.querySelector("#riskBudgetBreakEven"),
+  riskBudgetEdge: document.querySelector("#riskBudgetEdge"),
+  riskBudgetKellyFraction: document.querySelector("#riskBudgetKellyFraction"),
+  riskBudgetKellyStake: document.querySelector("#riskBudgetKellyStake"),
+  riskBudgetFlatExpected: document.querySelector("#riskBudgetFlatExpected"),
+  riskBudgetFlatRange: document.querySelector("#riskBudgetFlatRange"),
+  riskBudgetPlanExpected: document.querySelector("#riskBudgetPlanExpected"),
+  riskBudgetPlanRisk: document.querySelector("#riskBudgetPlanRisk"),
+  riskBudgetNote: document.querySelector("#riskBudgetNote"),
+  riskBudgetRows: document.querySelector("#riskBudgetRows"),
   backtestStrategy: document.querySelector("#backtestStrategy"),
   backtestNumbersField: document.querySelector("#backtestNumbersField"),
   backtestNumbers: document.querySelector("#backtestNumbers"),
@@ -174,6 +251,7 @@ const els = {
   backtestScanMeta: document.querySelector("#backtestScanMeta"),
   backtestScanNotice: document.querySelector("#backtestScanNotice"),
   backtestScanRows: document.querySelector("#backtestScanRows"),
+  backtestView: document.querySelector("#backtestView"),
   tripleCount: document.querySelector("#tripleCount"),
   runBars: document.querySelector("#runBars"),
   tripleTable: document.querySelector("#tripleTable"),
@@ -187,6 +265,7 @@ const els = {
   crossCategory: document.querySelector("#crossCategory"),
   crossCondition: document.querySelector("#crossCondition"),
   crossBars: document.querySelector("#crossBars"),
+  analysisView: document.querySelector("#analysisView"),
   pairCount: document.querySelector("#pairCount"),
   pairTable: document.querySelector("#pairTable"),
   quadCount: document.querySelector("#quadCount"),
@@ -197,12 +276,23 @@ const els = {
   historySearchBtn: document.querySelector("#historySearchBtn"),
   historyCount: document.querySelector("#historyCount"),
   historyTable: document.querySelector("#historyTable"),
+  historyView: document.querySelector("#historyView"),
   prevPageBtn: document.querySelector("#prevPageBtn"),
   nextPageBtn: document.querySelector("#nextPageBtn"),
   pageInfo: document.querySelector("#pageInfo"),
   toast: document.querySelector("#toast"),
 };
 
+const TOOL_MODAL_VIEWS = new Set(["martingale", "backtest", "history"]);
+const PREDICTION_PANEL_DEFAULT = "a";
+const PREDICTION_PANEL_B = "b";
+const PREDICTION_PANEL_C = "c";
+const PREDICTION_PANEL_D = "d";
+const PREDICTION_PANEL_E = "e";
+const PREDICTION_PANEL_F = "f";
+const PREDICTION_PANEL_G = "g";
+const CDE_KILL_BACKTEST_GAMES = new Set(["spain_l_express_20_70", "poland_keno_20_70"]);
+const CDE_BACKTEST_PAGE_SIZE = 25;
 const BACKTEST_DUPLICATE_SHAPE_OPTIONS = new Set(["hasPair", "hasTriple", "hasQuad"]);
 const BACKTEST_SHAPE_OPTION_LABELS = {
   hasPair: "两连",
@@ -221,16 +311,6 @@ const BACKTEST_SHAPE_OPTION_LABELS = {
 };
 
 const MARTINGALE_DEFAULT_ODDS = {
-  sk_keno_20_80: {
-    1: 3.6,
-    2: 15,
-    3: 60,
-    4: 250,
-    5: 1000,
-    6: 3800,
-    7: 12500,
-    8: 35000,
-  },
   spain_l_express_20_70: {
     1: 3.2,
     2: 11,
@@ -333,6 +413,43 @@ function parseNumberInput(input, fallback = 0) {
 function roundUpToUnit(value, unit) {
   const safeUnit = Number.isFinite(unit) && unit > 0 ? unit : 0.01;
   return Math.ceil((value - Number.EPSILON) / safeUnit) * safeUnit;
+}
+
+function roundDownToUnit(value, unit) {
+  const safeUnit = Number.isFinite(unit) && unit > 0 ? unit : 0.01;
+  return Math.max(0, Math.floor((value + Number.EPSILON) / safeUnit) * safeUnit);
+}
+
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(max, Math.max(min, value));
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  const text = String(value ?? "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function seededRandom(seed) {
+  let value = seed >>> 0;
+  return () => {
+    value = (Math.imul(value, 1664525) + 1013904223) >>> 0;
+    return value / 4294967296;
+  };
+}
+
+function percentile(sortedValues, pct) {
+  if (!sortedValues.length) return 0;
+  const index = clampNumber((sortedValues.length - 1) * pct, 0, sortedValues.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) return sortedValues[lower];
+  return sortedValues[lower] + (sortedValues[upper] - sortedValues[lower]) * (index - lower);
 }
 
 function combination(n, k) {
@@ -456,15 +573,11 @@ function relativeTargetLabel(value, status) {
 
 function buildAnalysisQuery() {
   const params = new URLSearchParams();
+  const requestedWindow = els.drawLimit?.value || "30";
   params.set("game", state.currentGame?.key || els.gameSelect.value || "");
-  params.set("drawLimit", els.drawLimit.value || "0");
-  params.set("minCurrentMiss", els.minCurrentMiss.value || "0");
-  params.set("minHits", els.minHits.value || "0");
-  params.set("maxTail", els.maxTail.value || "1");
-  params.set("q", els.tripleQuery.value || "");
-  params.set("sort", els.sortBy.value || "currentMiss");
-  params.set("order", els.sortOrder.value || "desc");
-  params.set("limit", els.resultLimit.value || "78");
+  params.set("window", requestedWindow);
+  params.set("trainWindow", els.cdeBacktestTrain?.value || "240");
+  params.set("detailLimit", requestedWindow);
   return params;
 }
 
@@ -490,8 +603,81 @@ function currentGameKey() {
   return state.currentGame?.key || els.gameSelect.value || "";
 }
 
+function normalizePredictionPanel(panel = state.predictionPanel) {
+  if (panel === PREDICTION_PANEL_G) return PREDICTION_PANEL_G;
+  if (panel === PREDICTION_PANEL_F) return PREDICTION_PANEL_F;
+  if (panel === PREDICTION_PANEL_E) return PREDICTION_PANEL_E;
+  if (panel === PREDICTION_PANEL_D) return PREDICTION_PANEL_D;
+  if (panel === PREDICTION_PANEL_C) return PREDICTION_PANEL_C;
+  return panel === PREDICTION_PANEL_B ? PREDICTION_PANEL_B : PREDICTION_PANEL_DEFAULT;
+}
+
+function predictionPanelState(panel = state.predictionPanel) {
+  return state.predictionPanels[normalizePredictionPanel(panel)] || state.predictionPanels[PREDICTION_PANEL_DEFAULT];
+}
+
+function predictionPanelLabel(panel = state.predictionPanel) {
+  const panelKey = normalizePredictionPanel(panel);
+  if (panelKey === PREDICTION_PANEL_G) return "预测面板G";
+  if (panelKey === PREDICTION_PANEL_F) return "预测面板F";
+  if (panelKey === PREDICTION_PANEL_E) return "预测面板E";
+  if (panelKey === PREDICTION_PANEL_D) return "预测面板D";
+  if (panelKey === PREDICTION_PANEL_C) return "预测面板C";
+  return panelKey === PREDICTION_PANEL_B ? "预测面板B" : "预测面板A";
+}
+
+function predictionPanelForView(view) {
+  if (view === "predictionG") return PREDICTION_PANEL_G;
+  if (view === "predictionF") return PREDICTION_PANEL_F;
+  if (view === "predictionE") return PREDICTION_PANEL_E;
+  if (view === "predictionD") return PREDICTION_PANEL_D;
+  if (view === "predictionC") return PREDICTION_PANEL_C;
+  if (view === "predictionB") return PREDICTION_PANEL_B;
+  return PREDICTION_PANEL_DEFAULT;
+}
+
+function syncPredictionPanelMirror(panel = state.predictionPanel) {
+  const slot = predictionPanelState(panel);
+  state.predictionPanel = normalizePredictionPanel(panel);
+  state.prediction = slot.prediction;
+  state.predictionTracking = slot.predictionTracking;
+  state.predictionTrackingPage = slot.predictionTrackingPage;
+  state.predictionTrackingStatus = slot.predictionTrackingStatus;
+  state.adjacentStats = slot.adjacentStats;
+  state.adjacentHitPage = slot.adjacentHitPage;
+  state.adjacentHitQuery = slot.adjacentHitQuery;
+  state.adjacentHits = slot.adjacentHits;
+  return slot;
+}
+
+function updatePredictionPanelState(updates, panel = state.predictionPanel) {
+  const panelKey = normalizePredictionPanel(panel);
+  const slot = predictionPanelState(panel);
+  Object.assign(slot, updates);
+  if (state.predictionPanel === panelKey) {
+    syncPredictionPanelMirror(panelKey);
+  }
+  return slot;
+}
+
+function setPredictionPanel(panel) {
+  syncPredictionPanelMirror(normalizePredictionPanel(panel));
+}
+
+function predictionPanelForOptions(options = {}) {
+  if (options.panel) return normalizePredictionPanel(options.panel);
+  if (state.activeView === "predictionG") return PREDICTION_PANEL_G;
+  if (state.activeView === "predictionF") return PREDICTION_PANEL_F;
+  if (state.activeView === "predictionE") return PREDICTION_PANEL_E;
+  if (state.activeView === "predictionD") return PREDICTION_PANEL_D;
+  if (state.activeView === "predictionC") return PREDICTION_PANEL_C;
+  if (state.activeView === "predictionB") return PREDICTION_PANEL_B;
+  if (state.activeView === "prediction") return PREDICTION_PANEL_DEFAULT;
+  return normalizePredictionPanel(state.predictionPanel);
+}
+
 function currentGameSupportsAnalysis() {
-  return state.currentGame?.supportsAnalysis !== false;
+  return CDE_KILL_BACKTEST_GAMES.has(currentGameKey());
 }
 
 function currentGameSupportsPredictions() {
@@ -500,10 +686,6 @@ function currentGameSupportsPredictions() {
 
 function currentGameSupportsPredictionTracking() {
   return currentGameSupportsPredictions() && state.currentGame?.supportsPredictionTracking !== false;
-}
-
-function currentGameSupportsSimBets() {
-  return state.currentGame?.supportsSimBets !== false;
 }
 
 function currentGameSupportsBacktest() {
@@ -516,18 +698,115 @@ function currentGameSupportsMartingale() {
 
 function currentGameSupportsView(view) {
   if (view === "history") return true;
-  if (view === "adjacentTool") return true;
-  if (view === "prediction") return currentGameSupportsPredictions();
+  if (
+    view === "prediction" ||
+    view === "predictionB" ||
+    view === "predictionC" ||
+    view === "predictionD" ||
+    view === "predictionE" ||
+    view === "predictionF" ||
+    view === "predictionG"
+  ) {
+    return currentGameSupportsPredictions();
+  }
   if (view === "analysis") return currentGameSupportsAnalysis();
-  if (view === "bets") return currentGameSupportsSimBets();
   if (view === "backtest") return currentGameSupportsBacktest();
   if (view === "martingale") return currentGameSupportsMartingale();
   return true;
 }
 
+function isToolModalView(view) {
+  return TOOL_MODAL_VIEWS.has(view);
+}
+
+function modalElementForView(view) {
+  if (view === "martingale") return els.martingaleView;
+  if (view === "backtest") return els.backtestView;
+  if (view === "analysis") return els.analysisView;
+  if (view === "history") return els.historyView;
+  return null;
+}
+
+function renderTabState() {
+  const activeView = state.activeModal || state.activeView;
+  for (const button of document.querySelectorAll(".tab-btn")) {
+    button.classList.toggle("active", button.dataset.view === activeView);
+  }
+}
+
+function closeToolModal() {
+  const view = state.activeModal;
+  if (!view) return;
+  const element = modalElementForView(view);
+  if (element) {
+    element.classList.remove("modal-open");
+    element.classList.remove("active");
+  }
+  state.activeModal = null;
+  document.body.classList.remove("tool-modal-open");
+  renderTabState();
+}
+
+async function hydrateView(view) {
+  if (
+    view === "prediction" ||
+    view === "predictionB" ||
+    view === "predictionC" ||
+    view === "predictionD" ||
+    view === "predictionE" ||
+    view === "predictionF" ||
+    view === "predictionG"
+  ) {
+    const panel = predictionPanelForView(view);
+    setPredictionPanel(panel);
+    const slot = predictionPanelState(panel);
+    if (!slot.prediction) loadPrediction({ panel });
+    else {
+      renderPredictionPage();
+      loadPredictionTracking({ silent: true, panel });
+    }
+  }
+  if (view === "martingale") {
+    loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
+    updateMartingaleMeta();
+  }
+  if (view === "analysis" && !state.analysis) loadAnalysis();
+  if (view === "backtest") {
+    loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
+    if (!state.backtest) loadBacktestStatus();
+  }
+  if (view === "history" && !state.history) loadHistory();
+}
+
+function openToolModal(view) {
+  if (!isToolModalView(view)) return;
+  if (!currentGameSupportsView(view)) {
+    showToast("该彩种当前不开放该工具");
+    return;
+  }
+  const element = modalElementForView(view);
+  if (!element) return;
+  if (state.activeModal === view && element.classList.contains("modal-open")) {
+    renderTabState();
+    return;
+  }
+  if (state.activeModal && state.activeModal !== view) {
+    closeToolModal();
+  }
+  state.activeModal = view;
+  element.classList.add("active", "modal-open");
+  document.body.classList.add("tool-modal-open");
+  renderTabState();
+  hydrateView(view);
+}
+
 function payloadMatchesCurrentGame(data) {
   const key = data?.game?.key;
   return !key || key === currentGameKey();
+}
+
+function isPaginatedPredictionTrackingPayload(data) {
+  return Boolean(data && Array.isArray(data.items) && Number(data.pageSize || 0) > 0);
 }
 
 function cacheGet(key) {
@@ -662,12 +941,20 @@ function renderDataState() {
 }
 
 function resetPageState() {
+  closeToolModal();
   state.analysis = null;
-  state.prediction = null;
-  state.predictionTracking = null;
-  state.predictionTrackingPage = 1;
-  state.predictionTrackingStatus = "all";
-  state.bets = null;
+  state.cdeBacktestPage = 1;
+  for (const slot of Object.values(state.predictionPanels)) {
+    slot.prediction = null;
+    slot.predictionTracking = null;
+    slot.predictionTrackingPage = 1;
+    slot.predictionTrackingStatus = "all";
+    slot.adjacentStats = null;
+    slot.adjacentHitPage = 1;
+    slot.adjacentHitQuery = "";
+    slot.adjacentHits = null;
+  }
+  syncPredictionPanelMirror();
   state.backtest = null;
   state.backtestScan = null;
   state.martingalePlan = null;
@@ -678,7 +965,6 @@ function resetPageState() {
   state.historyPage = 1;
   state.currentGapAudit = null;
   state.currentIntegrity = null;
-  renderAdjacentTool();
 }
 
 function renderGamePills() {
@@ -839,6 +1125,8 @@ function readMartingaleInputs() {
   const unit = parseNumberInput(els.martingaleUnit, 0.01);
   const maxStake = parseNumberInput(els.martingaleMaxStake, 0);
   const stopLossInput = parseNumberInput(els.martingaleStopLoss, 0);
+  const flatStake = parseNumberInput(els.riskFlatStake, 1);
+  const kellyFraction = parseNumberInput(els.riskKellyFraction, 0.25);
   return {
     pickCount,
     mode: state.martingaleMode,
@@ -849,6 +1137,8 @@ function readMartingaleInputs() {
     unit: unit > 0 ? unit : 0.01,
     maxStake: maxStake > 0 ? maxStake : Infinity,
     stopLoss: stopLossInput > 0 ? stopLossInput : bankroll,
+    flatStake,
+    kellyFraction,
   };
 }
 
@@ -857,6 +1147,8 @@ function validateMartingaleInputs(input) {
   if (input.bankroll <= 0) return "初始本金必须大于 0";
   if (input.targetProfit <= 0) return "目标净利必须大于 0";
   if (input.unit <= 0) return "投注单位必须大于 0";
+  if (input.flatStake <= 0) return "预算单注必须大于 0";
+  if (input.kellyFraction < 0 || input.kellyFraction > 1) return "Kelly折扣必须在 0 到 1 之间";
   return "";
 }
 
@@ -912,6 +1204,228 @@ function buildMartingalePlan(input) {
   };
 }
 
+const RISK_BUDGET_SIMULATIONS = 10000;
+
+function profitVariancePerUnit(probability, odds) {
+  if (probability <= 0 || odds <= 1) return 0;
+  const hitProfit = odds - 1;
+  const missProfit = -1;
+  const mean = probability * hitProfit + (1 - probability) * missProfit;
+  return probability * (hitProfit - mean) ** 2 + (1 - probability) * (missProfit - mean) ** 2;
+}
+
+function fullKellyFraction(probability, odds) {
+  if (probability <= 0 || odds <= 1) return 0;
+  const edge = probability * odds - 1;
+  if (edge <= 0) return 0;
+  return edge / (odds - 1);
+}
+
+function martingaleRowLimitReason(row, input) {
+  const issues = [];
+  if (row.stake > input.maxStake) issues.push("超单注");
+  if (row.cumulativeStake > input.stopLoss) issues.push("超止损");
+  if (row.cumulativeStake > input.bankroll) issues.push("本金不足");
+  return issues.join(" / ");
+}
+
+function martingaleExpectedProfit(plan) {
+  const probability = plan.probability;
+  const missProbability = 1 - probability;
+  let expectedProfit = 0;
+  let reachProbability = 1;
+  let previousCumulative = 0;
+
+  for (const row of plan.rows) {
+    if (martingaleRowLimitReason(row, plan.input)) {
+      return expectedProfit - reachProbability * previousCumulative;
+    }
+    expectedProfit += reachProbability * probability * row.hitNet;
+    reachProbability *= missProbability;
+    previousCumulative = row.cumulativeStake;
+  }
+
+  return expectedProfit - reachProbability * previousCumulative;
+}
+
+function martingaleLimitProbability(plan) {
+  const missProbability = 1 - plan.probability;
+  let reachProbability = 1;
+  for (const row of plan.rows) {
+    if (martingaleRowLimitReason(row, plan.input)) return reachProbability;
+    reachProbability *= missProbability;
+  }
+  return 0;
+}
+
+function martingaleWorstLoss(plan) {
+  let previousCumulative = 0;
+  for (const row of plan.rows) {
+    if (martingaleRowLimitReason(row, plan.input)) return previousCumulative;
+    previousCumulative = row.cumulativeStake;
+  }
+  return previousCumulative;
+}
+
+function riskBudgetSeed(input, label) {
+  return hashString(
+    [
+      currentGameKey(),
+      label,
+      input.mode,
+      input.pickCount,
+      input.odds,
+      input.bankroll,
+      input.periods,
+      input.targetProfit,
+      input.unit,
+      Number.isFinite(input.maxStake) ? input.maxStake : "none",
+      input.stopLoss,
+      input.flatStake,
+      input.kellyFraction,
+    ].join("|"),
+  );
+}
+
+function summarizeSimulation(values) {
+  if (!values.length) {
+    return { mean: 0, p5: 0, p50: 0, p95: 0, min: 0, max: 0 };
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
+  return {
+    mean,
+    p5: percentile(sorted, 0.05),
+    p50: percentile(sorted, 0.5),
+    p95: percentile(sorted, 0.95),
+    min: sorted[0],
+    max: sorted.at(-1),
+  };
+}
+
+function simulateRiskScenario(input, label, runner) {
+  const random = seededRandom(riskBudgetSeed(input, label));
+  const profits = [];
+  let limited = 0;
+  let noStake = 0;
+  for (let index = 0; index < RISK_BUDGET_SIMULATIONS; index += 1) {
+    const result = runner(random);
+    profits.push(Number(result.profit || 0));
+    if (result.limited) limited += 1;
+    if (result.noStake) noStake += 1;
+  }
+  return {
+    ...summarizeSimulation(profits),
+    limitedRate: limited / RISK_BUDGET_SIMULATIONS,
+    noStakeRate: noStake / RISK_BUDGET_SIMULATIONS,
+  };
+}
+
+function runFixedStakeBudget(input, probability, random) {
+  let profit = 0;
+  for (let period = 1; period <= input.periods; period += 1) {
+    const currentBankroll = input.bankroll + profit;
+    const currentLoss = Math.max(0, -profit);
+    if (
+      input.flatStake > input.maxStake ||
+      input.flatStake > currentBankroll ||
+      currentLoss + input.flatStake > input.stopLoss
+    ) {
+      return { profit, limited: true };
+    }
+    profit += random() < probability ? input.flatStake * (input.odds - 1) : -input.flatStake;
+  }
+  return { profit, limited: false };
+}
+
+function runKellyBudget(input, probability, kellyFull, random) {
+  if (kellyFull <= 0 || input.kellyFraction <= 0) {
+    return { profit: 0, limited: false, noStake: true };
+  }
+
+  let profit = 0;
+  for (let period = 1; period <= input.periods; period += 1) {
+    const currentBankroll = input.bankroll + profit;
+    const rawStake = currentBankroll * kellyFull * input.kellyFraction;
+    const cappedStake = Number.isFinite(input.maxStake) ? Math.min(rawStake, input.maxStake) : rawStake;
+    const stake = roundDownToUnit(cappedStake, input.unit);
+    const currentLoss = Math.max(0, -profit);
+    if (stake <= 0) return { profit, limited: false, noStake: true };
+    if (stake > currentBankroll || currentLoss + stake > input.stopLoss) {
+      return { profit, limited: true };
+    }
+    profit += random() < probability ? stake * (input.odds - 1) : -stake;
+  }
+  return { profit, limited: false };
+}
+
+function runMartingaleBudget(plan, random) {
+  let previousCumulative = 0;
+  for (const row of plan.rows) {
+    if (martingaleRowLimitReason(row, plan.input)) {
+      return { profit: -previousCumulative, limited: true };
+    }
+    if (random() < plan.probability) {
+      return { profit: row.hitNet, limited: false };
+    }
+    previousCumulative = row.cumulativeStake;
+  }
+  return { profit: -previousCumulative, limited: false };
+}
+
+function buildRiskBudget(plan) {
+  const input = plan.input;
+  const probability = plan.probability;
+  const ev = plan.ev;
+  const kellyFull = fullKellyFraction(probability, input.odds);
+  const kellyStake = roundDownToUnit(input.bankroll * kellyFull * input.kellyFraction, input.unit);
+  const fixed = simulateRiskScenario(input, "fixed", (random) => runFixedStakeBudget(input, probability, random));
+  const kelly = simulateRiskScenario(input, "kelly", (random) => runKellyBudget(input, probability, kellyFull, random));
+  const chase = simulateRiskScenario(input, "martingale", (random) => runMartingaleBudget(plan, random));
+  const planExpected = martingaleExpectedProfit(plan);
+  const planLimitRisk = martingaleLimitProbability(plan);
+  const planWorstLoss = martingaleWorstLoss(plan);
+
+  return {
+    probability,
+    breakEvenHitRate: input.odds > 1 ? 1 / input.odds : 0,
+    ev,
+    variancePerUnit: profitVariancePerUnit(probability, input.odds),
+    kellyFull,
+    kellyStake,
+    kellyFraction: input.kellyFraction,
+    planExpected,
+    planLimitRisk,
+    planWorstLoss,
+    fixed,
+    kelly,
+    chase,
+    rows: [
+      {
+        name: "固定单注",
+        stake: `${fmtAmount(input.flatStake, input.unit)} / 期`,
+        summary: fixed,
+        expected: fixed.mean,
+        limitRate: fixed.limitedRate,
+      },
+      {
+        name: "Fractional Kelly",
+        stake: kellyStake > 0 ? `${fmtAmount(kellyStake, input.unit)} 起步` : "不下注",
+        summary: kelly,
+        expected: kelly.mean,
+        limitRate: kelly.limitedRate,
+      },
+      {
+        name: "倍投追号",
+        stake: `最大 ${fmtAmount(plan.maxPlanStake, input.unit)}`,
+        summary: chase,
+        expected: planExpected,
+        limitRate: planLimitRisk,
+      },
+    ],
+  };
+}
+
 function renderMartingaleAlert(plan) {
   if (!els.martingaleAlert) return;
   const messages = [];
@@ -948,6 +1462,14 @@ function resetMartingaleResult() {
     els.martingaleBankrollUsage,
     els.martingaleBreakPoint,
     els.martingaleBreakReason,
+    els.riskBudgetBreakEven,
+    els.riskBudgetEdge,
+    els.riskBudgetKellyFraction,
+    els.riskBudgetKellyStake,
+    els.riskBudgetFlatExpected,
+    els.riskBudgetFlatRange,
+    els.riskBudgetPlanExpected,
+    els.riskBudgetPlanRisk,
   ]) {
     if (!element) continue;
     element.textContent = "--";
@@ -956,6 +1478,96 @@ function resetMartingaleResult() {
   els.martingaleResultMeta.textContent = "尚未生成";
   els.martingaleAlert.classList.add("hidden");
   els.martingaleRows.innerHTML = '<tr><td colspan="7"><span class="muted">等待生成</span></td></tr>';
+  if (els.riskBudgetMeta) els.riskBudgetMeta.textContent = "尚未生成";
+  if (els.riskBudgetNote) els.riskBudgetNote.classList.add("hidden");
+  if (els.riskBudgetRows) {
+    els.riskBudgetRows.innerHTML = '<tr><td colspan="7"><span class="muted">等待生成</span></td></tr>';
+  }
+}
+
+function riskBudgetClass(value) {
+  if (!Number.isFinite(value) || Math.abs(value) < 1e-9) return "";
+  return value > 0 ? "positive" : "negative";
+}
+
+function riskLimitText(rate) {
+  if (!Number.isFinite(rate) || rate <= 0) return "0.00%";
+  return fmtPct(rate, 2);
+}
+
+function renderRiskBudget(plan) {
+  if (!els.riskBudgetRows) return;
+  const budget = buildRiskBudget(plan);
+  const input = plan.input;
+  const edgeVsBreakEven = budget.probability - budget.breakEvenHitRate;
+  const fixedExpectedExact = input.flatStake * input.periods * budget.ev;
+  const kellyLabel = budget.kellyFull > 0 ? fmtPct(budget.kellyFull, 3) : "0.000%";
+  const appliedKelly = budget.kellyFull * input.kellyFraction;
+
+  els.riskBudgetMeta.textContent = `${RISK_BUDGET_SIMULATIONS.toLocaleString("zh-CN")} 次确定性模拟 · ${martingalePlayLabel(
+    input.pickCount,
+    input.mode,
+  )}`;
+  els.riskBudgetBreakEven.textContent = fmtPct(budget.breakEvenHitRate, 4);
+  els.riskBudgetEdge.textContent = `理论命中 ${edgeVsBreakEven >= 0 ? "高于" : "低于"}盈亏线 ${fmtPct(
+    Math.abs(edgeVsBreakEven),
+    4,
+  )}`;
+  els.riskBudgetEdge.classList.toggle("positive", edgeVsBreakEven >= 0);
+  els.riskBudgetEdge.classList.toggle("negative", edgeVsBreakEven < 0);
+  els.riskBudgetKellyFraction.textContent = kellyLabel;
+  els.riskBudgetKellyFraction.classList.toggle("positive", budget.kellyFull > 0);
+  els.riskBudgetKellyFraction.classList.toggle("negative", budget.kellyFull <= 0);
+  els.riskBudgetKellyStake.textContent =
+    budget.kellyStake > 0
+      ? `${fmtAmount(budget.kellyStake, input.unit)} / 期 · 折扣后 ${fmtPct(appliedKelly, 3)}`
+      : "负期望或折扣为 0，建议不下注";
+  els.riskBudgetFlatExpected.textContent = fmtMoney(fixedExpectedExact, decimalsFromStep(input.unit));
+  els.riskBudgetFlatExpected.classList.toggle("positive", fixedExpectedExact >= 0);
+  els.riskBudgetFlatExpected.classList.toggle("negative", fixedExpectedExact < 0);
+  els.riskBudgetFlatRange.textContent = `P5 ${fmtMoney(budget.fixed.p5, decimalsFromStep(input.unit))} / P95 ${fmtMoney(
+    budget.fixed.p95,
+    decimalsFromStep(input.unit),
+  )}`;
+  els.riskBudgetPlanExpected.textContent = fmtMoney(budget.planExpected, decimalsFromStep(input.unit));
+  els.riskBudgetPlanExpected.classList.toggle("positive", budget.planExpected >= 0);
+  els.riskBudgetPlanExpected.classList.toggle("negative", budget.planExpected < 0);
+  els.riskBudgetPlanRisk.textContent = `限制触发 ${riskLimitText(budget.planLimitRisk)} · 最坏亏损 ${fmtAmount(
+    budget.planWorstLoss,
+    input.unit,
+  )}`;
+
+  const notes = [];
+  if (budget.ev < 0) {
+    notes.push("Kelly 在负期望赔率下给出的理性仓位是 0；倍投只能改变盈亏分布，不能把负期望变成正期望。");
+  } else {
+    notes.push("Kelly 仓位只适用于正期望假设；如果命中率来自小样本回测，应继续折扣或不下注。");
+  }
+  if (budget.planLimitRisk > 0) {
+    notes.push(`当前倍投在约 ${fmtPct(budget.planLimitRisk, 2)} 的路径上会先触发本金、止损或单注上限。`);
+  }
+  els.riskBudgetNote.textContent = notes.join(" ");
+  els.riskBudgetNote.classList.remove("hidden", "warn", "danger");
+  if (budget.planLimitRisk > 0) {
+    els.riskBudgetNote.classList.add("danger");
+  } else if (budget.ev < 0) {
+    els.riskBudgetNote.classList.add("warn");
+  }
+
+  els.riskBudgetRows.innerHTML = budget.rows
+    .map((row) => {
+      const summary = row.summary;
+      return `<tr>
+        <td><strong>${escapeHtml(row.name)}</strong></td>
+        <td>${escapeHtml(row.stake)}</td>
+        <td class="${riskBudgetClass(row.expected)}">${fmtMoney(row.expected, decimalsFromStep(input.unit))}</td>
+        <td class="${riskBudgetClass(summary.p5)}">${fmtMoney(summary.p5, decimalsFromStep(input.unit))}</td>
+        <td class="${riskBudgetClass(summary.p50)}">${fmtMoney(summary.p50, decimalsFromStep(input.unit))}</td>
+        <td class="${riskBudgetClass(summary.p95)}">${fmtMoney(summary.p95, decimalsFromStep(input.unit))}</td>
+        <td>${riskLimitText(row.limitRate)}</td>
+      </tr>`;
+    })
+    .join("");
 }
 
 function renderMartingalePlan(options = {}) {
@@ -1003,6 +1615,7 @@ function renderMartingalePlan(options = {}) {
       </tr>`,
     )
     .join("");
+  renderRiskBudget(plan);
 }
 
 function selectGame(key) {
@@ -1036,8 +1649,10 @@ function updateGameUi() {
     button.disabled = disabled;
     button.title = disabled ? `${game.shortName} 当前不开放该工具` : "";
   }
+  renderTabState();
   if (!currentGameSupportsView(state.activeView)) {
-    switchView("history");
+    state.activeView = "prediction";
+    openToolModal("history");
   }
 }
 
@@ -1066,7 +1681,8 @@ function setLoading(isLoading, label = "") {
     els.historySearchBtn,
     els.prevPageBtn,
     els.nextPageBtn,
-    els.createBetBtn,
+    els.cdeBacktestPrevBtn,
+    els.cdeBacktestNextBtn,
     els.runBacktestBtn,
     els.runBacktestScanBtn,
     els.generateMartingaleBtn,
@@ -1089,6 +1705,12 @@ function setLoading(isLoading, label = "") {
     renderDataState();
   }
   els.dataState.classList.toggle("live", !isLoading);
+  if (!isLoading && state.predictionTracking && els.predictionTrackingRows) {
+    renderPredictionTracking();
+  }
+  if (!isLoading && state.analysis && els.cdeBacktestRows) {
+    renderCdeKillBacktest(state.analysis);
+  }
 }
 
 function renderAllGamesSyncLog(payload) {
@@ -1101,13 +1723,11 @@ function renderAllGamesSyncLog(payload) {
   const newRows = Number(payload.newRows || 0);
   const bcRows = Number(payload.bcNewRows || 0);
   const etiposRows = Number(payload.etiposNewRows || 0);
-  const settledBets = Number(payload.settledBets || 0);
   const settledPredictions = Number(payload.settledPredictions || 0);
   els.lastSyncSummary.textContent = `全彩种${modeLabel} · 当前优先 ${currentLabel} +${currentRows} 期 · 总新增 ${newRows} 期 · ${payload.successCount}/${payload.totalCount} 成功`;
   els.lastSyncTime.textContent = fmtDate(payload.generatedAt);
   els.lastBcRows.textContent = bcRows.toLocaleString("zh-CN");
   els.lastEtiposRows.textContent = etiposRows.toLocaleString("zh-CN");
-  els.lastSettledBets.textContent = settledBets.toLocaleString("zh-CN");
   if (els.lastSettledPredictions) {
     els.lastSettledPredictions.textContent = settledPredictions.toLocaleString("zh-CN");
   }
@@ -1137,6 +1757,23 @@ function renderAllGamesSyncLog(payload) {
   renderDataState();
 }
 
+function allGamesSyncToastText(payload) {
+  const changedGames = (payload.results || [])
+    .map((item) => ({
+      label: item?.game?.shortName || item?.shortName || item?.game?.key || "未知彩种",
+      newRows: Number(item?.newRows || 0),
+    }))
+    .filter((item) => item.newRows > 0);
+  const successText = `${payload.successCount || 0}/${payload.totalCount || 0} 成功`;
+  if (!changedGames.length) {
+    return `全彩种同步完成：无新增开奖号，${successText}`;
+  }
+  const detailText = changedGames
+    .map((item) => `${item.label}新增${item.newRows.toLocaleString("zh-CN")}期开奖号`)
+    .join("；");
+  return `全彩种同步完成：${detailText}，${successText}`;
+}
+
 function renderSyncLog(payload) {
   if (!payload) return;
   if (payload.allGames) {
@@ -1150,7 +1787,6 @@ function renderSyncLog(payload) {
   const newRows = Number(payload.newRows || 0);
   const bcRows = Number(payload.bcNewRows || 0);
   const etiposRows = Number(payload.etiposNewRows || 0);
-  const settledBets = Number(payload.settledBets || 0);
   const settledPredictions = Number(payload.settledPredictions || 0);
   const syncMeta = payload.syncMeta || payload.meta || {};
   const pageText = syncMeta.pagesFetched ? ` · 抓取 ${syncMeta.pagesFetched} 页` : "";
@@ -1158,7 +1794,6 @@ function renderSyncLog(payload) {
   els.lastSyncTime.textContent = fmtDate(payload.generatedAt);
   els.lastBcRows.textContent = bcRows.toLocaleString("zh-CN");
   els.lastEtiposRows.textContent = etiposRows.toLocaleString("zh-CN");
-  els.lastSettledBets.textContent = settledBets.toLocaleString("zh-CN");
   if (els.lastSettledPredictions) {
     els.lastSettledPredictions.textContent = settledPredictions.toLocaleString("zh-CN");
   }
@@ -1208,49 +1843,122 @@ function renderSyncLog(payload) {
 }
 
 function renderPredictionLoading() {
+  const panel = normalizePredictionPanel();
+  if (els.predictionTitle) {
+    els.predictionTitle.textContent = predictionPanelLabel(panel);
+  }
   els.predictionWindow.textContent = "预测计算中";
-  els.predictionMethod.textContent = "读取最新开奖并生成策略候选";
-  els.bigPredictionBalls.innerHTML = '<span class="loading-inline">计算中...</span>';
-  els.smallPredictionBalls.innerHTML = '<span class="loading-inline">计算中...</span>';
+  els.predictionMethod.textContent =
+    panel === PREDICTION_PANEL_G
+      ? "读取C/D/E候选票并生成G杀号后预测票"
+      : panel === PREDICTION_PANEL_F
+      ? "读取A/B/C/D/E排除链路并生成F误杀召回票"
+      : panel === PREDICTION_PANEL_E
+      ? "读取C/D四码票并生成CD杀号4码票"
+      : panel === PREDICTION_PANEL_D
+      ? "读取A/B/C候选号并生成ABC杀号4码票"
+      : panel === PREDICTION_PANEL_C
+        ? "读取A/B核心号并生成4码结构票"
+        : panel === PREDICTION_PANEL_B
+          ? "读取面板A规则并排除A候选号"
+          : "读取最新开奖并生成策略候选";
+  const showKillPanel = [PREDICTION_PANEL_B, PREDICTION_PANEL_D, PREDICTION_PANEL_E, PREDICTION_PANEL_F, PREDICTION_PANEL_G].includes(panel);
+  if (els.predictionKillPanel) {
+    els.predictionKillPanel.classList.toggle("hidden", !showKillPanel);
+  }
+  if (els.predictionKillLabel) {
+    els.predictionKillLabel.textContent =
+      panel === PREDICTION_PANEL_G
+        ? "CDE候选杀号池"
+        : panel === PREDICTION_PANEL_F
+        ? "ABCDE误杀候选池"
+        : panel === PREDICTION_PANEL_E
+          ? "CD杀号"
+          : panel === PREDICTION_PANEL_D
+            ? "ABC/C杀号"
+            : "面板A杀号";
+  }
+  if (els.predictionKillSummary) {
+    els.predictionKillSummary.textContent = showKillPanel ? "计算排除号..." : "--";
+  }
+  if (els.predictionKillNumbers) {
+    els.predictionKillNumbers.innerHTML = showKillPanel
+      ? `<span class="muted">${
+          panel === PREDICTION_PANEL_G
+            ? "等待C/D/E候选杀号池"
+            : panel === PREDICTION_PANEL_F
+            ? "等待ABCDE误杀候选池"
+            : panel === PREDICTION_PANEL_E
+              ? "等待CD杀号"
+              : panel === PREDICTION_PANEL_D
+                ? "等待ABC/C杀号"
+                : "等待面板A杀号"
+        }</span>`
+      : "";
+  }
+  if (els.predictionStrategyHealth) {
+    els.predictionStrategyHealth.innerHTML = '<article class="strategy-health-card empty"><span class="muted">读取追踪表现...</span></article>';
+  }
+  if (els.predictionStrategyTickets) {
+    els.predictionStrategyTickets.innerHTML = '<article class="prediction-ticket-card"><span class="loading-inline">生成候选票...</span></article>';
+  }
 }
 
 async function loadPrediction(options = {}) {
+  const panel = predictionPanelForOptions(options);
+  const slot = predictionPanelState(panel);
+  setPredictionPanel(panel);
   if (!currentGameSupportsPredictions()) {
-    state.prediction = null;
-    state.predictionTracking = null;
-    switchView("history");
+    updatePredictionPanelState({ prediction: null, predictionTracking: null }, panel);
+    openToolModal("history");
     return;
   }
   setLoading(true, "预测中");
-  if (!options.preserve || !state.prediction) {
+  if (!options.preserve || !slot.prediction) {
     renderPredictionLoading();
   }
   try {
-    const params = new URLSearchParams({ game: currentGameKey() });
+    const params = new URLSearchParams({ game: currentGameKey(), panel });
     const url = `/api/predictions?${params.toString()}`;
     const cached = options.force ? null : cacheGet(url);
     if (cached) {
       if (!payloadMatchesCurrentGame(cached)) return;
-      state.prediction = cached;
-      renderPredictionPage();
-      renderBetTargetOptions();
-      await loadPredictionTracking({ silent: true });
+      updatePredictionPanelState(
+        {
+          prediction: cached,
+          predictionTracking: isPaginatedPredictionTrackingPayload(cached.predictionTracking)
+            ? cached.predictionTracking
+            : slot.predictionTracking,
+        },
+        panel,
+      );
+      if (state.predictionPanel === panel) {
+        renderPredictionPage();
+      }
+      loadPredictionTracking({ silent: true, panel, refreshAdjacent: true });
       return;
     }
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (!payloadMatchesCurrentGame(data)) return;
-    state.prediction = data;
-    if (state.prediction.predictionTracking) {
-      state.predictionTracking = state.prediction.predictionTracking;
+    updatePredictionPanelState(
+      {
+        prediction: data,
+        predictionTracking: isPaginatedPredictionTrackingPayload(data.predictionTracking)
+          ? data.predictionTracking
+          : slot.predictionTracking,
+      },
+      panel,
+    );
+    if (isPaginatedPredictionTrackingPayload(data.predictionTracking) && state.predictionPanel === panel) {
       renderPredictionTracking();
-      loadAdjacentStats({ silent: true });
     }
-    cacheSet(url, state.prediction);
-    renderPredictionPage();
-    renderBetTargetOptions();
-    await loadPredictionTracking({ silent: true });
+    cacheSet(url, data);
+    if (state.predictionPanel === panel) {
+      renderPredictionPage();
+    }
+    loadPredictionTracking({ silent: true, panel, refreshAdjacent: true });
   } catch (error) {
     showToast(`加载预测失败：${error.message}`, true);
   } finally {
@@ -1260,27 +1968,47 @@ async function loadPrediction(options = {}) {
 
 async function loadPredictionTracking(options = {}) {
   if (!currentGameSupportsPredictionTracking() || !els.predictionTrackingStats) return null;
+  const panel = predictionPanelForOptions(options);
+  const slot = predictionPanelState(panel);
+  const refreshAdjacent = options.refreshAdjacent === true;
   try {
     const params = new URLSearchParams({
       game: currentGameKey(),
-      status: state.predictionTrackingStatus || "all",
-      page: String(state.predictionTrackingPage || 1),
-      pageSize: "50",
+      panel,
+      status: slot.predictionTrackingStatus || "all",
+      page: String(slot.predictionTrackingPage || 1),
+      pageSize: "20",
     });
+    if (options.autoSync !== true) {
+      params.set("autoSync", "0");
+    }
     const response = await fetch(`/api/prediction-tracking?${params.toString()}`);
     const data = await response.json();
     if (!response.ok || data.ok === false) {
       throw new Error(data.error || `HTTP ${response.status}`);
     }
     if (!payloadMatchesCurrentGame(data)) return null;
-    state.predictionTracking = data;
-    state.predictionTrackingPage = Number(data.page || 1);
-    state.adjacentStats = null;
-    state.adjacentHits = null;
-    state.adjacentHitPage = 1;
-    renderPredictionTracking();
-    loadAdjacentStats({ silent: true });
-    loadPredictionAutoStatus({ silent: true });
+    const updates = {
+      predictionTracking: data,
+      predictionTrackingPage: Number(data.page || 1),
+    };
+    if (refreshAdjacent) {
+      Object.assign(updates, {
+        adjacentStats: null,
+        adjacentHits: null,
+        adjacentHitPage: 1,
+      });
+    }
+    updatePredictionPanelState(updates, panel);
+    if (state.predictionPanel === panel) {
+      renderPredictionTracking();
+    }
+    if (refreshAdjacent) {
+      loadAdjacentStats({ silent: true, panel });
+    }
+    if (options.refreshAutoStatus !== false) {
+      loadPredictionAutoStatus({ silent: true, refreshTracking: false });
+    }
     return data;
   } catch (error) {
     if (!options.silent) {
@@ -1292,18 +2020,26 @@ async function loadPredictionTracking(options = {}) {
 
 async function loadAdjacentStats(options = {}) {
   if (!currentGameSupportsPredictionTracking() || !els.predictionAdjacentStats) return null;
+  const panel = predictionPanelForOptions(options);
   try {
-    const params = new URLSearchParams({ game: currentGameKey() });
+    const params = new URLSearchParams({ game: currentGameKey(), panel });
     const response = await fetch(`/api/adjacent-derived-stats?${params.toString()}`);
     const data = await response.json();
     if (!response.ok || data.ok === false) {
       throw new Error(data.error || `HTTP ${response.status}`);
     }
     if (!payloadMatchesCurrentGame(data)) return null;
-    state.adjacentStats = data.adjacentStats || null;
-    state.adjacentHits = null;
-    state.adjacentHitPage = 1;
-    renderPredictionAdjacentStats();
+    updatePredictionPanelState(
+      {
+        adjacentStats: data.adjacentStats || null,
+        adjacentHits: null,
+        adjacentHitPage: 1,
+      },
+      panel,
+    );
+    if (state.predictionPanel === panel) {
+      renderPredictionAdjacentStats();
+    }
     return data;
   } catch (error) {
     if (!options.silent) {
@@ -1315,13 +2051,16 @@ async function loadAdjacentStats(options = {}) {
 
 async function loadAdjacentHits(options = {}) {
   if (!currentGameSupportsPredictionTracking() || !els.predictionAdjacentStats) return null;
+  const panel = predictionPanelForOptions(options);
+  const slot = predictionPanelState(panel);
   try {
     const params = new URLSearchParams({
       game: currentGameKey(),
-      q: state.adjacentHitQuery || "",
+      panel,
+      q: slot.adjacentHitQuery || "",
       groupBy: "record",
-      page: String(state.adjacentHitPage || 1),
-      pageSize: "50",
+      page: String(slot.adjacentHitPage || 1),
+      pageSize: "20",
     });
     const response = await fetch(`/api/adjacent-derived-hits?${params.toString()}`);
     const data = await response.json();
@@ -1329,9 +2068,16 @@ async function loadAdjacentHits(options = {}) {
       throw new Error(data.error || `HTTP ${response.status}`);
     }
     if (!payloadMatchesCurrentGame(data)) return null;
-    state.adjacentHits = data;
-    state.adjacentHitPage = Number(data.page || 1);
-    renderPredictionAdjacentStats();
+    updatePredictionPanelState(
+      {
+        adjacentHits: data,
+        adjacentHitPage: Number(data.page || 1),
+      },
+      panel,
+    );
+    if (state.predictionPanel === panel) {
+      renderPredictionAdjacentStats();
+    }
     return data;
   } catch (error) {
     if (!options.silent) {
@@ -1347,13 +2093,68 @@ async function loadPredictionAutoStatus(options = {}) {
     const response = await fetch("/api/prediction-auto");
     const data = await response.json();
     if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`);
+    const previousCompletedAt = state.predictionAutoLastCompletedAt || predictionAutoCompletedAt(state.predictionAuto);
+    const completedAt = predictionAutoCompletedAt(data);
     state.predictionAuto = data;
+    if (!state.predictionAutoLastCompletedAt && completedAt) {
+      state.predictionAutoLastCompletedAt = completedAt;
+    }
     renderPredictionAutoStatus();
+    if (
+      options.refreshTracking &&
+      completedAt &&
+      completedAt !== previousCompletedAt &&
+      !state.loading &&
+      !state.predictionTrackingRefreshInFlight &&
+      isPredictionMainViewActive()
+    ) {
+      state.predictionAutoLastCompletedAt = completedAt;
+      state.predictionTrackingRefreshInFlight = true;
+      try {
+        await loadPredictionTracking({
+          silent: true,
+          panel: state.predictionPanel,
+          refreshAdjacent: true,
+          refreshAutoStatus: false,
+        });
+      } finally {
+        state.predictionTrackingRefreshInFlight = false;
+      }
+    } else if (completedAt) {
+      const shouldHoldRefresh =
+        options.refreshTracking &&
+        previousCompletedAt &&
+        completedAt !== previousCompletedAt &&
+        (state.loading || state.predictionTrackingRefreshInFlight || !isPredictionMainViewActive());
+      if (!shouldHoldRefresh) {
+        state.predictionAutoLastCompletedAt = completedAt;
+      }
+    }
     return data;
   } catch (error) {
     if (!options.silent) showToast(`读取追踪状态失败：${error.message}`, true);
     return null;
   }
+}
+
+function predictionAutoCompletedAt(data) {
+  return String(data?.lastCompletedAt || "");
+}
+
+function isPredictionMainViewActive() {
+  return !state.activeModal && ["prediction", "predictionB", "predictionC", "predictionD", "predictionE", "predictionF", "predictionG"].includes(state.activeView);
+}
+
+function startPredictionAutoPolling(delayMs = 12000) {
+  if (!els.predictionAutoStatus) return;
+  if (state.predictionAutoPollTimer) {
+    window.clearTimeout(state.predictionAutoPollTimer);
+  }
+  state.predictionAutoPollTimer = window.setTimeout(async () => {
+    state.predictionAutoPollTimer = null;
+    await loadPredictionAutoStatus({ silent: true, refreshTracking: true });
+    startPredictionAutoPolling();
+  }, delayMs);
 }
 
 async function updatePredictionAuto(action) {
@@ -1367,9 +2168,11 @@ async function updatePredictionAuto(action) {
     const data = await response.json();
     if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`);
     state.predictionAuto = data;
+    const completedAt = predictionAutoCompletedAt(data);
+    if (completedAt) state.predictionAutoLastCompletedAt = completedAt;
     renderPredictionAutoStatus();
     if (action === "runOnce") {
-      await loadPredictionTracking({ silent: true });
+      await loadPredictionTracking({ silent: true, panel: state.predictionPanel, refreshAdjacent: true });
     }
     showToast(
       action === "start"
@@ -1387,12 +2190,15 @@ async function updatePredictionAuto(action) {
 
 async function loadAnalysis(options = {}) {
   if (!currentGameSupportsAnalysis()) {
-    switchView("history");
+    showToast("C/D/E/F/G 回测当前只支持西班牙和波兰", true);
     return;
   }
-  setLoading(true, "分析中");
+  if (!options.keepPage) {
+    state.cdeBacktestPage = 1;
+  }
+  setLoading(true, "C/D/E/F/G回测中");
   try {
-    const url = `/api/analysis?${buildAnalysisQuery().toString()}`;
+    const url = `/api/cde-kill-backtest?${buildAnalysisQuery().toString()}`;
     const cached = options.force ? null : cacheGet(url);
     if (cached) {
       if (!payloadMatchesCurrentGame(cached)) return;
@@ -1408,7 +2214,7 @@ async function loadAnalysis(options = {}) {
     cacheSet(url, data);
     renderAnalysis();
   } catch (error) {
-    showToast(`加载分析失败：${error.message}`, true);
+    showToast(`加载C/D/E/F/G回测失败：${error.message}`, true);
   } finally {
     setLoading(false);
   }
@@ -1440,118 +2246,6 @@ async function loadCurrentSummary() {
   const response = await fetch(`/api/draws?${params.toString()}`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   renderSummary(await response.json());
-}
-
-async function loadBets() {
-  if (!currentGameSupportsAnalysis()) {
-    switchView("history");
-    return;
-  }
-  setLoading(true, "读取投注中");
-  try {
-    const params = new URLSearchParams({ game: currentGameKey() });
-    const response = await fetch(`/api/sim-bets?${params.toString()}`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.bets = await response.json();
-    renderBets();
-    await loadPredictionTracking({ silent: true });
-  } catch (error) {
-    showToast(`加载模拟投注失败：${error.message}`, true);
-  } finally {
-    setLoading(false);
-  }
-}
-
-async function createBet() {
-  const payload = {
-    game: currentGameKey(),
-    targetDrawTimeMs: Number(els.betTargetTime.value || 0),
-    betType: els.betType.value,
-    numbers: els.betNumbers.value,
-    stake: Number(els.betStake.value || 1),
-    odds: Number(els.betOdds.value || 60),
-    note: els.betNote.value,
-  };
-  setLoading(true, "记录投注中");
-  try {
-    const response = await fetch("/api/sim-bets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    state.bets = data;
-    renderBets();
-    els.betNumbers.value = "";
-    els.betNote.value = "";
-    showToast(data.settledNow ? `投注已记录，本次结算 ${data.settledNow} 条` : "投注已记录");
-  } catch (error) {
-    showToast(`记录模拟投注失败：${error.message}`, true);
-  } finally {
-    setLoading(false);
-  }
-}
-
-async function deleteBet(betId) {
-  const id = String(betId || "").trim();
-  if (!id) return;
-  if (!window.confirm("删除这条模拟投注记录？")) return;
-  setLoading(true, "删除投注中");
-  try {
-    const params = new URLSearchParams({ game: currentGameKey() });
-    const response = await fetch(`/api/sim-bets/${encodeURIComponent(id)}?${params.toString()}`, {
-      method: "DELETE",
-    });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    state.bets = data;
-    renderBets();
-    showToast("模拟投注记录已删除");
-  } catch (error) {
-    showToast(`删除模拟投注失败：${error.message}`, true);
-  } finally {
-    setLoading(false);
-  }
-}
-
-function renderBetRows(items, target, options = {}) {
-  if (!target) return;
-  const showGame = Boolean(options.showGame);
-  const emptyText = options.emptyText || "暂无模拟投注记录";
-  target.innerHTML = "";
-  if (!items?.length) {
-    target.innerHTML = `<tr><td colspan="${showGame ? 8 : 8}"><span class="muted">${escapeHtml(emptyText)}</span></td></tr>`;
-    return;
-  }
-  for (const bet of items) {
-    const row = document.createElement("tr");
-    const profit = Number(bet.profit || 0);
-    const betId = escapeHtml(bet.id || "");
-    const gameCell = showGame ? `<td>${escapeHtml(bet.gameShortName || bet.gameKey || "--")}</td>` : "";
-    row.innerHTML = `
-      <td><strong>${fmtTime(bet.targetDrawTimeUtc)}</strong><div class="muted">${fmtDate(
-        bet.createdAt,
-      )} 创建</div></td>
-      ${gameCell}
-      <td>${escapeHtml(bet.betLabel || bet.betType)}</td>
-      <td>${betContent(bet)}${
-        bet.note ? `<div class="bet-result-note">${escapeHtml(bet.note)}</div>` : ""
-      }</td>
-      <td>${fmtNumber(Number(bet.stake || 0), 2)} / ${fmtNumber(Number(bet.odds || 0), 2)}x</td>
-      <td>${statusBadge(bet.status)}</td>
-      <td>${betDrawResult(bet)}</td>
-      <td class="${profit > 0 ? "profit positive" : profit < 0 ? "profit negative" : "profit"}">${fmtMoney(
-        profit,
-        2,
-      )}</td>
-      ${showGame ? "" : `<td><button class="secondary-btn small danger-btn bet-delete-btn" type="button" data-bet-id="${betId}">删除</button></td>`}
-    `;
-    if (!showGame) {
-      row.querySelector(".bet-delete-btn")?.addEventListener("click", () => deleteBet(betId));
-    }
-    target.appendChild(row);
-  }
 }
 
 function buildBacktestPayload() {
@@ -1719,8 +2413,8 @@ async function pollBacktestScanStatus() {
 }
 
 async function loadBacktestStatus() {
-  if (!currentGameSupportsAnalysis()) {
-    switchView("history");
+  if (!currentGameSupportsBacktest()) {
+    openToolModal("history");
     return;
   }
   if (state.backtestPollTimer) {
@@ -1778,16 +2472,13 @@ async function syncData(mode) {
     const payload = await response.json();
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     const text = payload.allGames
-      ? `全彩种同步完成：${payload.successCount}/${payload.totalCount} 成功，总新增 ${payload.newRows} 期`
+      ? allGamesSyncToastText(payload)
       : payload.mode === "full"
         ? `全量同步完成：本地 ${payload.writtenRows} 期`
         : `同步完成：新增 ${payload.newRows} 期，BC ${payload.bcNewRows || 0} 期，官网补齐 ${
             payload.etiposNewRows || 0
           } 期，本地 ${payload.writtenRows} 期`;
-    const settledParts = [];
-    if (payload.settledBets) settledParts.push(`投注 ${payload.settledBets} 条`);
-    if (payload.settledPredictions) settledParts.push(`预测 ${payload.settledPredictions} 条`);
-    const settledText = settledParts.length ? `，结算${settledParts.join("、")}` : "";
+    const settledText = payload.settledPredictions ? `，结算预测 ${payload.settledPredictions} 条` : "";
     const gapText = payload.possibleGap ? "，增量未命中已有记录，请查看同步日志" : "";
     showToast(`${text}${settledText}${gapText}`);
     renderSyncLog(payload);
@@ -1798,11 +2489,19 @@ async function syncData(mode) {
     if (syncedIntegrity) state.currentIntegrity = syncedIntegrity;
     clearResponseCache();
     const preservePrediction = false;
-    state.prediction = null;
-    state.predictionTracking = null;
+    for (const slot of Object.values(state.predictionPanels)) {
+      slot.prediction = null;
+      slot.predictionTracking = null;
+      slot.predictionTrackingPage = 1;
+      slot.predictionTrackingStatus = "all";
+      slot.adjacentStats = null;
+      slot.adjacentHitPage = 1;
+      slot.adjacentHitQuery = "";
+      slot.adjacentHits = null;
+    }
+    syncPredictionPanelMirror();
     state.analysis = null;
     state.history = null;
-    state.bets = null;
     state.backtest = null;
     await refreshCurrentView({ preserve: Boolean(preservePrediction) });
   } catch (error) {
@@ -1818,15 +2517,185 @@ function renderAnalysis() {
   state.currentGame = data.game || state.currentGame;
   updateGameUi();
   renderSummary(data);
-  renderMetrics(data);
-  renderRunBars(data.runLengthDistribution);
-  renderTable(data.triples.items);
-  renderAdvanced(data.advanced);
+  renderCdeKillBacktest(data);
+}
+
+function cdePanelLabel(panel) {
+  if (panel === PREDICTION_PANEL_G) return "G";
+  if (panel === PREDICTION_PANEL_F) return "F";
+  if (panel === PREDICTION_PANEL_E) return "E";
+  if (panel === PREDICTION_PANEL_D) return "D";
+  return "C";
+}
+
+function cdeNumberBalls(numbers, extraClass = "") {
+  const items = (numbers || []).map((number) => Number(number)).filter(Number.isFinite);
+  if (!items.length) return '<span class="muted">--</span>';
+  return items
+    .map((number) => `<span class="prediction-ball compact ${extraClass}"><strong>${number}</strong></span>`)
+    .join("");
+}
+
+function cdePanelResultCell(result, panel = "") {
+  if (!result) return '<span class="muted">--</span>';
+  if (panel === PREDICTION_PANEL_F || panel === PREDICTION_PANEL_G) {
+    const hit = Number(result.hitCount ?? result.wrongKillCount ?? 0);
+    const miss = Number(result.missCount ?? result.rightKillCount ?? 0);
+    const pick = Number(result.pickCount ?? result.killCount ?? 0);
+    return `<div class="cde-result-cell">
+      <strong class="${hit > 0 ? "positive" : "muted"}">中 ${hit}</strong>
+      <span>未中 ${miss}</span>
+      <small>${pick}码</small>
+    </div>`;
+  }
+  const wrong = Number(result.wrongKillCount || 0);
+  const right = Number(result.rightKillCount || 0);
+  const kill = Number(result.killCount || 0);
+  return `<div class="cde-result-cell">
+    <strong class="${wrong > 0 ? "negative" : "positive"}">${wrong}</strong>
+    <span>/ ${right}</span>
+    <small>杀 ${kill}</small>
+  </div>`;
+}
+
+function cdeWrongNumbersCell(panels) {
+  const parts = [PREDICTION_PANEL_C, PREDICTION_PANEL_D, PREDICTION_PANEL_E].map((panel) => {
+    const result = panels?.[panel];
+    const numbers = result?.wrongKilledNumbers || [];
+    return `<div class="cde-wrong-group">
+      <span>${cdePanelLabel(panel)}</span>
+      <div>${cdeNumberBalls(numbers, numbers.length ? "kill wrong" : "safe")}</div>
+    </div>`;
+  });
+  const fResult = panels?.[PREDICTION_PANEL_F];
+  const fNumbers = fResult?.hitNumbers || fResult?.wrongKilledNumbers || [];
+  parts.push(`<div class="cde-wrong-group">
+    <span>F中</span>
+    <div>${cdeNumberBalls(fNumbers, fNumbers.length ? "hit" : "safe")}</div>
+  </div>`);
+  const gResult = panels?.[PREDICTION_PANEL_G];
+  const gNumbers = gResult?.hitNumbers || gResult?.wrongKilledNumbers || [];
+  parts.push(`<div class="cde-wrong-group">
+    <span>G中</span>
+    <div>${cdeNumberBalls(gNumbers, gNumbers.length ? "hit" : "safe")}</div>
+  </div>`);
+  return `<div class="cde-wrong-stack">${parts.join("")}</div>`;
+}
+
+function renderCdeKillBacktest(data) {
+  const summaries = Array.isArray(data.summaries) ? data.summaries : [];
+  const bestPanel = data.bestPanel || summaries[0] || null;
+  const allRows = Array.isArray(data.items) ? data.items : [];
+  const totalRows = allRows.length;
+  const totalPage = Math.max(1, Math.ceil(totalRows / CDE_BACKTEST_PAGE_SIZE));
+  const currentPage = Math.max(1, Math.min(Number(state.cdeBacktestPage || 1), totalPage));
+  state.cdeBacktestPage = currentPage;
+  const pageStart = (currentPage - 1) * CDE_BACKTEST_PAGE_SIZE;
+  const rows = allRows.slice(pageStart, pageStart + CDE_BACKTEST_PAGE_SIZE);
+  const visibleStart = totalRows ? pageStart + 1 : 0;
+  const visibleEnd = pageStart + rows.length;
+  if (els.cdeBacktestMeta) {
+    els.cdeBacktestMeta.textContent = `${data.game?.shortName || "--"} · 最近 ${Number(data.actualRounds || 0).toLocaleString(
+      "zh-CN",
+    )} 期 · 每期训练 ${Number(data.trainWindow || 0).toLocaleString("zh-CN")} 期 · ${Number(data.elapsedMs || 0).toLocaleString(
+      "zh-CN",
+    )}ms`;
+  }
+  if (els.cdeBacktestStats) {
+    const bestIsPredictionHit =
+      bestPanel?.metricType === "prediction_hit" || bestPanel?.panel === PREDICTION_PANEL_F || bestPanel?.panel === PREDICTION_PANEL_G;
+    const bestMetric = bestIsPredictionHit ? bestPanel?.averageHitCount ?? bestPanel?.averageWrongKillCount : bestPanel?.averageWrongKillCount;
+    const bestLabel = bestPanel
+      ? `${cdePanelLabel(bestPanel.panel)} · ${fmtNumber(Number(bestMetric || 0), 2)}${bestIsPredictionHit ? "中" : "错"}/期`
+      : "--";
+    const detailLabel = totalRows ? `${Number(visibleStart).toLocaleString("zh-CN")}-${Number(visibleEnd).toLocaleString("zh-CN")}` : "0";
+    els.cdeBacktestStats.innerHTML = `
+      <article class="accent"><span>回测期数</span><strong>${Number(data.actualRounds || 0).toLocaleString("zh-CN")}</strong><small>请求 ${Number(
+        data.window || 0,
+      ).toLocaleString("zh-CN")} 期</small></article>
+      <article><span>最佳面板</span><strong>${escapeHtml(bestLabel)}</strong><small>C/D/E看错杀，F/G看命中</small></article>
+      <article><span>训练窗口</span><strong>${Number(data.trainWindow || 0).toLocaleString("zh-CN")}</strong><small>每期只用开奖前历史</small></article>
+      <article><span>明细</span><strong>${detailLabel}</strong><small>共 ${Number(totalRows).toLocaleString("zh-CN")} 行 · 每页 ${CDE_BACKTEST_PAGE_SIZE}</small></article>
+    `;
+  }
+  if (els.cdeBacktestPanelCards) {
+    els.cdeBacktestPanelCards.innerHTML = summaries.length
+      ? summaries
+          .map((summary) => {
+            const isPredictionHit = summary.metricType === "prediction_hit" || summary.panel === PREDICTION_PANEL_F || summary.panel === PREDICTION_PANEL_G;
+            const wrong = Number(isPredictionHit ? summary.averageHitCount ?? summary.averageWrongKillCount ?? 0 : summary.averageWrongKillCount || 0);
+            const right = Number(isPredictionHit ? summary.averageMissCount ?? summary.averageRightKillCount ?? 0 : summary.averageRightKillCount || 0);
+            const zeroWrong = Number(isPredictionHit ? summary.zeroHitRate ?? summary.zeroWrongRate ?? 0 : summary.zeroWrongRate || 0);
+            const distributionItems = isPredictionHit ? summary.hitDistribution || summary.wrongDistribution || [] : summary.wrongDistribution || [];
+            const dist = distributionItems
+              .map(
+                (item) =>
+                  `<span>${Number((isPredictionHit ? item.hitCount : item.wrongKillCount) || 0)}${isPredictionHit ? "中" : "错"}: ${Number(item.rounds || 0).toLocaleString("zh-CN")}期</span>`,
+              )
+              .join("");
+            return `<article class="cde-panel-card">
+              <div class="cde-panel-card-title">
+                <strong>${cdePanelLabel(summary.panel)} 面板</strong>
+                <span>${escapeHtml(summary.label || "")}</span>
+              </div>
+              <div class="cde-panel-metrics">
+                <div><span>${isPredictionHit ? "平均命中" : "平均错杀"}</span><strong class="${
+                  isPredictionHit ? (wrong > 0 ? "positive" : "muted") : wrong > 2 ? "negative" : "positive"
+                }">${fmtNumber(wrong, 2)}</strong></div>
+                <div><span>${isPredictionHit ? "平均未中" : "平均杀对"}</span><strong>${fmtNumber(right, 2)}</strong></div>
+                <div><span>${isPredictionHit ? "命中率" : "错杀率"}</span><strong>${fmtPct(Number(isPredictionHit ? summary.hitRate ?? summary.wrongKillRate ?? 0 : summary.wrongKillRate || 0), 2)}</strong></div>
+                <div><span>${isPredictionHit ? "0中期数" : "0错期数"}</span><strong>${fmtPct(zeroWrong, 2)}</strong></div>
+              </div>
+              <div class="cde-distribution">${dist || '<span class="muted">暂无分布</span>'}</div>
+            </article>`;
+          })
+          .join("")
+      : '<article class="cde-panel-card"><span class="muted">暂无回测结果</span></article>';
+  }
+  if (els.cdeBacktestNotes) {
+    els.cdeBacktestNotes.textContent = (data.notes || []).join(" ");
+  }
+  if (els.cdeBacktestRows) {
+    els.cdeBacktestRows.innerHTML = rows.length
+      ? rows
+          .map((item) => {
+            const panels = item.panels || {};
+            return `<tr>
+              <td><strong>${escapeHtml(item.drawEventId || "--")}</strong><div class="muted">${fmtDate(item.drawTimeUtc)}</div></td>
+              <td><div class="history-balls compact">${cdeNumberBalls(item.drawNumbers || [], "draw")}</div></td>
+              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_C], PREDICTION_PANEL_C)}</td>
+              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_D], PREDICTION_PANEL_D)}</td>
+              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_E], PREDICTION_PANEL_E)}</td>
+              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_F], PREDICTION_PANEL_F)}</td>
+              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_G], PREDICTION_PANEL_G)}</td>
+              <td>${cdeWrongNumbersCell(panels)}</td>
+            </tr>`;
+          })
+          .join("")
+      : '<tr><td colspan="8"><span class="muted">暂无回测明细</span></td></tr>';
+  }
+  if (els.cdeBacktestPageInfo) {
+    els.cdeBacktestPageInfo.textContent = totalRows
+      ? `第 ${currentPage}/${totalPage} 页 · ${Number(visibleStart).toLocaleString("zh-CN")}-${Number(visibleEnd).toLocaleString(
+          "zh-CN",
+        )} / ${Number(totalRows).toLocaleString("zh-CN")} 条`
+      : "第 1/1 页 · 0 条";
+  }
+  if (els.cdeBacktestPrevBtn) {
+    els.cdeBacktestPrevBtn.disabled = state.loading || currentPage <= 1;
+  }
+  if (els.cdeBacktestNextBtn) {
+    els.cdeBacktestNextBtn.disabled = state.loading || currentPage >= totalPage;
+  }
 }
 
 function renderPredictionPage() {
+  syncPredictionPanelMirror();
   const data = state.prediction;
   if (!data) return;
+  if (els.predictionTitle) {
+    els.predictionTitle.textContent = data.panelLabel || predictionPanelLabel();
+  }
   state.currentGame = data.game || state.currentGame;
   updateGameUi();
   renderSummary(data);
@@ -1992,7 +2861,8 @@ function ticketExpectedMetric(ev) {
 function renderPredictionStrategyTickets(tickets = []) {
   if (!els.predictionStrategyTickets) return;
   if (!tickets.length) {
-    els.predictionStrategyTickets.innerHTML = "";
+    const method = state.prediction?.predictions?.method || "当前规则没有生成候选票";
+    els.predictionStrategyTickets.innerHTML = `<article class="prediction-ticket-card"><span class="muted">${escapeHtml(method)}</span></article>`;
     return;
   }
   els.predictionStrategyTickets.innerHTML = tickets
@@ -2003,12 +2873,39 @@ function renderPredictionStrategyTickets(tickets = []) {
       const recentClass = ticketRecentClass(ticket);
       const recentTitle = ticketRecentTitle(ticket);
       const sampleNote = ticket.sampleWarning ? '<div class="ticket-warning">样本偏少，命中率区间仅作参考。</div>' : "";
+      const coreNumbers = Array.isArray(ticket.coreNumbers) ? ticket.coreNumbers : [];
+      const companionNumbers = Array.isArray(ticket.companionNumbers) ? ticket.companionNumbers : [];
+      const panelKey = normalizePredictionPanel(ticket.panel || state.predictionPanel);
+      const isPanelFTicket = panelKey === PREDICTION_PANEL_F;
+      const isPanelGTicket = panelKey === PREDICTION_PANEL_G;
+      const recallNumbers = Array.isArray(ticket.recallNumbers) && ticket.recallNumbers.length
+        ? ticket.recallNumbers
+        : Array.isArray(ticket.reversalNumbers) && ticket.reversalNumbers.length
+          ? ticket.reversalNumbers
+          : companionNumbers;
+      const sourcePoolCount = Number(ticket.sourcePoolCount || ticket.sourcePoolNumbers?.length || ticket.excludedNumbers?.length || 0);
+      const structureNote = ticket.structureType
+        ? `<div class="ticket-structure">
+            <span>${escapeHtml(ticket.structureLabel || ticket.structureType)}</span>
+            ${
+              isPanelFTicket
+                ? `<span>召回 ${escapeHtml(recallNumbers.join("-") || "--")}</span>
+                   <span>候选池 ${sourcePoolCount ? `${sourcePoolCount.toLocaleString("zh-CN")}个` : "--"}</span>`
+                : isPanelGTicket
+                  ? `<span>杀号池 ${sourcePoolCount ? `${sourcePoolCount.toLocaleString("zh-CN")}个` : "--"}</span>
+                     <span>剩余池预测</span>`
+                : `<span>核心 ${escapeHtml(coreNumbers.join("-") || "--")}</span>
+                   <span>派生 ${escapeHtml(companionNumbers.join("-") || "--")}</span>`
+            }
+          </div>`
+        : "";
       return `<article class="prediction-ticket-card">
         <div class="prediction-card-title">
           <strong>${escapeHtml(ticket.label || "策略候选票")} #${index + 1}</strong>
           <span>${escapeHtml(ticket.mode === "bonus" ? `${ticket.pickCount}+1特殊` : `${ticket.pickCount}球`)} · ${fmtNumber(Number(ticket.odds || 0), 2)}x</span>
         </div>
         <div class="ticket-balls" title="${escapeHtml(ticket.ticketLabel || "")}">${ticketNumberBalls(ticket)}</div>
+        ${structureNote}
         <div class="ticket-metric-grid">
           <div><span>理论命中</span><strong>${fmtPct(Number(ticket.theoreticalHitRate || 0), 3)}</strong></div>
           <div><span>盈亏线</span><strong>${fmtPct(Number(ticket.breakEvenHitRate || 0), 3)}</strong></div>
@@ -2027,12 +2924,101 @@ function renderPredictionStrategyTickets(tickets = []) {
     .join("");
 }
 
+function strategyHealthLabel(group) {
+  const settled = Number(group.settled || 0);
+  const hitRate = Number(group.hitRate || 0);
+  const theoretical = Number(group.theoreticalHitRate || 0);
+  const roi = Number(group.roi || 0);
+  const ci = group.hitRateCi || [0, 0];
+  const ciHigh = Number(ci[1] || 0);
+  if (settled < 50) {
+    return { className: "watch", text: "样本不足", detail: `已结算 ${settled.toLocaleString("zh-CN")} 条，先观察` };
+  }
+  if (theoretical > 0 && ciHigh < theoretical) {
+    return { className: "bad", text: "表现偏弱", detail: "置信区间上沿低于理论命中" };
+  }
+  if (roi < 0 && theoretical > 0 && hitRate < theoretical) {
+    return { className: "bad", text: "暂停观察", detail: "ROI 与命中率均低于基准" };
+  }
+  if (roi > 0 && theoretical > 0 && hitRate >= theoretical) {
+    return { className: "good", text: "继续观察", detail: "样本内暂高于理论基准" };
+  }
+  return { className: "watch", text: "接近随机", detail: "暂未看到稳定偏离" };
+}
+
+function renderPredictionStrategyHealth(groups = []) {
+  if (!els.predictionStrategyHealth) return;
+  const visibleGroups = groups
+    .filter((group) => Number(group.total || 0) > 0)
+    .sort((a, b) => Number(b.settled || 0) - Number(a.settled || 0) || Number(b.total || 0) - Number(a.total || 0))
+    .slice(0, 4);
+  if (!visibleGroups.length) {
+    els.predictionStrategyHealth.innerHTML =
+      '<article class="strategy-health-card empty"><span class="muted">暂无策略表现数据，等待自动追踪结算。</span></article>';
+    return;
+  }
+  els.predictionStrategyHealth.innerHTML = visibleGroups
+    .map((group) => {
+      const settled = Number(group.settled || 0);
+      const pending = Number(group.pending || 0);
+      const roi = Number(group.roi || 0);
+      const profit = Number(group.profitTotal || 0);
+      const ci = group.hitRateCi || [0, 0];
+      const health = strategyHealthLabel(group);
+      const playLabel = group.mode === "bonus" ? `${group.pickCount}+1特殊球` : `${group.pickCount}球`;
+      return `<article class="strategy-health-card ${health.className}">
+        <div class="strategy-health-title">
+          <div>
+            <strong>${escapeHtml(group.strategyLabel || "--")}</strong>
+            <span>${escapeHtml(playLabel)} · ${fmtNumber(Number(group.odds || 0), 2)}x</span>
+          </div>
+          <span class="strategy-health-badge">${escapeHtml(health.text)}</span>
+        </div>
+        <div class="strategy-health-metrics">
+          <div><span>结算/待结算</span><strong>${settled.toLocaleString("zh-CN")} / ${pending.toLocaleString("zh-CN")}</strong></div>
+          <div><span>实际/理论</span><strong>${settled ? fmtPct(Number(group.hitRate || 0), 2) : "--"} / ${
+            settled ? fmtPct(Number(group.theoreticalHitRate || 0), 3) : "--"
+          }</strong></div>
+          <div><span>ROI</span><strong class="${roi > 0 ? "positive" : roi < 0 ? "negative" : ""}">${
+            settled ? fmtPct(roi, 2) : "--"
+          }</strong></div>
+        </div>
+        <div class="strategy-health-detail">
+          <span>${escapeHtml(health.detail)}</span>
+          <span>区间 ${settled ? `${fmtPct(Number(ci[0] || 0), 2)} - ${fmtPct(Number(ci[1] || 0), 2)}` : "--"} · 盈亏 ${
+            settled ? fmtMoney(profit, 2) : "--"
+          }</span>
+        </div>
+      </article>`;
+    })
+    .join("");
+}
+
 function trackingTicketContent(record) {
   const numbers = Array.isArray(record.numbers) ? record.numbers : [];
   const main = numbers.length ? numberBadge(numbers, "hot") : '<span class="muted">--</span>';
   const bonus = Number(record.bonusNumber || 0);
   if (!bonus) return main;
   return `${main}<span class="bonus-separator">+</span><span class="ball bonus">${bonus}</span>`;
+}
+
+function trackingDrawBalls(record, draw) {
+  const matched = new Set((record.result?.matchedNumbers || []).map((number) => Number(number)));
+  const numbers = Array.isArray(draw?.numbers) ? draw.numbers : [];
+  const main = numbers
+    .map((number) => {
+      const parsed = Number(number);
+      const className = matched.has(parsed) ? "ball matched" : "ball";
+      return `<span class="${className}">${escapeHtml(String(number))}</span>`;
+    })
+    .join("");
+  const bonus = Number(draw?.bonusBall || 0);
+  const predictedBonus = Number(record.bonusNumber || 0);
+  const bonusHit = bonus > 0 && predictedBonus > 0 && bonus === predictedBonus;
+  const bonusHtml = bonus
+    ? `<span class="bonus-separator">+</span><span class="ball bonus${bonusHit ? " matched" : ""}">${bonus}</span>`
+    : "";
+  return `${main}${bonusHtml}`;
 }
 
 function trackingDrawResult(record) {
@@ -2050,14 +3036,9 @@ function trackingDrawResult(record) {
   const result = record.result;
   const draw = result?.draw;
   if (!draw) return '<span class="muted">无结果明细</span>';
-  const numbers = (draw.numbers || []).map((number) => `<span class="ball">${number}</span>`).join("");
-  const bonus = Number(draw.bonusBall || 0);
-  const bonusHtml = bonus
-    ? `<span class="bonus-separator">+</span><span class="ball bonus">${bonus}</span>`
-    : "";
   return `<div class="bet-result">
     <div>${fmtTime(draw.drawTimeUtc)} · ${escapeHtml(result.reason || "")}</div>
-    <div class="history-balls compact">${numbers}${bonusHtml}</div>
+    <div class="history-balls compact">${trackingDrawBalls(record, draw)}</div>
   </div>`;
 }
 
@@ -2078,194 +3059,6 @@ function renderAdjacentExample(example) {
 
 function adjacentNumbersLabel(numbers) {
   return Array.isArray(numbers) && numbers.length ? numbers.join("-") : "--";
-}
-
-function parseAdjacentToolNumbers(text) {
-  const total = Number(state.currentGame?.totalNumbers || 80);
-  const values = String(text || "")
-    .split(/[\s,，、;；/|+-]+/)
-    .map((part) => Number(part.trim()))
-    .filter((number) => Number.isInteger(number) && number >= 1 && number <= total);
-  return [...new Set(values)].sort((a, b) => a - b);
-}
-
-function adjacentPairCandidates(number, total) {
-  const items = [];
-  if (number > 1) items.push({ key: "adjacent_pair_left", label: "左邻二码", numbers: [number - 1, number] });
-  if (number < total) items.push({ key: "adjacent_pair_right", label: "右邻二码", numbers: [number, number + 1] });
-  return items;
-}
-
-function adjacentOuterPairCandidates(number, total) {
-  const items = [];
-  if (number > 2) items.push({ key: "outer_pair_left", label: "外侧左邻二码", numbers: [number - 2, number - 1] });
-  if (number < total - 1) items.push({ key: "outer_pair_right", label: "外侧右邻二码", numbers: [number + 1, number + 2] });
-  return items;
-}
-
-function adjacentCrossHaloCandidates(numbers, total) {
-  if (numbers.length !== 2) return [];
-  const leftPool = [numbers[0] - 1, numbers[0], numbers[0] + 1].filter((number) => number >= 1 && number <= total);
-  const rightPool = [numbers[1] - 1, numbers[1], numbers[1] + 1].filter((number) => number >= 1 && number <= total);
-  const combos = new Map();
-  for (const left of leftPool) {
-    for (const right of rightPool) {
-      if (left === right) continue;
-      const combo = [left, right].sort((a, b) => a - b);
-      combos.set(combo.join("-"), combo);
-    }
-  }
-  return [...combos.values()].sort((a, b) => adjacentNumbersLabel(a).localeCompare(adjacentNumbersLabel(b), "zh-CN"));
-}
-
-function adjacentFourBallCandidates(numbers, total) {
-  if (numbers.length !== 2) return [];
-  const leftPairs = adjacentPairCandidates(numbers[0], total).map((item) => item.numbers);
-  const rightPairs = adjacentPairCandidates(numbers[1], total).map((item) => item.numbers);
-  const combos = new Map();
-  for (const leftPair of leftPairs) {
-    for (const rightPair of rightPairs) {
-      const combo = [...leftPair, ...rightPair].sort((a, b) => a - b);
-      if (new Set(combo).size !== 4) continue;
-      combos.set(combo.join("-"), combo);
-    }
-  }
-  return [...combos.values()].sort((a, b) => adjacentNumbersLabel(a).localeCompare(adjacentNumbersLabel(b), "zh-CN"));
-}
-
-function selectedAdjacentToolTypes() {
-  return [...document.querySelectorAll("[data-adjacent-type]:checked")].map((input) => input.dataset.adjacentType);
-}
-
-function buildAdjacentToolRows(numbers, types) {
-  const total = Number(state.currentGame?.totalNumbers || 80);
-  const rows = [];
-  const addRow = (type, typeLabel, source, label, derived) => {
-    rows.push({
-      type,
-      typeLabel,
-      sourceNumbers: source,
-      label,
-      derivedNumbers: [...derived].sort((a, b) => a - b),
-    });
-  };
-
-  if (numbers.length === 1 && types.includes("p1_adjacent_pair")) {
-    for (const item of adjacentPairCandidates(numbers[0], total)) {
-      addRow("p1_adjacent_pair", "1球左右邻二码", numbers, item.label, item.numbers);
-    }
-  }
-
-  if (numbers.length === 2) {
-    if (types.includes("p2_anchor_pair")) {
-      for (const number of numbers) {
-        for (const item of adjacentPairCandidates(number, total)) {
-          addRow("p2_anchor_pair", "2球锚点邻二码", [number], item.label, item.numbers);
-        }
-      }
-    }
-    if (types.includes("p2_outer_pair")) {
-      for (const number of numbers) {
-        for (const item of adjacentOuterPairCandidates(number, total)) {
-          addRow("p2_outer_pair", "2球外侧邻二码", [number], item.label, item.numbers);
-        }
-      }
-    }
-    if (types.includes("p2_cross_halo_pair")) {
-      for (const combo of adjacentCrossHaloCandidates(numbers, total)) {
-        addRow("p2_cross_halo_pair", "2球交叉临码二码", numbers, "交叉二码", combo);
-      }
-    }
-    if (types.includes("p2_local_four_ball")) {
-      for (const combo of adjacentFourBallCandidates(numbers, total)) {
-        addRow("p2_local_four_ball", "2球局部四码", numbers, "局部四码", combo);
-      }
-    }
-  }
-
-  const unique = new Map();
-  for (const row of rows) {
-    const key = `${row.type}:${adjacentNumbersLabel(row.derivedNumbers)}`;
-    if (!unique.has(key)) unique.set(key, row);
-  }
-  return [...unique.values()];
-}
-
-function renderAdjacentTool() {
-  if (!els.adjacentToolResults) return;
-  const total = Number(state.currentGame?.totalNumbers || 80);
-  if (els.adjacentToolMeta) {
-    els.adjacentToolMeta.textContent = `${state.currentGame?.shortName || "--"} · 号码范围 1-${total}`;
-  }
-  const numbers = parseAdjacentToolNumbers(els.adjacentToolNumbers?.value || "");
-  const types = selectedAdjacentToolTypes();
-  if (!numbers.length) {
-    els.adjacentToolSummary.textContent = "等待生成";
-    els.adjacentToolResults.dataset.copyText = "";
-    els.adjacentToolResults.innerHTML = '<div class="empty-state">输入号码并选择派生类型</div>';
-    return;
-  }
-  if (![1, 2].includes(numbers.length)) {
-    els.adjacentToolSummary.textContent = "只支持 1 个或 2 个原始号码";
-    els.adjacentToolResults.dataset.copyText = "";
-    els.adjacentToolResults.innerHTML = '<div class="empty-state">当前临码规则只支持输入 1 个号码或 2 个号码</div>';
-    return;
-  }
-  if (!types.length) {
-    els.adjacentToolSummary.textContent = "未选择派生类型";
-    els.adjacentToolResults.dataset.copyText = "";
-    els.adjacentToolResults.innerHTML = '<div class="empty-state">至少勾选一种派生类型</div>';
-    return;
-  }
-  const rows = buildAdjacentToolRows(numbers, types);
-  const grouped = new Map();
-  for (const row of rows) {
-    if (!grouped.has(row.typeLabel)) grouped.set(row.typeLabel, []);
-    grouped.get(row.typeLabel).push(row);
-  }
-  const allTickets = [...new Map(rows.map((row) => [adjacentNumbersLabel(row.derivedNumbers), row.derivedNumbers])).values()];
-  els.adjacentToolSummary.textContent = `原号 ${adjacentNumbersLabel(numbers)} · ${rows.length} 条 · 去重 ${allTickets.length} 注`;
-  els.adjacentToolResults.dataset.copyText = allTickets.map((ticket) => adjacentNumbersLabel(ticket)).join("\n");
-  els.adjacentToolResults.innerHTML = `
-    <section class="adjacent-tool-copy-block">
-      <div>
-        <span>总清单</span>
-        <strong>${allTickets.length.toLocaleString("zh-CN")} 注</strong>
-      </div>
-      <p>${allTickets.map((ticket) => `<span>${escapeHtml(adjacentNumbersLabel(ticket))}</span>`).join("")}</p>
-    </section>
-    ${[...grouped.entries()]
-      .map(
-        ([label, items]) => `<section class="adjacent-tool-group">
-          <h3>${escapeHtml(label)}<span>${items.length.toLocaleString("zh-CN")} 条</span></h3>
-          <div class="adjacent-tool-ticket-grid">
-            ${items
-              .map(
-                (item) => `<article class="adjacent-tool-ticket">
-                  <strong>${escapeHtml(adjacentNumbersLabel(item.derivedNumbers))}</strong>
-                  <span>${escapeHtml(item.label)} · 来源 ${escapeHtml(adjacentNumbersLabel(item.sourceNumbers))}</span>
-                </article>`,
-              )
-              .join("")}
-          </div>
-        </section>`,
-      )
-      .join("")}
-  `;
-}
-
-async function copyAdjacentToolResults() {
-  const text = els.adjacentToolResults?.dataset.copyText || "";
-  if (!text) {
-    showToast("暂无可复制的派生号码", true);
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-    showToast("已复制派生号码总清单");
-  } catch {
-    showToast("浏览器拒绝复制，请手动选择总清单", true);
-  }
 }
 
 function renderAdjacentHitPills(examples = [], limit = 4) {
@@ -2393,16 +3186,27 @@ function renderPredictionAdjacentStats() {
   const stats = state.adjacentStats;
   const items = Array.isArray(stats?.items) ? stats.items : [];
   const enabled = Boolean(stats?.enabled);
+  if (els.predictionAdjacentStatsWrap) {
+    els.predictionAdjacentStatsWrap.classList.toggle("hidden", !enabled && !currentGameSupportsPredictionTracking());
+  }
   block.classList.toggle("hidden", !enabled);
   if (!enabled) {
+    if (els.predictionAdjacentStatsSummary) {
+      els.predictionAdjacentStatsSummary.textContent = "等待加载";
+    }
     block.innerHTML = currentGameSupportsPredictionTracking()
       ? '<span class="loading-inline">临码派生统计加载中...</span>'
       : "";
     return;
   }
   const ticketItems = items.filter((item) => item.category === "ticket");
+  if (els.predictionAdjacentStatsSummary) {
+    els.predictionAdjacentStatsSummary.textContent = `来源 ${Number(
+      stats.sourceSettledRecords || 0,
+    ).toLocaleString("zh-CN")} 条 · 可投注 ${ticketItems.length.toLocaleString("zh-CN")} 项`;
+  }
   if (!state.adjacentHits) {
-    loadAdjacentHits({ silent: true });
+    loadAdjacentHits({ silent: true, panel: state.predictionPanel });
   }
   const renderItem = (item) => {
     const samples = Number(item.samples || 0);
@@ -2500,6 +3304,7 @@ function renderPredictionAdjacentStats() {
 function renderPredictionTracking() {
   const data = state.predictionTracking;
   if (!els.predictionTrackingStats || !els.predictionTrackingRows) return;
+  const panelLabel = data?.panelLabel || predictionPanelLabel();
   const summary = data?.summary || {};
   const allSummary = data?.allSummary || summary;
   const settled = Number(summary.settled || 0);
@@ -2514,13 +3319,14 @@ function renderPredictionTracking() {
 
   if (els.predictionTrackingMeta) {
     els.predictionTrackingMeta.textContent = data
-      ? `当前彩种 ${Number(summary.total || 0).toLocaleString("zh-CN")} 条 · 全部 ${Number(
+      ? `${panelLabel} · 当前彩种 ${Number(summary.total || 0).toLocaleString("zh-CN")} 条 · 全部 ${Number(
           allSummary.total || 0,
         ).toLocaleString("zh-CN")} 条 · 当前筛选 ${Number(data.total || 0).toLocaleString("zh-CN")} 条 · ${fmtDate(data.generatedAt)}`
       : "等待生成预测记录";
   }
   if (els.predictionTrackingStatusFilter) {
-    els.predictionTrackingStatusFilter.value = data?.statusFilter || state.predictionTrackingStatus || "all";
+    els.predictionTrackingStatusFilter.value =
+      data?.statusFilter || predictionPanelState().predictionTrackingStatus || "all";
   }
   if (els.predictionTrackingPageInfo) {
     els.predictionTrackingPageInfo.textContent = data
@@ -2528,11 +3334,10 @@ function renderPredictionTracking() {
       : "--";
   }
   if (els.predictionTrackingPrevBtn) {
-    els.predictionTrackingPrevBtn.disabled = state.loading || !data || Number(data.page || 1) <= 1;
+    els.predictionTrackingPrevBtn.disabled = !data || Number(data.page || 1) <= 1;
   }
   if (els.predictionTrackingNextBtn) {
-    els.predictionTrackingNextBtn.disabled =
-      state.loading || !data || Number(data.page || 1) >= Number(data.totalPage || 1);
+    els.predictionTrackingNextBtn.disabled = !data || Number(data.page || 1) >= Number(data.totalPage || 1);
   }
 
   els.predictionTrackingStats.innerHTML = [
@@ -2578,6 +3383,7 @@ function renderPredictionTracking() {
   }
 
   const groups = data?.groups || [];
+  renderPredictionStrategyHealth(groups);
   if (els.predictionTrackingGroups) {
     els.predictionTrackingGroups.innerHTML = groups.length
       ? groups
@@ -2616,6 +3422,30 @@ function renderPredictionTracking() {
       const recordProfit = Number(record.profit || 0);
       const targetRelative = relativeTargetLabel(record.targetDrawTimeUtc, record.status);
       const targetClass = targetRelative.startsWith("!") ? "target-overdue" : "target-relative";
+      const coreNumbers = Array.isArray(record.coreNumbers) ? record.coreNumbers : [];
+      const companionNumbers = Array.isArray(record.companionNumbers) ? record.companionNumbers : [];
+      const recordPanel = normalizePredictionPanel(record.panel || state.predictionPanel);
+      const isPanelFRecord = recordPanel === PREDICTION_PANEL_F;
+      const isPanelGRecord = recordPanel === PREDICTION_PANEL_G;
+      const recallNumbers = Array.isArray(record.recallNumbers) && record.recallNumbers.length
+        ? record.recallNumbers
+        : Array.isArray(record.reversalNumbers) && record.reversalNumbers.length
+          ? record.reversalNumbers
+          : companionNumbers;
+      const sourcePoolCount = Number(record.sourcePoolCount || record.sourcePoolNumbers?.length || record.excludedNumbers?.length || 0);
+      const structureMeta = record.structureType
+        ? isPanelFRecord
+          ? `<div class="muted tracking-structure">${escapeHtml(record.structureLabel || record.structureType)} · 召回 ${escapeHtml(
+              recallNumbers.join("-") || "--",
+            )} · 候选池 ${sourcePoolCount ? `${sourcePoolCount.toLocaleString("zh-CN")}个` : "--"}</div>`
+          : isPanelGRecord
+            ? `<div class="muted tracking-structure">${escapeHtml(record.structureLabel || record.structureType)} · 杀号池 ${
+                sourcePoolCount ? `${sourcePoolCount.toLocaleString("zh-CN")}个` : "--"
+              } · 剩余池预测</div>`
+          : `<div class="muted tracking-structure">${escapeHtml(record.structureLabel || record.structureType)} · 核心 ${escapeHtml(
+              coreNumbers.join("-") || "--",
+            )} · 派生 ${escapeHtml(companionNumbers.join("-") || "--")}</div>`
+        : "";
       const resultCells =
         record.status === "pending"
           ? '<td colspan="2" class="tracking-pending-result"><span class="pending-placeholder">--</span><div class="muted">等待开奖同步</div></td>'
@@ -2628,7 +3458,7 @@ function renderPredictionTracking() {
         <td><strong>${fmtTime(record.targetDrawTimeUtc)}</strong>${
           targetRelative ? ` <span class="${targetClass}">${escapeHtml(targetRelative)}</span>` : ""
         }<div class="muted">${fmtDate(record.createdAt)} 创建</div></td>
-        <td>${escapeHtml(record.strategyLabel || "--")}<div class="muted">${escapeHtml(record.methodVersion || "")}</div></td>
+        <td>${escapeHtml(record.strategyLabel || "--")}<div class="muted">${escapeHtml(record.methodVersion || "")}</div>${structureMeta}</td>
         <td>${trackingTicketContent(record)}</td>
         <td>${fmtPct(Number(record.theoreticalHitRate || 0), 3)}<div class="muted">近窗 ${fmtPct(
           Number(record.recentHitRate || 0),
@@ -2663,19 +3493,158 @@ function renderPredictionAutoStatus() {
   }
 }
 
+function predictionSourceTicketUniqueNumbers(tickets = []) {
+  return [
+    ...new Set(
+      tickets
+        .flatMap((ticket) => (Array.isArray(ticket?.numbers) ? ticket.numbers : []))
+        .map((number) => Number(number))
+        .filter(Number.isFinite),
+    ),
+  ].sort((a, b) => a - b);
+}
+
+function predictionSourceTicketSummaryTitle(tickets = []) {
+  return tickets
+    .map((ticket, index) => {
+      const label = ticket?.ticketLabel || (Array.isArray(ticket?.numbers) ? ticket.numbers.join("-") : "");
+      const ticketIndex = Number(ticket?.index || index + 1).toLocaleString("zh-CN");
+      return `#${ticketIndex} ${label}`;
+    })
+    .filter(Boolean)
+    .join(" / ");
+}
+
+function predictionSourceTicketBalls(numbers = [], limit = 24) {
+  const items = [...new Set((numbers || []).map((number) => Number(number)).filter(Number.isFinite))]
+    .sort((a, b) => a - b);
+  if (!items.length) return '<span class="muted">--</span>';
+  const visible = items.slice(0, limit);
+  const hiddenCount = Math.max(0, items.length - visible.length);
+  return `${visible
+    .map((number) => `<span class="prediction-ball compact source"><strong>${number}</strong></span>`)
+    .join("")}${hiddenCount ? `<span class="prediction-kill-source-overflow">+${hiddenCount.toLocaleString("zh-CN")}</span>` : ""}`;
+}
+
+function renderPredictionKillSources(predictions, showSources) {
+  if (!els.predictionKillSources) return;
+  const sourceTickets = predictions?.sourceTickets || {};
+  const panel = normalizePredictionPanel(predictions?.panel || state.predictionPanel);
+  const sourceLabels = {
+    [PREDICTION_PANEL_DEFAULT]: "A源票",
+    [PREDICTION_PANEL_B]: "B源票",
+    [PREDICTION_PANEL_C]: "C源票",
+    [PREDICTION_PANEL_D]: "D源票",
+    [PREDICTION_PANEL_E]: "E源票",
+  };
+  const panelOrder =
+    panel === PREDICTION_PANEL_G
+      ? [PREDICTION_PANEL_C, PREDICTION_PANEL_D, PREDICTION_PANEL_E]
+      : panel === PREDICTION_PANEL_F
+      ? [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_C, PREDICTION_PANEL_D, PREDICTION_PANEL_E]
+      : [PREDICTION_PANEL_C, PREDICTION_PANEL_D];
+  const groups = panelOrder
+    .map((sourcePanel) => [
+      sourcePanel,
+      sourceLabels[sourcePanel] || `${sourcePanel.toUpperCase()}源票`,
+      Array.isArray(sourceTickets[sourcePanel]) ? sourceTickets[sourcePanel] : [],
+    ])
+    .filter(([, , tickets]) => tickets.length);
+  if (!showSources || !groups.length) {
+    els.predictionKillSources.classList.add("hidden");
+    els.predictionKillSources.innerHTML = "";
+    return;
+  }
+  els.predictionKillSources.innerHTML = groups
+    .map(([panel, label, tickets]) => {
+      const uniqueNumbers = predictionSourceTicketUniqueNumbers(tickets);
+      const title = predictionSourceTicketSummaryTitle(tickets);
+      return `<div class="prediction-kill-source-group" data-panel="${escapeHtml(panel)}">
+        <div class="prediction-kill-source-title">
+          <strong>${escapeHtml(label)}</strong>
+          <span>${Number(tickets.length || 0).toLocaleString("zh-CN")}组 · ${Number(uniqueNumbers.length || 0).toLocaleString("zh-CN")}个唯一号</span>
+        </div>
+        <div class="prediction-kill-source-balls" title="${escapeHtml(title)}">${predictionSourceTicketBalls(uniqueNumbers)}</div>
+      </div>`;
+    })
+    .join("");
+  els.predictionKillSources.classList.remove("hidden");
+}
+
+function renderPredictionKillPanel(predictions) {
+  if (!els.predictionKillPanel) return;
+  const panel = normalizePredictionPanel(predictions?.panel || state.predictionPanel);
+  const isPanelB = panel === PREDICTION_PANEL_B;
+  const isPanelD = panel === PREDICTION_PANEL_D;
+  const isPanelE = panel === PREDICTION_PANEL_E;
+  const isPanelF = panel === PREDICTION_PANEL_F;
+  const isPanelG = panel === PREDICTION_PANEL_G;
+  const showKillPanel = isPanelB || isPanelD || isPanelE || isPanelF || isPanelG;
+  els.predictionKillPanel.classList.toggle("hidden", !showKillPanel);
+  if (!showKillPanel) {
+    if (els.predictionKillSummary) els.predictionKillSummary.textContent = "--";
+    if (els.predictionKillNumbers) els.predictionKillNumbers.innerHTML = "";
+    renderPredictionKillSources(predictions, false);
+    return;
+  }
+  const killLabel =
+    isPanelG
+      ? "CDE候选杀号池"
+      : isPanelF
+      ? "ABCDE误杀候选池"
+      : isPanelE
+        ? "CD杀号"
+        : isPanelD && predictions?.sourcePanel === PREDICTION_PANEL_C
+          ? "C杀号"
+          : isPanelD
+            ? "ABC杀号"
+            : "面板A杀号";
+  if (els.predictionKillLabel) {
+    els.predictionKillLabel.textContent = killLabel;
+  }
+  const numbers = [...new Set((predictions?.excludedNumbers || []).map((number) => Number(number)).filter(Number.isFinite))]
+    .sort((a, b) => a - b);
+  if (els.predictionKillSummary) {
+    els.predictionKillSummary.textContent = numbers.length
+      ? isPanelF
+        ? `${numbers.length.toLocaleString("zh-CN")} 个主球来自A/B/C/D/E排除链路`
+        : isPanelG
+          ? `${numbers.length.toLocaleString("zh-CN")} 个主球来自C/D/E候选票，G已从剩余号码生成预测`
+          : `${numbers.length.toLocaleString("zh-CN")} 个主球已排除`
+      : isPanelF
+        ? "暂无候选池"
+        : isPanelG
+          ? "暂无C/D/E候选杀号池"
+          : "暂无排除号";
+  }
+  if (els.predictionKillNumbers) {
+    els.predictionKillNumbers.innerHTML = numbers.length
+      ? numbers
+          .map((number) => `<span class="prediction-ball compact kill"><strong>${number}</strong></span>`)
+          .join("")
+      : `<span class="muted">${killLabel}暂未给出可用主球</span>`;
+  }
+  renderPredictionKillSources(predictions, isPanelE || isPanelF || isPanelG);
+}
+
 function renderPredictions(predictions) {
   if (!predictions) return;
-  const smallRange = predictions.smallRange || [1, 40];
-  const bigRange = predictions.bigRange || [41, 80];
+  const panelLabel = predictions.panelLabel || predictionPanelLabel(predictions.panel);
+  if (els.predictionTitle) {
+    els.predictionTitle.textContent = panelLabel;
+  }
   const start = fmtTime(predictions.timeWindowUtc?.start);
   const end = fmtTime(predictions.timeWindowUtc?.end);
   const drawCount = Number(state.prediction?.drawCount || 0);
   els.predictionWindow.textContent =
     start !== "--" && end !== "--" ? `预测时间窗 ${start} - ${end}` : "预测时间窗 --";
-  els.predictionMethod.textContent = `${smallRange[0]}-${smallRange[1]} / ${bigRange[0]}-${bigRange[1]} · 近${predictions.recentWindow}期 · ${predictions.method}`;
+  els.predictionMethod.textContent = `近${Number(predictions.recentWindow || 0).toLocaleString(
+    "zh-CN",
+  )}期 · ${predictions.method}`;
+  renderPredictionKillPanel(predictions);
   if (els.predictionNotice) {
     const noticeParts = [
-      "当前为启发式统计排序，不代表开奖概率被改变；下注前应以具体策略回测、理论命中率和资金风险为准。",
+      "当前为启发式统计排序，不代表开奖概率被改变；下注前应以理论命中率、赔率盈亏线和资金风险为准。",
     ];
     if (drawCount > 0 && drawCount < 500) {
       noticeParts.unshift(`可用历史仅 ${drawCount.toLocaleString("zh-CN")} 期，样本不足 500 期。`);
@@ -2683,107 +3652,7 @@ function renderPredictions(predictions) {
     els.predictionNotice.textContent = noticeParts.join(" ");
     els.predictionNotice.classList.toggle("warning-note", drawCount > 0 && drawCount < 500);
   }
-  els.bigPredictionBalls.innerHTML = sortNumberItems(predictions.topBigNumbers)
-    .map((item) => predictionBall(item, "big"))
-    .join("");
-  els.smallPredictionBalls.innerHTML = sortNumberItems(predictions.topSmallNumbers)
-    .map((item) => predictionBall(item, "small"))
-    .join("");
-  const bonusPrediction = predictions.bonusBall;
-  const showBonusPrediction = Boolean(bonusPrediction?.enabled && bonusPrediction.topNumbers?.length);
-  if (els.bonusPredictionCard) {
-    els.bonusPredictionCard.classList.toggle("hidden", !showBonusPrediction);
-  }
-  if (showBonusPrediction) {
-    const [bonusStart, bonusEnd] = bonusPrediction.range || [1, state.currentGame?.bonusBallTotalNumbers || state.currentGame?.totalNumbers || 0];
-    if (els.bonusPredictionTitle) {
-      els.bonusPredictionTitle.textContent = `特殊号 ${bonusPrediction.label || ""}`.trim();
-    }
-    els.bonusPredictionRange.textContent = `${bonusStart}-${bonusEnd}`;
-    els.bonusPredictionBalls.innerHTML = (bonusPrediction.topNumbers || [])
-      .map((item) => bonusPredictionBall(item, "bonus"))
-      .join("");
-  } else if (els.bonusPredictionBalls) {
-    els.bonusPredictionBalls.innerHTML = "";
-    if (els.bonusPredictionTitle) els.bonusPredictionTitle.textContent = "特殊号码";
-    if (els.bonusPredictionRange) els.bonusPredictionRange.textContent = "--";
-  }
   renderPredictionStrategyTickets(predictions.strategyTickets || []);
-}
-
-function renderBetTypeOptions() {
-  const existingValue = els.betType.value;
-  const betTypes = state.bets?.betTypes || [
-    { key: "numbers", label: "号码组选全中", requiresNumbers: true, defaultOdds: 60 },
-    { key: "pair", label: "指定两连号", requiresNumbers: true, defaultOdds: 60 },
-    { key: "triple", label: "指定三连号", requiresNumbers: true, defaultOdds: 60 },
-    { key: "quad", label: "指定四连号", requiresNumbers: true, defaultOdds: 60 },
-    { key: "hasPair", label: "任意两连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasDoublePair", label: "双两连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasTriplePairSet", label: "三双两连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasTriple", label: "任意三连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasQuadPairSet", label: "四双两连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasFivePairSet", label: "五双两连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasPairTriple", label: "两连+三连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasDoubleTriple", label: "双三连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasTripleDoublePair", label: "三连+双两连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasQuad", label: "任意四连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasQuadPair", label: "四连+两连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasFive", label: "任意五连", requiresNumbers: false, defaultOdds: 60 },
-    { key: "hasSix", label: "任意六连", requiresNumbers: false, defaultOdds: 60 },
-  ];
-  els.betType.innerHTML = betTypes
-    .map((item) => `<option value="${item.key}">${item.label}</option>`)
-    .join("");
-  if (existingValue && betTypes.some((item) => item.key === existingValue)) {
-    els.betType.value = existingValue;
-  }
-  updateBetTypeHint();
-}
-
-function renderBetTargetOptions() {
-  if (!els.betTargetTime) return;
-  const currentValue = els.betTargetTime.value;
-  if (!currentGameSupportsPredictions()) {
-    els.betTargetTime.innerHTML = '<option value="">当前彩种不生成预测时间</option>';
-    return;
-  }
-  const forecasts = state.prediction?.predictions?.forecasts || [];
-  if (!forecasts.length) {
-    els.betTargetTime.innerHTML = '<option value="">等待预测时间</option>';
-    return;
-  }
-  els.betTargetTime.innerHTML = forecasts
-    .map((forecast) => {
-      const value = forecast.drawTimeMs || new Date(forecast.drawTimeUtc).getTime();
-      return `<option value="${value}">${fmtTime(forecast.drawTimeUtc)} · 未来第 ${forecast.drawOffset} 期</option>`;
-    })
-    .join("");
-  if (currentValue && forecasts.some((forecast) => String(forecast.drawTimeMs) === currentValue)) {
-    els.betTargetTime.value = currentValue;
-  }
-}
-
-function updateBetTypeHint() {
-  const selected = state.bets?.betTypes?.find((item) => item.key === els.betType.value);
-  const requiresNumbers = selected?.requiresNumbers !== false;
-  els.betNumbers.disabled = !requiresNumbers;
-  els.betNumbers.placeholder = requiresNumbers ? "例如 21 22 23" : "该形态类玩法不需要填号码";
-  if (!requiresNumbers) {
-    els.betNumbers.value = "";
-  }
-  if (selected?.defaultOdds) {
-    els.betOdds.value = selected.defaultOdds;
-  }
-  let hint = "连号类填写指定连续号码；双两连、三双两连等形态类不用填号码。";
-  if (selected?.exactNumbers) {
-    hint = `当前玩法需要填写 ${selected.exactNumbers} 个连续号码。`;
-  } else if (selected?.key === "numbers") {
-    hint = "号码组选全中：填写 1-20 个号码，开奖全部包含才算中奖。";
-  } else if (selected?.requiresNumbers === false) {
-    hint = "当前玩法按整期开奖形态判断，不需要指定号码。";
-  }
-  els.betFormHint.textContent = hint;
 }
 
 function statusBadge(status) {
@@ -2797,77 +3666,6 @@ function statusBadge(status) {
   return `<span class="bet-status ${escapeHtml(status)}">${escapeHtml(
     labels[status] || status || "--",
   )}</span>`;
-}
-
-function betContent(bet) {
-  if (bet.numbers?.length) {
-    return numberBadge(bet.numbers, bet.betType || "hot");
-  }
-  return `<span class="muted">${escapeHtml(bet.note || "按开奖形态判断")}</span>`;
-}
-
-function betDrawResult(bet) {
-  if (bet.status === "pending") {
-    return '<span class="muted">等待同步开奖结果</span>';
-  }
-  const result = bet.result;
-  const draw = result?.draw;
-  if (!draw) return '<span class="muted">无结果明细</span>';
-  const groups = result.matchedGroups?.length
-    ? `<div class="bet-result-note">命中组合：${result.matchedGroups
-        .slice(0, 6)
-        .map(escapeHtml)
-        .join("、")}</div>`
-    : "";
-  return `<div class="bet-result">
-    <div>${fmtTime(draw.drawTimeUtc)} · ${escapeHtml(result.reason || "")}</div>
-    <div class="history-balls compact">${(draw.numbers || [])
-      .map((number) => `<span class="ball">${number}</span>`)
-      .join("")}</div>
-    ${groups}
-  </div>`;
-}
-
-function renderBets() {
-  const data = state.bets;
-  if (!data) return;
-  renderBetTypeOptions();
-  renderBetTargetOptions();
-
-  const summary = data.summary || {};
-  const allSummary = data.allSummary || summary;
-  els.betCount.textContent = `${summary.total || 0} 条`;
-  els.betCount.title =
-    allSummary.total > summary.total
-      ? `当前彩种 ${summary.total || 0} 条；全部彩种 ${allSummary.total || 0} 条`
-      : "";
-  els.pendingBets.textContent = summary.pending ?? "--";
-  els.pendingStake.textContent = `待结算投入 ${fmtNumber(summary.pendingStake || 0, 2)}`;
-  els.wonBets.textContent = summary.won ?? "--";
-  els.hitRate.textContent = `命中率 ${fmtPct(summary.hitRate || 0, 2)}`;
-  els.lostBets.textContent = summary.lost ?? "--";
-  els.profitTotal.textContent = fmtMoney(summary.profitTotal || 0, 2);
-  els.profitTotal.classList.toggle("positive", (summary.profitTotal || 0) > 0);
-  els.profitTotal.classList.toggle("negative", (summary.profitTotal || 0) < 0);
-  els.payoutTotal.textContent = `总返还 ${fmtNumber(summary.payoutTotal || 0, 2)}`;
-
-  const items = data.items || [];
-  const allItems = data.allItems || [];
-  if (!items.length) {
-    const allCount = Number(allSummary.total || 0);
-    const scopedCount = Number(summary.total || 0);
-    const emptyText =
-      allCount > scopedCount
-        ? `当前彩种暂无模拟投注记录；全部彩种共有 ${allCount.toLocaleString("zh-CN")} 条，切换到对应彩种可查看。`
-        : "暂无模拟投注记录";
-    renderBetRows([], els.betTable, { emptyText });
-  } else {
-    renderBetRows(items, els.betTable);
-  }
-  renderBetRows(allItems, els.betTableAllBody, {
-    showGame: true,
-    emptyText: "暂无全部彩种模拟投注记录",
-  });
 }
 
 function renderBacktestChart(points) {
@@ -3272,31 +4070,49 @@ function renderHistory() {
 }
 
 function resetFilters() {
-  els.drawLimit.value = "0";
-  els.minCurrentMiss.value = "0";
-  els.minHits.value = "0";
-  els.maxTail.value = "1";
-  els.tripleQuery.value = "";
-  els.sortBy.value = "currentMiss";
-  els.sortOrder.value = "desc";
-  els.resultLimit.value = "78";
-  loadAnalysis();
+  if (els.drawLimit) els.drawLimit.value = "30";
+  if (els.cdeBacktestTrain) els.cdeBacktestTrain.value = "240";
+  state.analysis = null;
+  state.cdeBacktestPage = 1;
+  loadAnalysis({ force: true });
 }
 
 async function refreshCurrentView(options = {}) {
-  if (state.activeView === "prediction") {
-    await loadPrediction({ preserve: options.preserve, force: options.force });
+  if (state.activeModal === "martingale") {
+    await loadCurrentSummary();
+    updateMartingaleMeta();
+    return;
+  }
+  if (state.activeModal === "backtest") {
+    await loadCurrentSummary();
+    await loadBacktestStatus();
+    return;
+  }
+  if (state.activeModal === "analysis") {
+    await loadAnalysis({ force: options.force });
+    return;
+  }
+  if (state.activeModal === "history") {
+    await loadHistory();
+    return;
+  }
+  if (
+    state.activeView === "prediction" ||
+    state.activeView === "predictionB" ||
+    state.activeView === "predictionC" ||
+    state.activeView === "predictionD" ||
+    state.activeView === "predictionE" ||
+    state.activeView === "predictionF" ||
+    state.activeView === "predictionG"
+  ) {
+    const panel = predictionPanelForView(state.activeView);
+    setPredictionPanel(panel);
+    await loadPrediction({ preserve: options.preserve, force: options.force, panel });
     return;
   }
   if (state.activeView === "martingale") {
     await loadCurrentSummary();
     updateMartingaleMeta();
-    return;
-  }
-  if (state.activeView === "bets") {
-    await loadCurrentSummary();
-    await ensurePredictionForBets();
-    await loadBets();
     return;
   }
   if (state.activeView === "backtest") {
@@ -3313,64 +4129,57 @@ async function refreshCurrentView(options = {}) {
   }
 }
 
-async function ensurePredictionForBets() {
-  if (!currentGameSupportsSimBets() || !currentGameSupportsPredictions()) {
-    renderBetTargetOptions();
-    return;
-  }
-  if (!state.prediction) {
-    await loadPrediction();
-  } else {
-    renderBetTargetOptions();
-  }
-}
-
 async function switchView(view) {
+  if (!isToolModalView(view)) {
+    closeToolModal();
+  }
   if (!currentGameSupportsView(view)) {
     const requested = view;
     view = "history";
     showToast(requested === "prediction" ? "该彩种当前只保留开奖同步，不再生成预测" : "该彩种当前不开放该工具");
   }
   state.activeView = view;
-  for (const button of document.querySelectorAll(".tab-btn")) {
-    button.classList.toggle("active", button.dataset.view === view);
-  }
-  document.querySelector("#predictionView").classList.toggle("active", view === "prediction");
-  document.querySelector("#adjacentToolView").classList.toggle("active", view === "adjacentTool");
+  renderTabState();
+  document
+    .querySelector("#predictionView")
+    .classList.toggle(
+      "active",
+      view === "prediction" ||
+        view === "predictionB" ||
+        view === "predictionC" ||
+        view === "predictionD" ||
+        view === "predictionE" ||
+        view === "predictionF" ||
+        view === "predictionG",
+    );
   document.querySelector("#martingaleView").classList.toggle("active", view === "martingale");
-  document.querySelector("#betsView").classList.toggle("active", view === "bets");
   document.querySelector("#backtestView").classList.toggle("active", view === "backtest");
   document.querySelector("#analysisView").classList.toggle("active", view === "analysis");
   document.querySelector("#historyView").classList.toggle("active", view === "history");
-  if (view === "prediction") {
-    if (!state.prediction) loadPrediction();
-    else loadPredictionTracking({ silent: true });
-  }
-  if (view === "adjacentTool") {
-    renderAdjacentTool();
-  }
-  if (view === "martingale") {
-    loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
-    updateMartingaleMeta();
-  }
-  if (view === "bets") {
-    loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
-    await ensurePredictionForBets();
-    if (!state.bets) loadBets();
-  }
-  if (view === "analysis" && !state.analysis) loadAnalysis();
-  if (view === "backtest") {
-    loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
-    if (!state.backtest) loadBacktestStatus();
-  }
-  if (view === "history" && !state.history) loadHistory();
+  await hydrateView(view);
 }
 
 document.querySelectorAll(".tab-btn").forEach((button) => {
-  button.addEventListener("click", () => switchView(button.dataset.view));
+  button.addEventListener("click", () => {
+    const view = button.dataset.view;
+    if (isToolModalView(view)) {
+      openToolModal(view);
+      return;
+    }
+    switchView(view);
+  });
 });
 
-renderBetTypeOptions();
+document.querySelectorAll("[data-modal-close]").forEach((element) => {
+  element.addEventListener("click", closeToolModal);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.activeModal) {
+    closeToolModal();
+  }
+});
+
 syncBacktestControls();
 syncMartingaleModeControls();
 setMartingalePickCount(state.martingalePickCount);
@@ -3380,18 +4189,6 @@ els.resetBtn.addEventListener("click", resetFilters);
 els.refreshPageBtn.addEventListener("click", () => refreshCurrentView({ force: true }));
 els.syncBtn.addEventListener("click", () => syncData("incremental"));
 els.fullSyncBtn.addEventListener("click", () => syncData("full"));
-if (els.adjacentToolGenerateBtn) {
-  els.adjacentToolGenerateBtn.addEventListener("click", renderAdjacentTool);
-}
-if (els.adjacentToolCopyBtn) {
-  els.adjacentToolCopyBtn.addEventListener("click", copyAdjacentToolResults);
-}
-if (els.adjacentToolNumbers) {
-  els.adjacentToolNumbers.addEventListener("input", renderAdjacentTool);
-}
-document.querySelectorAll("[data-adjacent-type]").forEach((input) => {
-  input.addEventListener("change", renderAdjacentTool);
-});
 els.gameSelect.addEventListener("change", () => {
   selectGame(els.gameSelect.value);
 });
@@ -3404,21 +4201,27 @@ if (els.gamePills) {
 }
 if (els.predictionTrackingStatusFilter) {
   els.predictionTrackingStatusFilter.addEventListener("change", () => {
-    state.predictionTrackingStatus = els.predictionTrackingStatusFilter.value || "all";
-    state.predictionTrackingPage = 1;
-    loadPredictionTracking({ silent: true });
+    const slot = predictionPanelState();
+    slot.predictionTrackingStatus = els.predictionTrackingStatusFilter.value || "all";
+    slot.predictionTrackingPage = 1;
+    syncPredictionPanelMirror();
+    loadPredictionTracking({ silent: true, panel: state.predictionPanel });
   });
 }
 if (els.predictionTrackingPrevBtn) {
   els.predictionTrackingPrevBtn.addEventListener("click", () => {
-    state.predictionTrackingPage = Math.max(1, Number(state.predictionTrackingPage || 1) - 1);
-    loadPredictionTracking({ silent: true });
+    const slot = predictionPanelState();
+    slot.predictionTrackingPage = Math.max(1, Number(slot.predictionTrackingPage || 1) - 1);
+    syncPredictionPanelMirror();
+    loadPredictionTracking({ silent: true, panel: state.predictionPanel });
   });
 }
 if (els.predictionTrackingNextBtn) {
   els.predictionTrackingNextBtn.addEventListener("click", () => {
-    state.predictionTrackingPage = Number(state.predictionTrackingPage || 1) + 1;
-    loadPredictionTracking({ silent: true });
+    const slot = predictionPanelState();
+    slot.predictionTrackingPage = Number(slot.predictionTrackingPage || 1) + 1;
+    syncPredictionPanelMirror();
+    loadPredictionTracking({ silent: true, panel: state.predictionPanel });
   });
 }
 if (els.predictionAutoToggleBtn) {
@@ -3434,33 +4237,34 @@ if (els.predictionAdjacentStats) {
   els.predictionAdjacentStats.addEventListener("click", (event) => {
     const target = event.target;
     if (target?.id === "adjacentHitSearchBtn") {
-      state.adjacentHitQuery = document.querySelector("#adjacentHitQuery")?.value || "";
-      state.adjacentHitPage = 1;
-      loadAdjacentHits();
+      const slot = predictionPanelState();
+      slot.adjacentHitQuery = document.querySelector("#adjacentHitQuery")?.value || "";
+      slot.adjacentHitPage = 1;
+      syncPredictionPanelMirror();
+      loadAdjacentHits({ panel: state.predictionPanel });
     }
     if (target?.id === "adjacentHitPrevBtn") {
-      state.adjacentHitPage = Math.max(1, Number(state.adjacentHitPage || 1) - 1);
-      loadAdjacentHits();
+      const slot = predictionPanelState();
+      slot.adjacentHitPage = Math.max(1, Number(slot.adjacentHitPage || 1) - 1);
+      syncPredictionPanelMirror();
+      loadAdjacentHits({ panel: state.predictionPanel });
     }
     if (target?.id === "adjacentHitNextBtn") {
-      state.adjacentHitPage = Number(state.adjacentHitPage || 1) + 1;
-      loadAdjacentHits();
+      const slot = predictionPanelState();
+      slot.adjacentHitPage = Number(slot.adjacentHitPage || 1) + 1;
+      syncPredictionPanelMirror();
+      loadAdjacentHits({ panel: state.predictionPanel });
     }
   });
   els.predictionAdjacentStats.addEventListener("keydown", (event) => {
     if (event.target?.id !== "adjacentHitQuery" || event.key !== "Enter") return;
-    state.adjacentHitQuery = event.target.value || "";
-    state.adjacentHitPage = 1;
-    loadAdjacentHits();
+    const slot = predictionPanelState();
+    slot.adjacentHitQuery = event.target.value || "";
+    slot.adjacentHitPage = 1;
+    syncPredictionPanelMirror();
+    loadAdjacentHits({ panel: state.predictionPanel });
   });
 }
-els.createBetBtn.addEventListener("click", createBet);
-els.betType.addEventListener("change", updateBetTypeHint);
-els.betTable.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-bet-id]");
-  if (!button) return;
-  deleteBet(button.dataset.betId);
-});
 els.runBacktestBtn.addEventListener("click", runBacktest);
 if (els.runBacktestScanBtn) {
   els.runBacktestScanBtn.addEventListener("click", runBacktestScan);
@@ -3498,18 +4302,31 @@ els.nextPageBtn.addEventListener("click", () => {
   loadHistory();
 });
 
+if (els.cdeBacktestPrevBtn) {
+  els.cdeBacktestPrevBtn.addEventListener("click", () => {
+    if (!state.analysis) return;
+    state.cdeBacktestPage = Math.max(1, Number(state.cdeBacktestPage || 1) - 1);
+    renderCdeKillBacktest(state.analysis);
+  });
+}
+if (els.cdeBacktestNextBtn) {
+  els.cdeBacktestNextBtn.addEventListener("click", () => {
+    if (!state.analysis) return;
+    state.cdeBacktestPage = Number(state.cdeBacktestPage || 1) + 1;
+    renderCdeKillBacktest(state.analysis);
+  });
+}
+
 for (const input of [
   els.drawLimit,
-  els.minCurrentMiss,
-  els.minHits,
-  els.maxTail,
-  els.tripleQuery,
-  els.sortBy,
-  els.sortOrder,
-  els.resultLimit,
-]) {
+  els.cdeBacktestTrain,
+].filter(Boolean)) {
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") loadAnalysis();
+  });
+  input.addEventListener("change", () => {
+    state.analysis = null;
+    state.cdeBacktestPage = 1;
   });
 }
 
@@ -3540,6 +4357,8 @@ for (const input of [
   els.martingaleUnit,
   els.martingaleMaxStake,
   els.martingaleStopLoss,
+  els.riskFlatStake,
+  els.riskKellyFraction,
 ].filter(Boolean)) {
   input.addEventListener("change", () => {
     if (input === els.martingaleOdds) {
@@ -3557,6 +4376,8 @@ async function init() {
   try {
     await loadGames();
     await refreshCurrentView();
+    await loadPredictionAutoStatus({ silent: true, refreshTracking: false });
+    startPredictionAutoPolling();
   } catch (error) {
     showToast(`初始化失败：${error.message}`, true);
   }

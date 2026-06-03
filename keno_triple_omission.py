@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Analyze Slovakia E-Klub Keno 20/80 odds and consecutive 3-number omissions.
+Analyze Keno odds and consecutive 3-number omissions.
 
 Input history format:
   - one draw per row
   - either exactly 20 number columns, or metadata columns followed by 20 numbers
-  - numbers must be unique integers from 1 to 80
+  - numbers must be unique integers within the configured total-number range
 
 Examples:
   python keno_triple_omission.py
   python keno_triple_omission.py --history history.csv --top 30
-  python keno_triple_omission.py --history bc_keno_history.csv --newest-first --top 30
+  python keno_triple_omission.py --history data/bc_spain_l_express_20_70_history.csv --newest-first --top 30
   python keno_triple_omission.py --history history.csv --number-columns n1,n2,n3,...,n20
-  python keno_triple_omission.py --history history.csv --out triples_report.csv
+  python keno_triple_omission.py --history history.csv --out data/bc_spain_triples_report.csv
 """
 
 from __future__ import annotations
@@ -26,19 +26,20 @@ from pathlib import Path
 from typing import Iterable
 
 
-TOTAL_NUMBERS = 80
+TOTAL_NUMBERS = 70
 DRAWN_NUMBERS = 20
+DRAW_INTERVAL_MINUTES = 4
 
-# Pay table from the screenshot. Interpreted as total decimal payout by default.
+# Default 20/70 main-number odds. Interpreted as total decimal payout.
 PAY_TABLE = {
-    1: 3.6,
-    2: 15.0,
-    3: 60.0,
-    4: 250.0,
-    5: 1000.0,
-    6: 3800.0,
-    7: 12500.0,
-    8: 35000.0,
+    1: 3.2,
+    2: 11.0,
+    3: 40.0,
+    4: 150.0,
+    5: 500.0,
+    6: 2000.0,
+    7: 6500.0,
+    8: 18000.0,
 }
 
 TRIPLES = tuple((start, start + 1, start + 2) for start in range(1, TOTAL_NUMBERS - 1))
@@ -54,9 +55,9 @@ class TripleStats:
 
 
 def hit_probability(picks: int) -> float:
-    """Probability that all selected picks are included in a 20/80 draw."""
+    """Probability that all selected picks are included in the configured draw."""
     if picks < 1 or picks > DRAWN_NUMBERS:
-        raise ValueError("picks must be between 1 and 20")
+        raise ValueError(f"picks must be between 1 and {DRAWN_NUMBERS}")
     return math.comb(TOTAL_NUMBERS - picks, DRAWN_NUMBERS - picks) / math.comb(
         TOTAL_NUMBERS, DRAWN_NUMBERS
     )
@@ -91,7 +92,7 @@ def fmt_float(value: float, digits: int = 2) -> str:
 
 
 def print_probability_table() -> None:
-    print("Slovakia E-Klub Keno 20/80 probability table")
+    print(f"Keno {DRAWN_NUMBERS}/{TOTAL_NUMBERS} probability table")
     print("=" * 72)
     print(
         "Pick | P(all hit) | Fair total odds | Screen odds | EV total payout | EV if odds are profit"
@@ -117,7 +118,10 @@ def print_probability_table() -> None:
     print("Key 3-pick numbers")
     print(f"- Specific 3-number ticket hit probability: {fmt_pct(p3)}")
     print(f"- Average waiting time for one fixed 3-number ticket: {expected_draws:.2f} draws")
-    print(f"- At one draw every 2 minutes: {expected_draws * 2:.1f} minutes")
+    print(
+        f"- At one draw every {DRAW_INTERVAL_MINUTES:g} minutes: "
+        f"{expected_draws * DRAW_INTERVAL_MINUTES:.1f} minutes"
+    )
     print(f"- Break-even total payout for 3 picks: {expected_draws:.2f}x")
     print(f"- 60x total payout EV: {fmt_pct(p3 * 60 - 1)}")
 
@@ -127,7 +131,10 @@ def print_probability_table() -> None:
     expected_windows = len(TRIPLES) * p3
     print()
     print("Consecutive triples")
-    print(f"- Consecutive 3-number windows: {len(TRIPLES)} groups, 1-2-3 through 78-79-80")
+    print(
+        f"- Consecutive 3-number windows: {len(TRIPLES)} groups, "
+        f"1-2-3 through {TOTAL_NUMBERS - 2}-{TOTAL_NUMBERS - 1}-{TOTAL_NUMBERS}"
+    )
     print(f"- A fixed consecutive triple has the same hit probability: {fmt_pct(p3)}")
     print(f"- Expected hit consecutive windows per draw: {expected_windows:.3f}")
     print(f"- Probability a draw contains at least one 3-run anywhere: {fmt_pct(any_run_probability)}")
@@ -154,7 +161,7 @@ def validate_draw(numbers: Iterable[int], row_number: int) -> tuple[int, ...]:
         )
     bad = [number for number in draw if number < 1 or number > TOTAL_NUMBERS]
     if bad:
-        raise ValueError(f"row {row_number}: numbers out of 1..80 range: {bad}")
+        raise ValueError(f"row {row_number}: numbers out of 1..{TOTAL_NUMBERS} range: {bad}")
     if len(set(draw)) != len(draw):
         raise ValueError(f"row {row_number}: duplicate numbers in draw: {draw}")
     return draw
@@ -321,7 +328,7 @@ def write_report_csv(path: Path, stats: list[TripleStats], draw_count: int) -> N
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Analyze Keno 20/80 probabilities and consecutive triple omissions."
+        description=f"Analyze Keno {DRAWN_NUMBERS}/{TOTAL_NUMBERS} probabilities and consecutive triple omissions."
     )
     parser.add_argument(
         "--history",

@@ -45,7 +45,6 @@ python .\keno_dashboard_server.py
 ## Important Files In `data/`
 
 ```text
-bc_keno_history.csv
 bc_spain_l_express_20_70_history.csv
 bc_poland_keno_20_70_history.csv
 bc_russia_rapido_8_20_history.csv
