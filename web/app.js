@@ -99,6 +99,8 @@ const state = {
   historyPage: 1,
   history: null,
   cdeBacktestPage: 1,
+  strategyAudit: null,
+  strategyAuditStability: null,
   loading: false,
   activeView: "prediction",
   lastSync: null,
@@ -139,11 +141,33 @@ const els = {
   cdeBacktestMeta: document.querySelector("#cdeBacktestMeta"),
   cdeBacktestStats: document.querySelector("#cdeBacktestStats"),
   cdeBacktestPanelCards: document.querySelector("#cdeBacktestPanelCards"),
+  cdeBacktestBucketMeta: document.querySelector("#cdeBacktestBucketMeta"),
+  cdeBacktestBucketRows: document.querySelector("#cdeBacktestBucketRows"),
   cdeBacktestNotes: document.querySelector("#cdeBacktestNotes"),
   cdeBacktestRows: document.querySelector("#cdeBacktestRows"),
   cdeBacktestPrevBtn: document.querySelector("#cdeBacktestPrevBtn"),
   cdeBacktestNextBtn: document.querySelector("#cdeBacktestNextBtn"),
   cdeBacktestPageInfo: document.querySelector("#cdeBacktestPageInfo"),
+  strategyAuditMeta: document.querySelector("#strategyAuditMeta"),
+  strategyAuditRunBtn: document.querySelector("#strategyAuditRunBtn"),
+  strategyAuditWindow: document.querySelector("#strategyAuditWindow"),
+  strategyAuditTrain: document.querySelector("#strategyAuditTrain"),
+  strategyAuditStats: document.querySelector("#strategyAuditStats"),
+  strategyAuditNotes: document.querySelector("#strategyAuditNotes"),
+  strategyAuditVerdicts: document.querySelector("#strategyAuditVerdicts"),
+  strategyAuditMatrixMeta: document.querySelector("#strategyAuditMatrixMeta"),
+  strategyAuditScoreRows: document.querySelector("#strategyAuditScoreRows"),
+  strategyAuditExperimentMeta: document.querySelector("#strategyAuditExperimentMeta"),
+  strategyAuditExperimentRows: document.querySelector("#strategyAuditExperimentRows"),
+  strategyAuditMixedMeta: document.querySelector("#strategyAuditMixedMeta"),
+  strategyAuditMixedRows: document.querySelector("#strategyAuditMixedRows"),
+  strategyAuditStabilityMeta: document.querySelector("#strategyAuditStabilityMeta"),
+  strategyAuditStabilityRows: document.querySelector("#strategyAuditStabilityRows"),
+  strategyAuditKillRows: document.querySelector("#strategyAuditKillRows"),
+  strategyAuditETopRows: document.querySelector("#strategyAuditETopRows"),
+  strategyAuditRepeatRows: document.querySelector("#strategyAuditRepeatRows"),
+  strategyAuditTrackingRows: document.querySelector("#strategyAuditTrackingRows"),
+  strategyAuditDetailRows: document.querySelector("#strategyAuditDetailRows"),
   applyBtn: document.querySelector("#applyBtn"),
   p3: document.querySelector("#p3"),
   p3Wait: document.querySelector("#p3Wait"),
@@ -266,6 +290,7 @@ const els = {
   crossCondition: document.querySelector("#crossCondition"),
   crossBars: document.querySelector("#crossBars"),
   analysisView: document.querySelector("#analysisView"),
+  strategyAuditView: document.querySelector("#strategyAuditView"),
   pairCount: document.querySelector("#pairCount"),
   pairTable: document.querySelector("#pairTable"),
   quadCount: document.querySelector("#quadCount"),
@@ -292,6 +317,8 @@ const PREDICTION_PANEL_E = "e";
 const PREDICTION_PANEL_F = "f";
 const PREDICTION_PANEL_G = "g";
 const CDE_KILL_BACKTEST_GAMES = new Set(["spain_l_express_20_70", "poland_keno_20_70"]);
+const STRATEGY_AUDIT_STABILITY_GAMES = ["spain_l_express_20_70", "poland_keno_20_70"];
+const STRATEGY_AUDIT_STABILITY_WINDOW = 360;
 const CDE_BACKTEST_PAGE_SIZE = 25;
 const BACKTEST_DUPLICATE_SHAPE_OPTIONS = new Set(["hasPair", "hasTriple", "hasQuad"]);
 const BACKTEST_SHAPE_OPTION_LABELS = {
@@ -379,9 +406,20 @@ function fmtPct(value, digits = 2) {
   return `${(value * 100).toFixed(digits)}%`;
 }
 
+function fmtSignedPct(value, digits = 2) {
+  if (!Number.isFinite(value)) return "--";
+  const prefix = value > 0 ? "+" : "";
+  return `${prefix}${(value * 100).toFixed(digits)}%`;
+}
+
 function fmtNumber(value, digits = 2) {
   if (!Number.isFinite(value)) return "--";
   return value.toFixed(digits);
+}
+
+function fmtInt(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toLocaleString("zh-CN") : "--";
 }
 
 function fmtMoney(value, digits = 2) {
@@ -581,6 +619,22 @@ function buildAnalysisQuery() {
   return params;
 }
 
+function buildStrategyAuditQuery() {
+  const params = new URLSearchParams();
+  params.set("game", state.currentGame?.key || els.gameSelect.value || "");
+  params.set("window", els.strategyAuditWindow?.value || "180");
+  params.set("trainWindow", els.strategyAuditTrain?.value || "360");
+  return params;
+}
+
+function buildStrategyAuditQueryForGame(gameKey, options = {}) {
+  const params = new URLSearchParams();
+  params.set("game", gameKey);
+  params.set("window", String(options.window || STRATEGY_AUDIT_STABILITY_WINDOW));
+  params.set("trainWindow", String(options.trainWindow || els.strategyAuditTrain?.value || "360"));
+  return params;
+}
+
 function buildHistoryQuery() {
   const params = new URLSearchParams();
   params.set("game", state.currentGame?.key || els.gameSelect.value || "");
@@ -627,9 +681,6 @@ function predictionPanelLabel(panel = state.predictionPanel) {
 }
 
 function predictionPanelForView(view) {
-  if (view === "predictionG") return PREDICTION_PANEL_G;
-  if (view === "predictionF") return PREDICTION_PANEL_F;
-  if (view === "predictionE") return PREDICTION_PANEL_E;
   if (view === "predictionD") return PREDICTION_PANEL_D;
   if (view === "predictionC") return PREDICTION_PANEL_C;
   if (view === "predictionB") return PREDICTION_PANEL_B;
@@ -666,9 +717,6 @@ function setPredictionPanel(panel) {
 
 function predictionPanelForOptions(options = {}) {
   if (options.panel) return normalizePredictionPanel(options.panel);
-  if (state.activeView === "predictionG") return PREDICTION_PANEL_G;
-  if (state.activeView === "predictionF") return PREDICTION_PANEL_F;
-  if (state.activeView === "predictionE") return PREDICTION_PANEL_E;
   if (state.activeView === "predictionD") return PREDICTION_PANEL_D;
   if (state.activeView === "predictionC") return PREDICTION_PANEL_C;
   if (state.activeView === "predictionB") return PREDICTION_PANEL_B;
@@ -678,6 +726,10 @@ function predictionPanelForOptions(options = {}) {
 
 function currentGameSupportsAnalysis() {
   return CDE_KILL_BACKTEST_GAMES.has(currentGameKey());
+}
+
+function currentGameSupportsStrategyAudit() {
+  return currentGameSupportsAnalysis();
 }
 
 function currentGameSupportsPredictions() {
@@ -702,14 +754,12 @@ function currentGameSupportsView(view) {
     view === "prediction" ||
     view === "predictionB" ||
     view === "predictionC" ||
-    view === "predictionD" ||
-    view === "predictionE" ||
-    view === "predictionF" ||
-    view === "predictionG"
+    view === "predictionD"
   ) {
     return currentGameSupportsPredictions();
   }
   if (view === "analysis") return currentGameSupportsAnalysis();
+  if (view === "strategyAudit") return currentGameSupportsStrategyAudit();
   if (view === "backtest") return currentGameSupportsBacktest();
   if (view === "martingale") return currentGameSupportsMartingale();
   return true;
@@ -752,10 +802,7 @@ async function hydrateView(view) {
     view === "prediction" ||
     view === "predictionB" ||
     view === "predictionC" ||
-    view === "predictionD" ||
-    view === "predictionE" ||
-    view === "predictionF" ||
-    view === "predictionG"
+    view === "predictionD"
   ) {
     const panel = predictionPanelForView(view);
     setPredictionPanel(panel);
@@ -771,6 +818,7 @@ async function hydrateView(view) {
     updateMartingaleMeta();
   }
   if (view === "analysis" && !state.analysis) loadAnalysis();
+  if (view === "strategyAudit" && !state.strategyAudit) loadStrategyAudit();
   if (view === "backtest") {
     loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
     if (!state.backtest) loadBacktestStatus();
@@ -943,6 +991,8 @@ function renderDataState() {
 function resetPageState() {
   closeToolModal();
   state.analysis = null;
+  state.strategyAudit = null;
+  state.strategyAuditStability = null;
   state.cdeBacktestPage = 1;
   for (const slot of Object.values(state.predictionPanels)) {
     slot.prediction = null;
@@ -1683,6 +1733,7 @@ function setLoading(isLoading, label = "") {
     els.nextPageBtn,
     els.cdeBacktestPrevBtn,
     els.cdeBacktestNextBtn,
+    els.strategyAuditRunBtn,
     els.runBacktestBtn,
     els.runBacktestScanBtn,
     els.generateMartingaleBtn,
@@ -1710,6 +1761,9 @@ function setLoading(isLoading, label = "") {
   }
   if (!isLoading && state.analysis && els.cdeBacktestRows) {
     renderCdeKillBacktest(state.analysis);
+  }
+  if (!isLoading && state.strategyAudit && els.strategyAuditKillRows) {
+    renderStrategyAudit();
   }
 }
 
@@ -1849,34 +1903,22 @@ function renderPredictionLoading() {
   }
   els.predictionWindow.textContent = "预测计算中";
   els.predictionMethod.textContent =
-    panel === PREDICTION_PANEL_G
-      ? "读取C/D/E候选票并生成G杀号后预测票"
-      : panel === PREDICTION_PANEL_F
-      ? "读取A/B/C/D/E排除链路并生成F误杀召回票"
-      : panel === PREDICTION_PANEL_E
-      ? "读取C/D四码票并生成CD杀号4码票"
-      : panel === PREDICTION_PANEL_D
-      ? "读取A/B/C候选号并生成ABC杀号4码票"
+    panel === PREDICTION_PANEL_D
+      ? "读取C和内部旧D源票并生成CD杀号4码票"
       : panel === PREDICTION_PANEL_C
         ? "读取A/B核心号并生成4码结构票"
         : panel === PREDICTION_PANEL_B
           ? "读取面板A规则并排除A候选号"
           : "读取最新开奖并生成策略候选";
-  const showKillPanel = [PREDICTION_PANEL_B, PREDICTION_PANEL_D, PREDICTION_PANEL_E, PREDICTION_PANEL_F, PREDICTION_PANEL_G].includes(panel);
+  const showKillPanel = [PREDICTION_PANEL_B, PREDICTION_PANEL_D].includes(panel);
   if (els.predictionKillPanel) {
     els.predictionKillPanel.classList.toggle("hidden", !showKillPanel);
   }
   if (els.predictionKillLabel) {
     els.predictionKillLabel.textContent =
-      panel === PREDICTION_PANEL_G
-        ? "CDE候选杀号池"
-        : panel === PREDICTION_PANEL_F
-        ? "ABCDE误杀候选池"
-        : panel === PREDICTION_PANEL_E
-          ? "CD杀号"
-          : panel === PREDICTION_PANEL_D
-            ? "ABC/C杀号"
-            : "面板A杀号";
+      panel === PREDICTION_PANEL_D
+        ? "CD杀号"
+        : "面板A杀号";
   }
   if (els.predictionKillSummary) {
     els.predictionKillSummary.textContent = showKillPanel ? "计算排除号..." : "--";
@@ -1884,15 +1926,9 @@ function renderPredictionLoading() {
   if (els.predictionKillNumbers) {
     els.predictionKillNumbers.innerHTML = showKillPanel
       ? `<span class="muted">${
-          panel === PREDICTION_PANEL_G
-            ? "等待C/D/E候选杀号池"
-            : panel === PREDICTION_PANEL_F
-            ? "等待ABCDE误杀候选池"
-            : panel === PREDICTION_PANEL_E
-              ? "等待CD杀号"
-              : panel === PREDICTION_PANEL_D
-                ? "等待ABC/C杀号"
-                : "等待面板A杀号"
+          panel === PREDICTION_PANEL_D
+            ? "等待CD杀号"
+            : "等待面板A杀号"
         }</span>`
       : "";
   }
@@ -2142,7 +2178,7 @@ function predictionAutoCompletedAt(data) {
 }
 
 function isPredictionMainViewActive() {
-  return !state.activeModal && ["prediction", "predictionB", "predictionC", "predictionD", "predictionE", "predictionF", "predictionG"].includes(state.activeView);
+  return !state.activeModal && ["prediction", "predictionB", "predictionC", "predictionD"].includes(state.activeView);
 }
 
 function startPredictionAutoPolling(delayMs = 12000) {
@@ -2190,13 +2226,13 @@ async function updatePredictionAuto(action) {
 
 async function loadAnalysis(options = {}) {
   if (!currentGameSupportsAnalysis()) {
-    showToast("C/D/E/F/G 回测当前只支持西班牙和波兰", true);
+    showToast("C 杀号回测当前只支持西班牙和波兰", true);
     return;
   }
   if (!options.keepPage) {
     state.cdeBacktestPage = 1;
   }
-  setLoading(true, "C/D/E/F/G回测中");
+  setLoading(true, "C回测中");
   try {
     const url = `/api/cde-kill-backtest?${buildAnalysisQuery().toString()}`;
     const cached = options.force ? null : cacheGet(url);
@@ -2214,9 +2250,105 @@ async function loadAnalysis(options = {}) {
     cacheSet(url, data);
     renderAnalysis();
   } catch (error) {
-    showToast(`加载C/D/E/F/G回测失败：${error.message}`, true);
+    showToast(`加载C回测失败：${error.message}`, true);
   } finally {
     setLoading(false);
+  }
+}
+
+async function loadStrategyAudit(options = {}) {
+  if (!currentGameSupportsStrategyAudit()) {
+    showToast("策略信号审计当前只支持西班牙和波兰", true);
+    return;
+  }
+  setLoading(true, "策略审计中");
+  state.strategyAuditStability = null;
+  renderStrategyAuditLoading();
+  try {
+    const url = `/api/strategy-signal-audit?${buildStrategyAuditQuery().toString()}`;
+    const cached = options.force ? null : cacheGet(url);
+    if (cached) {
+      if (!payloadMatchesCurrentGame(cached)) return;
+      state.strategyAudit = cached;
+      renderStrategyAudit();
+      return;
+    }
+    const response = await fetch(url);
+    const data = await response.json().catch(() => null);
+    if (!response.ok || data?.ok === false) {
+      throw new Error(data?.error || `HTTP ${response.status}`);
+    }
+    if (!payloadMatchesCurrentGame(data)) return;
+    state.strategyAudit = data;
+    cacheSet(url, data);
+    renderStrategyAudit();
+  } catch (error) {
+    showToast(`加载策略审计失败：${error.message}`, true);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadStrategyAuditStability(options = {}) {
+  if (!els.strategyAuditStabilityRows) return;
+  const selectedGame = currentGameKey();
+  const trainWindow = String(els.strategyAuditTrain?.value || "360");
+  if (els.strategyAuditStabilityMeta) {
+    els.strategyAuditStabilityMeta.textContent = "跨 60/180/360 与西班牙/波兰稳定性计算中";
+  }
+  if (els.strategyAuditStabilityRows) {
+    els.strategyAuditStabilityRows.innerHTML = '<tr><td colspan="8"><span class="muted">多窗口稳定性对照计算中</span></td></tr>';
+  }
+  try {
+    const results = await Promise.allSettled(
+      STRATEGY_AUDIT_STABILITY_GAMES.map(async (gameKey) => {
+        const url = `/api/strategy-signal-audit?${buildStrategyAuditQueryForGame(gameKey, {
+          window: STRATEGY_AUDIT_STABILITY_WINDOW,
+          trainWindow,
+        }).toString()}`;
+        const cached = options.force ? null : cacheGet(url);
+        if (cached) return cached;
+        const response = await fetch(url);
+        const data = await response.json().catch(() => null);
+        if (!response.ok || data?.ok === false) {
+          throw new Error(`${gameKey}: ${data?.error || `HTTP ${response.status}`}`);
+        }
+        cacheSet(url, data);
+        return data;
+      }),
+    );
+    if (currentGameKey() !== selectedGame || String(els.strategyAuditTrain?.value || "360") !== trainWindow) return;
+    const items = [];
+    const errors = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        items.push(result.value);
+      } else {
+        errors.push({
+          game: STRATEGY_AUDIT_STABILITY_GAMES[index],
+          message: result.reason?.message || String(result.reason || "加载失败"),
+        });
+      }
+    });
+    state.strategyAuditStability = {
+      generatedAt: new Date().toISOString(),
+      sourceGame: selectedGame,
+      trainWindow,
+      window: STRATEGY_AUDIT_STABILITY_WINDOW,
+      items,
+      errors,
+    };
+    renderStrategyAuditStability();
+  } catch (error) {
+    state.strategyAuditStability = {
+      generatedAt: new Date().toISOString(),
+      sourceGame: selectedGame,
+      trainWindow,
+      window: STRATEGY_AUDIT_STABILITY_WINDOW,
+      items: [],
+      errors: [{ game: "all", message: error.message || String(error) }],
+    };
+    renderStrategyAuditStability();
   }
 }
 
@@ -2501,6 +2633,8 @@ async function syncData(mode) {
     }
     syncPredictionPanelMirror();
     state.analysis = null;
+    state.strategyAudit = null;
+    state.strategyAuditStability = null;
     state.history = null;
     state.backtest = null;
     await refreshCurrentView({ preserve: Boolean(preservePrediction) });
@@ -2518,6 +2652,1880 @@ function renderAnalysis() {
   updateGameUi();
   renderSummary(data);
   renderCdeKillBacktest(data);
+}
+
+function renderStrategyAuditLoading() {
+  if (els.strategyAuditMeta) {
+    els.strategyAuditMeta.textContent = "策略审计计算中，只读读取历史和追踪库";
+  }
+  if (els.strategyAuditStats) {
+    els.strategyAuditStats.innerHTML = `
+      <article class="accent"><span>状态</span><strong>审计中</strong><small>不创建追踪记录</small></article>
+      <article><span>窗口</span><strong>${escapeHtml(els.strategyAuditWindow?.value || "--")}</strong><small>最近期数</small></article>
+      <article><span>训练</span><strong>${escapeHtml(els.strategyAuditTrain?.value || "--")}</strong><small>每期开奖前历史</small></article>
+      <article><span>规则</span><strong>只读</strong><small>不改预测权重</small></article>
+    `;
+  }
+  if (els.strategyAuditVerdicts) {
+    els.strategyAuditVerdicts.innerHTML = `
+      <article class="strategy-verdict-card observe">
+        <div class="strategy-verdict-head">
+          <strong>自动判读</strong>
+          <span>计算中</span>
+        </div>
+        <p>正在读取 C 杀号池和重复号分桶。</p>
+      </article>
+    `;
+  }
+  if (els.strategyAuditMatrixMeta) {
+    els.strategyAuditMatrixMeta.textContent = "按跟随、主杀、成本、样本可信度综合排序";
+  }
+  if (els.strategyAuditScoreRows) {
+    els.strategyAuditScoreRows.innerHTML = '<tr><td colspan="7"><span class="muted">策略评分矩阵计算中</span></td></tr>';
+  }
+  if (els.strategyAuditExperimentMeta) {
+    els.strategyAuditExperimentMeta.textContent = "只读沙盒，对照原规则，不影响正式预测";
+  }
+  if (els.strategyAuditExperimentRows) {
+    els.strategyAuditExperimentRows.innerHTML = '<tr><td colspan="8"><span class="muted">实验规则对照计算中</span></td></tr>';
+  }
+  if (els.strategyAuditMixedMeta) {
+    els.strategyAuditMixedMeta.textContent = "逐期开奖模拟规则组合，不影响正式预测";
+  }
+  if (els.strategyAuditMixedRows) {
+    els.strategyAuditMixedRows.innerHTML = '<tr><td colspan="8"><span class="muted">逐期混合回测计算中</span></td></tr>';
+  }
+  if (els.strategyAuditStabilityMeta) {
+    els.strategyAuditStabilityMeta.textContent = "跨 60/180/360 与西班牙/波兰稳定性计算中";
+  }
+  if (els.strategyAuditStabilityRows) {
+    els.strategyAuditStabilityRows.innerHTML = '<tr><td colspan="8"><span class="muted">多窗口稳定性对照计算中</span></td></tr>';
+  }
+}
+
+function strategyAuditWindowLabel(windowItem) {
+  return `${Number(windowItem?.window || 0).toLocaleString("zh-CN")}期`;
+}
+
+function strategyAuditLiftClass(value, goodWhenLow = false, threshold = 0.001) {
+  if (!Number.isFinite(value) || Math.abs(value) < threshold) return "";
+  const good = goodWhenLow ? value < 0 : value > 0;
+  return good ? "positive" : "negative";
+}
+
+function strategyAuditDistribution(items, labelKey, options = {}) {
+  const values = Array.isArray(items) ? items : [];
+  if (!values.length) return '<span class="muted">--</span>';
+  const countKey = options.countKey || "tickets";
+  const shareKey = options.shareKey || "share";
+  const suffix = options.suffix || "";
+  return `<div class="strategy-audit-distribution">${values
+    .map((item) => {
+      const label = item[labelKey];
+      const count = Number(item[countKey] ?? item.rounds ?? 0);
+      const share = Number(item[shareKey] || 0);
+      const title = Number.isFinite(share) ? ` title="${fmtPct(share, 2)}"` : "";
+      return `<span class="strategy-audit-chip"${title}>${escapeHtml(label)}${suffix} ${count.toLocaleString("zh-CN")}</span>`;
+    })
+    .join("")}</div>`;
+}
+
+function strategyAuditHitDistribution(items) {
+  return strategyAuditDistribution(items, "hitCount", { suffix: "中" });
+}
+
+function strategyAuditOverlapDistribution(items) {
+  return strategyAuditDistribution(items, "overlap", { countKey: "rounds", suffix: "重" });
+}
+
+function strategyAuditTicketOverlapSummary(items) {
+  const values = Array.isArray(items) ? items : [];
+  if (!values.length) return '<span class="muted">--</span>';
+  return `<div class="strategy-audit-distribution">${values
+    .map((item) => {
+      const overlap = Number(item.previousOverlap || 0);
+      const tickets = Number(item.tickets || 0);
+      return `<span class="strategy-audit-chip" title="票数 ${tickets.toLocaleString("zh-CN")}">${overlap}重 ${fmtPct(
+        Number(item.twoPlusRate || 0),
+        1,
+      )}/${fmtPct(Number(item.threePlusRate || 0), 1)}</span>`;
+    })
+    .join("")}</div>`;
+}
+
+function strategyAuditStatusCounts(statusCounts) {
+  const labels = {
+    pending: "待",
+    won: "中",
+    lost: "失",
+    cancelled: "取消",
+    void: "作废",
+  };
+  const entries = Object.entries(statusCounts || {}).filter(([, count]) => Number(count || 0) > 0);
+  if (!entries.length) return '<span class="muted">--</span>';
+  return `<div class="strategy-audit-distribution">${entries
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+    .map(([status, count]) => `<span class="strategy-audit-chip">${escapeHtml(labels[status] || status)} ${fmtInt(count)}</span>`)
+    .join("")}</div>`;
+}
+
+function strategyAuditCounts(values, suffix = "") {
+  const items = Array.isArray(values) ? values : [];
+  if (!items.length) return '<span class="muted">--</span>';
+  return `<div class="strategy-audit-distribution">${items
+    .map((value, index) => `<span class="strategy-audit-chip">${index + 1}:${fmtInt(value)}${suffix}</span>`)
+    .join("")}</div>`;
+}
+
+function strategyAuditBestKill(windowItem) {
+  const panels = Array.isArray(windowItem?.killPanels) ? windowItem.killPanels : [];
+  return panels
+    .filter((item) => Number.isFinite(Number(item.wrongRateLift)))
+    .sort((a, b) => Number(a.wrongRateLift || 0) - Number(b.wrongRateLift || 0))[0];
+}
+
+function strategyAuditBestETop(windowItem) {
+  const items = Array.isArray(windowItem?.eTopTickets) ? windowItem.eTopTickets : [];
+  return items
+    .filter((item) => Number(item.tickets || 0) > 0)
+    .sort((a, b) => Number(b.roi || 0) - Number(a.roi || 0) || Number(a.topCount || 0) - Number(b.topCount || 0))[0];
+}
+
+function strategyAuditWeightedMean(items, key, weightKey = "rounds") {
+  let total = 0;
+  let weightTotal = 0;
+  for (const item of items || []) {
+    const value = Number(item?.[key]);
+    const weight = Math.max(0, Number(item?.[weightKey] || item?.rounds || item?.tickets || 0));
+    if (!Number.isFinite(value) || weight <= 0) continue;
+    total += value * weight;
+    weightTotal += weight;
+  }
+  return weightTotal ? total / weightTotal : 0;
+}
+
+function strategyAuditWindowConsistency(items, predicate) {
+  const values = (items || []).filter(Boolean);
+  if (!values.length) return { total: 0, matched: 0, share: 0 };
+  const matched = values.filter(predicate).length;
+  return { total: values.length, matched, share: matched / values.length };
+}
+
+function strategyAuditPanelItems(windows, listKey, panel) {
+  return (windows || [])
+    .map((windowItem) => {
+      const list = Array.isArray(windowItem?.[listKey]) ? windowItem[listKey] : [];
+      const found = list.find((item) => item.panel === panel);
+      return found ? { ...found, auditWindow: Number(windowItem.window || 0), windowRounds: Number(windowItem.rounds || 0) } : null;
+    })
+    .filter(Boolean);
+}
+
+function strategyAuditETopItems(windows, topCount) {
+  return (windows || [])
+    .map((windowItem) => {
+      const list = Array.isArray(windowItem?.eTopTickets) ? windowItem.eTopTickets : [];
+      const found = list.find((item) => Number(item.topCount || 0) === Number(topCount));
+      return found ? { ...found, auditWindow: Number(windowItem.window || 0), windowRounds: Number(windowItem.rounds || 0) } : null;
+    })
+    .filter(Boolean);
+}
+
+function strategyAuditAtLeastHitProbability(game, pickCount, minHits) {
+  const totalNumbers = Number(game?.totalNumbers || state.currentGame?.totalNumbers || 0);
+  const drawnNumbers = Number(game?.drawnNumbers || state.currentGame?.drawnNumbers || 0);
+  if (!totalNumbers || !drawnNumbers || pickCount <= 0) return 0;
+  const denominator = combination(totalNumbers, pickCount);
+  if (!denominator) return 0;
+  let probability = 0;
+  for (let hits = minHits; hits <= pickCount; hits += 1) {
+    if (hits > drawnNumbers || pickCount - hits > totalNumbers - drawnNumbers) continue;
+    probability += (combination(drawnNumbers, hits) * combination(totalNumbers - drawnNumbers, pickCount - hits)) / denominator;
+  }
+  return probability;
+}
+
+function strategyAuditVerdictTone(status) {
+  if (status === "strong") return "strong";
+  if (status === "weak") return "weak";
+  if (status === "warn") return "warn";
+  return "observe";
+}
+
+function strategyAuditVerdictCard({ title, status, label, summary, details }) {
+  const detailList = (details || []).filter(Boolean);
+  return `<article class="strategy-verdict-card ${strategyAuditVerdictTone(status)}">
+    <div class="strategy-verdict-head">
+      <strong>${escapeHtml(title)}</strong>
+      <span>${escapeHtml(label)}</span>
+    </div>
+    <p>${escapeHtml(summary || "--")}</p>
+    ${
+      detailList.length
+        ? `<div class="strategy-verdict-details">${detailList
+            .map((detail) => `<span>${escapeHtml(detail)}</span>`)
+            .join("")}</div>`
+        : ""
+    }
+  </article>`;
+}
+
+function strategyAuditKillVerdict(windows) {
+  const panels = [PREDICTION_PANEL_C];
+  const results = panels
+    .map((panel) => {
+      const items = strategyAuditPanelItems(windows, "killPanels", panel);
+      const latest = items.at(-1) || null;
+      const avgLift = strategyAuditWeightedMean(items, "wrongRateLift", "rounds");
+      const consistency = strategyAuditWindowConsistency(items, (item) => Number(item.wrongRateLift || 0) < 0);
+      const avgPool = strategyAuditWeightedMean(items, "averagePoolSize", "rounds");
+      let status = "observe";
+      let label = "观察";
+      if (items.length && avgLift <= -0.012 && Number(latest?.wrongRateLift || 0) <= -0.008 && consistency.share >= 0.67) {
+        status = "strong";
+        label = "主杀候选";
+      } else if (items.length && avgLift >= 0.006 && Number(latest?.wrongRateLift || 0) >= 0) {
+        status = "weak";
+        label = "不适合主杀";
+      } else if (items.length && (avgLift <= -0.005 || Number(latest?.wrongRateLift || 0) <= -0.008)) {
+        status = "warn";
+        label = "偏强观察";
+      }
+      return {
+        panel,
+        items,
+        latest,
+        avgLift,
+        avgPool,
+        consistency,
+        status,
+        label,
+      };
+    })
+    .filter((item) => item.items.length);
+  const best = [...results].sort((a, b) => a.avgLift - b.avgLift)[0];
+  if (!best) {
+    return strategyAuditVerdictCard({
+      title: "C 主杀",
+      status: "observe",
+      label: "无数据",
+      summary: "当前窗口没有足够的 C 杀号池审计数据。",
+    });
+  }
+  const weakPanels = results.filter((item) => item.status === "weak").map((item) => cdePanelLabel(item.panel));
+  return strategyAuditVerdictCard({
+    title: "C 主杀",
+    status: best.status,
+    label: `${cdePanelLabel(best.panel)} ${best.label}`,
+    summary:
+      best.status === "strong"
+        ? `${cdePanelLabel(best.panel)} 的错杀率多窗口低于随机基准，可先作为主杀候选观察。`
+        : best.status === "weak"
+          ? `${cdePanelLabel(best.panel)} 目前是三者里相对最好，但整体没有形成主杀优势。`
+          : `${cdePanelLabel(best.panel)} 暂时只是相对占优，先观察，不直接提高权重。`,
+    details: [
+      `平均偏离 ${fmtSignedPct(best.avgLift, 2)}`,
+      `最近偏离 ${fmtSignedPct(Number(best.latest?.wrongRateLift || 0), 2)}`,
+      `低于随机 ${best.consistency.matched}/${best.consistency.total} 窗口`,
+      `平均池 ${fmtNumber(best.avgPool, 1)} 码`,
+      weakPanels.length ? `不适合主杀：${weakPanels.join("/")}` : "",
+    ],
+  });
+}
+
+function strategyAuditETopVerdict(windows) {
+  const topCounts = [1, 2, 3, 5, 8];
+  const results = topCounts
+    .map((topCount) => {
+      const items = strategyAuditETopItems(windows, topCount);
+      let covered = 0;
+      let top8Hits = 0;
+      let missed = 0;
+      for (const item of items) {
+        const coverage = item.roundCoverage || {};
+        covered += Number(coverage.coveredFourHitRounds || 0);
+        top8Hits += Number(coverage.top8FourHitRounds || 0);
+        missed += Number(coverage.missedFourHitRounds || 0);
+      }
+      const missRate = top8Hits ? missed / top8Hits : 1;
+      const coverageRate = top8Hits ? covered / top8Hits : 0;
+      const roi = strategyAuditWeightedMean(items, "roi", "stake");
+      const threePlus = strategyAuditWeightedMean(items, "threePlusRate", "tickets");
+      const costSave = 1 - topCount / 8;
+      let status = "observe";
+      let label = "观察";
+      if (top8Hits >= 2 && topCount < 8 && missRate <= 0.25) {
+        status = "strong";
+        label = "压缩候选";
+      } else if (top8Hits >= 2 && topCount < 8 && missRate <= 0.5) {
+        status = "warn";
+        label = "谨慎压缩";
+      } else if (top8Hits >= 2 && topCount < 8 && missRate > 0.5) {
+        status = "weak";
+        label = "漏中偏高";
+      }
+      return {
+        topCount,
+        items,
+        top8Hits,
+        missed,
+        missRate,
+        coverageRate,
+        roi,
+        threePlus,
+        costSave,
+        status,
+        label,
+      };
+    })
+    .filter((item) => item.items.length);
+  const candidates = results.filter((item) => item.topCount < 8 && (item.status === "strong" || item.status === "warn"));
+  const compressionItems = results.filter((item) => item.topCount < 8);
+  const best = (candidates.length ? candidates : compressionItems.length ? compressionItems : results).sort(
+    (a, b) =>
+      a.missRate - b.missRate ||
+      b.costSave - a.costSave ||
+      b.roi - a.roi ||
+      Number(a.topCount || 0) - Number(b.topCount || 0),
+  )[0];
+  if (!best) {
+    return strategyAuditVerdictCard({
+      title: "E 成本压缩",
+      status: "observe",
+      label: "无数据",
+      summary: "当前窗口没有足够的 E TopN 数据。",
+    });
+  }
+  return strategyAuditVerdictCard({
+    title: "E 成本压缩",
+    status: best.status,
+    label: `Top${best.topCount} ${best.label}`,
+    summary:
+      best.status === "strong"
+        ? `Top${best.topCount} 在 Top8 有四码命中时漏中较少，可作为降低 E 成本的第一候选。`
+        : best.status === "weak"
+          ? `Top${best.topCount} 省成本明显，但漏中偏高，不适合直接压缩到这个层级。`
+          : `Top${best.topCount} 可继续观察，暂不建议把 E 从 8 组一次性压得太低。`,
+    details: [
+      `省票 ${fmtPct(best.costSave, 1)}`,
+      `Top8命中 ${fmtInt(best.top8Hits)} 次`,
+      `漏中 ${fmtInt(best.missed)} 次，漏率 ${fmtPct(best.missRate, 1)}`,
+      `3码+ ${fmtPct(best.threePlus, 1)}`,
+      `ROI ${fmtPct(best.roi, 2)}`,
+    ],
+  });
+}
+
+function strategyAuditRepeatVerdict(windows) {
+  const repeats = (windows || []).map((windowItem) => windowItem.repeat).filter(Boolean);
+  const latest = repeats.at(-1) || null;
+  const avgLift = strategyAuditWeightedMean(
+    repeats.map((item) => ({
+      ...item,
+      lift: Number(item.previousNumberHitRate || 0) - Number(item.baselinePreviousNumberHitRate || 0),
+    })),
+    "lift",
+    "pairs",
+  );
+  const latestLift = Number(latest?.previousNumberHitRate || 0) - Number(latest?.baselinePreviousNumberHitRate || 0);
+  const latestZ = Number(latest?.meanZ || 0);
+  const consistency = strategyAuditWindowConsistency(
+    repeats,
+    (item) => Number(item.previousNumberHitRate || 0) >= Number(item.baselinePreviousNumberHitRate || 0),
+  );
+  let status = "observe";
+  let label = "不加权";
+  if (avgLift >= 0.012 && latestLift >= 0.008 && latestZ >= 1.5 && consistency.share >= 0.67) {
+    status = "warn";
+    label = "轻权观察";
+  } else if (Math.abs(avgLift) <= 0.006 && Math.abs(latestZ) < 1.5) {
+    status = "observe";
+    label = "接近随机";
+  } else if (avgLift < -0.006) {
+    status = "weak";
+    label = "不加权";
+  }
+  return strategyAuditVerdictCard({
+    title: "重复号",
+    status,
+    label,
+    summary:
+      status === "warn"
+        ? "重复号整体略强，但还只适合做轻权或过滤观察，暂不进入核心预测。"
+        : "重复号暂时没有强到可以直接加权，继续只作为观察特征。",
+    details: [
+      `平均偏离 ${fmtSignedPct(avgLift, 2)}`,
+      `最近偏离 ${fmtSignedPct(latestLift, 2)}`,
+      `最近Z ${fmtNumber(latestZ, 2)}`,
+      `高于基准 ${consistency.matched}/${consistency.total} 窗口`,
+    ],
+  });
+}
+
+function strategyAuditTrackingVerdict(tracking) {
+  const panels = Array.isArray(tracking?.panels) ? tracking.panels : [];
+  const settledPanels = panels.filter((item) => Number(item.tickets || 0) > 0);
+  if (!tracking?.available || !settledPanels.length) {
+    return strategyAuditVerdictCard({
+      title: "追踪库复核",
+      status: "observe",
+      label: "样本不足",
+      summary: "真实追踪库当前不足以复核自动审计结论。",
+    });
+  }
+  const best = [...settledPanels].sort((a, b) => Number(b.roi || 0) - Number(a.roi || 0))[0];
+  const worst = [...settledPanels].sort((a, b) => Number(a.roi || 0) - Number(b.roi || 0))[0];
+  const totalSettled = settledPanels.reduce((sum, item) => sum + Number(item.tickets || 0), 0);
+  let status = "observe";
+  let label = "样本偏少";
+  if (Number(best.tickets || 0) >= 30 && Number(best.roi || 0) > 0) {
+    status = "warn";
+    label = `${cdePanelLabel(best.panel)} 偏强`;
+  }
+  if (Number(worst.tickets || 0) >= 30 && Number(worst.roi || 0) < -0.35) {
+    status = "weak";
+    label = `${cdePanelLabel(worst.panel)} 偏弱`;
+  }
+  return strategyAuditVerdictCard({
+    title: "追踪库复核",
+    status,
+    label,
+    summary: "追踪库只作为真实落单记录复核；样本小的面板不单独定性。",
+    details: [
+      `已结算 ${fmtInt(totalSettled)} 注`,
+      `最佳 ${cdePanelLabel(best.panel)} ROI ${fmtPct(Number(best.roi || 0), 2)} / ${fmtInt(best.tickets)} 注`,
+      `最弱 ${cdePanelLabel(worst.panel)} ROI ${fmtPct(Number(worst.roi || 0), 2)} / ${fmtInt(worst.tickets)} 注`,
+    ],
+  });
+}
+
+function renderStrategyAuditVerdicts(data, windows) {
+  if (!els.strategyAuditVerdicts) return;
+  els.strategyAuditVerdicts.innerHTML = [
+    strategyAuditKillVerdict(windows),
+    strategyAuditRepeatVerdict(windows),
+    strategyAuditTrackingVerdict(data.tracking),
+  ].join("");
+}
+
+function strategyAuditScoreClamp(value) {
+  return Math.round(clampNumber(Number(value) || 0, 0, 100));
+}
+
+function strategyAuditWindowSampleCount(items, key = "rounds") {
+  const largest = [...(items || [])].sort((a, b) => Number(b.auditWindow || 0) - Number(a.auditWindow || 0))[0];
+  if (!largest) return 0;
+  return Number(largest[key] || largest.tickets || largest.rounds || largest.pairs || largest.windowRounds || 0);
+}
+
+function strategyAuditConfidenceScore(items, sampleKey = "rounds", sampleTarget = 180) {
+  const values = (items || []).filter(Boolean);
+  if (!values.length) return 0;
+  const largestWindow = Math.max(...values.map((item) => Number(item.auditWindow || item.window || 0)), 0);
+  const samples = strategyAuditWindowSampleCount(values, sampleKey);
+  const sampleScore = Math.min(1, Math.sqrt(Math.max(0, samples) / sampleTarget));
+  const windowScore = Math.min(1, largestWindow / 360);
+  const multiWindowScore = Math.min(1, values.length / 3);
+  return strategyAuditScoreClamp(18 + sampleScore * 45 + windowScore * 24 + multiWindowScore * 13);
+}
+
+function strategyAuditTrackingPanel(tracking, panel) {
+  const panels = Array.isArray(tracking?.panels) ? tracking.panels : [];
+  return panels.find((item) => item.panel === panel) || null;
+}
+
+function strategyAuditScoreTone(row) {
+  if (row.tone && row.mode === "etop") return row.tone;
+  const follow = Number(row.followScore || 0);
+  const kill = Number(row.killScore || 0);
+  if (follow >= 70 || kill >= 70) return "strong";
+  if (follow >= 58 || kill >= 58) return "warn";
+  if ((follow > 0 && follow <= 35) || (kill > 0 && kill <= 35)) return "weak";
+  return "observe";
+}
+
+function strategyAuditConclusion(row) {
+  if (row.conclusion) return row.conclusion;
+  const follow = Number(row.followScore || 0);
+  const kill = Number(row.killScore || 0);
+  const confidence = Number(row.confidence || 0);
+  if (confidence < 38) return "样本观察";
+  if (follow >= 70 && follow >= kill + 10) return "值得跟";
+  if (kill >= 70 && kill >= follow + 10) return "主杀候选";
+  if (follow >= 58 && follow >= kill) return "跟随观察";
+  if (kill >= 58) return "反杀观察";
+  return "随机附近";
+}
+
+function strategyAuditConfidenceScoreCap(confidence) {
+  const value = Number(confidence || 0);
+  if (value < 38) return 52;
+  if (value < 55) return 62;
+  if (value < 70) return 78;
+  if (value < 82) return 88;
+  return 100;
+}
+
+function strategyAuditApplyScoreCap(score, confidence) {
+  if (score === null || score === undefined || !Number.isFinite(Number(score))) return score;
+  return Math.min(strategyAuditScoreClamp(score), strategyAuditConfidenceScoreCap(confidence));
+}
+
+function strategyAuditFinalizeScoreRow(row) {
+  const next = {
+    ...row,
+    evidence: [...(row.evidence || [])],
+  };
+  const rawFollow = next.followScore;
+  const rawKill = next.killScore;
+  next.followScore = strategyAuditApplyScoreCap(next.followScore, next.confidence);
+  next.killScore = strategyAuditApplyScoreCap(next.killScore, next.confidence);
+  const capped =
+    (Number.isFinite(Number(rawFollow)) && Number(rawFollow) !== Number(next.followScore)) ||
+    (Number.isFinite(Number(rawKill)) && Number(rawKill) !== Number(next.killScore));
+  if (capped) {
+    next.evidence.push(`可信度封顶 ${strategyAuditConfidenceScoreCap(next.confidence)}`);
+  }
+  if (next.mode === "kill") {
+    const kill = Number(next.killScore || 0);
+    const confidence = Number(next.confidence || 0);
+    next.conclusion =
+      confidence < 38
+        ? "样本观察"
+        : kill >= 70
+          ? "主杀候选"
+          : kill >= 58
+            ? "主杀观察"
+            : kill <= 40
+              ? "不适合主杀"
+              : "随机附近";
+    next.tone = kill >= 70 ? "strong" : kill >= 58 ? "warn" : kill <= 40 ? "weak" : "observe";
+  } else if (next.mode === "ticket") {
+    const follow = Number(next.followScore || 0);
+    const kill = Number(next.killScore || 0);
+    const confidence = Number(next.confidence || 0);
+    if (confidence < 38) next.conclusion = "样本观察";
+    else if (kill >= 65 && kill >= follow + 8) next.conclusion = "反向主杀候选";
+    else if (follow >= 70 && follow >= kill + 10) next.conclusion = "值得跟";
+    else if (follow >= 58 && follow >= kill) next.conclusion = "跟随观察";
+    else if (kill >= 58) next.conclusion = "反杀观察";
+    else next.conclusion = "随机附近";
+    next.tone = follow >= 70 && follow >= kill ? "strong" : kill >= 65 && kill > follow ? "weak" : follow >= 58 || kill >= 58 ? "warn" : "observe";
+  } else if (next.mode === "bucket") {
+    const follow = Number(next.followScore || 0);
+    const kill = Number(next.killScore || 0);
+    const confidence = Number(next.confidence || 0);
+    next.conclusion =
+      confidence < 38
+        ? "样本观察"
+        : follow >= 66 && follow > kill
+          ? "重复桶偏强"
+          : kill >= 64 && kill > follow
+            ? "重复桶反杀"
+            : "分桶观察";
+    next.tone = follow >= 66 && follow > kill ? "warn" : kill >= 64 && kill > follow ? "weak" : "observe";
+  }
+  return next;
+}
+
+function strategyAuditScoreCell(score, kind = "action") {
+  if (score === null || score === undefined || !Number.isFinite(Number(score))) return '<span class="muted">--</span>';
+  const value = strategyAuditScoreClamp(score);
+  let level = "mid";
+  if (kind === "risk") {
+    level = value >= 70 ? "risk" : value <= 35 ? "safe" : "mid";
+  } else if (kind === "confidence") {
+    level = value >= 70 ? "high" : value < 45 ? "low" : "mid";
+  } else {
+    level = value >= 70 ? "high" : value < 40 ? "low" : "mid";
+  }
+  return `<span class="strategy-score ${level}">${value}</span>`;
+}
+
+function strategyAuditRiskLabel(score) {
+  const value = Number(score || 0);
+  if (value >= 70) return "高";
+  if (value >= 45) return "中";
+  return "低";
+}
+
+function strategyAuditConfidenceLabel(score) {
+  const value = Number(score || 0);
+  if (value >= 72) return "较高";
+  if (value >= 52) return "中";
+  if (value >= 35) return "低";
+  return "很低";
+}
+
+function strategyAuditBuildKillScoreRows(windows) {
+  return [PREDICTION_PANEL_C]
+    .map((panel) => {
+      const items = strategyAuditPanelItems(windows, "killPanels", panel);
+      if (!items.length) return null;
+      const latest = items.at(-1);
+      const avgLift = strategyAuditWeightedMean(items, "wrongRateLift", "rounds");
+      const consistency = strategyAuditWindowConsistency(items, (item) => Number(item.wrongRateLift || 0) < 0);
+      const confidence = strategyAuditConfidenceScore(items, "rounds", 180);
+      const killScore = strategyAuditScoreClamp(50 + -avgLift * 1400 + (consistency.share - 0.5) * 20);
+      const conclusion =
+        confidence < 38
+          ? "样本观察"
+          : killScore >= 70
+            ? "主杀候选"
+            : killScore >= 58
+              ? "主杀观察"
+              : killScore <= 40
+                ? "不适合主杀"
+                : "随机附近";
+      return {
+        key: `kill-${panel}`,
+        mode: "kill",
+        strategy: `${cdePanelLabel(panel)} 杀号池`,
+        followScore: null,
+        killScore,
+        costRisk: 18,
+        confidence,
+        conclusion,
+        tone: killScore >= 70 ? "strong" : killScore >= 58 ? "warn" : killScore <= 40 ? "weak" : "observe",
+        evidence: [
+          `错杀偏离 ${fmtSignedPct(avgLift, 2)}`,
+          `最近 ${fmtSignedPct(Number(latest?.wrongRateLift || 0), 2)}`,
+          `低于随机 ${consistency.matched}/${consistency.total} 窗口`,
+          `平均池 ${fmtNumber(strategyAuditWeightedMean(items, "averagePoolSize", "rounds"), 1)}码`,
+        ],
+      };
+    })
+    .filter(Boolean);
+}
+
+function strategyAuditBuildTicketScoreRows(data, windows) {
+  const baselineTwoPlus = strategyAuditAtLeastHitProbability(data.game, 4, 2);
+  const baselineThreePlus = strategyAuditAtLeastHitProbability(data.game, 4, 3);
+  return [PREDICTION_PANEL_F, PREDICTION_PANEL_G]
+    .map((panel) => {
+      const items = strategyAuditPanelItems(windows, "ticketPanels", panel);
+      if (!items.length) return null;
+      const latest = items.at(-1);
+      const twoLift = strategyAuditWeightedMean(items, "twoPlusRate", "tickets") - baselineTwoPlus;
+      const threeLift = strategyAuditWeightedMean(items, "threePlusRate", "tickets") - baselineThreePlus;
+      const followConsistency = strategyAuditWindowConsistency(
+        items,
+        (item) => Number(item.threePlusRate || 0) >= baselineThreePlus && Number(item.twoPlusRate || 0) >= baselineTwoPlus,
+      );
+      const killConsistency = strategyAuditWindowConsistency(
+        items,
+        (item) => Number(item.threePlusRate || 0) < baselineThreePlus && Number(item.twoPlusRate || 0) < baselineTwoPlus,
+      );
+      const trackingPanel = strategyAuditTrackingPanel(data.tracking, panel);
+      const trackingTickets = Number(trackingPanel?.tickets || 0);
+      const trackingRoi = Number(trackingPanel?.roi || 0);
+      const trackingAdjust = trackingTickets >= 30 ? clampNumber(trackingRoi / 0.25, -1, 1) * 12 : 0;
+      let followScore = strategyAuditScoreClamp(
+        50 + threeLift * 1000 + twoLift * 350 + (followConsistency.share - 0.5) * 18 + trackingAdjust,
+      );
+      if (trackingTickets >= 60 && trackingRoi <= -0.5) {
+        followScore = Math.min(followScore, 58);
+      } else if (trackingTickets >= 30 && trackingRoi <= -0.3) {
+        followScore = Math.min(followScore, 65);
+      }
+      const killScore = strategyAuditScoreClamp(
+        50 + -threeLift * 900 + -twoLift * 300 + (killConsistency.share - 0.5) * 18 - trackingAdjust,
+      );
+      const confidence = strategyAuditConfidenceScore(items, "tickets", 180);
+      let conclusion = strategyAuditConclusion({ followScore, killScore, confidence });
+      if (confidence >= 38 && killScore >= 65 && killScore >= followScore + 8) conclusion = "反向主杀候选";
+      return {
+        key: `ticket-${panel}`,
+        mode: "ticket",
+        strategy: `${cdePanelLabel(panel)} 四码`,
+        followScore,
+        killScore,
+        costRisk: 20,
+        confidence,
+        conclusion,
+        tone: followScore >= 70 && followScore >= killScore ? "strong" : killScore >= 65 && killScore > followScore ? "weak" : "observe",
+        evidence: [
+          `2码+ ${fmtSignedPct(twoLift, 2)}`,
+          `3码+ ${fmtSignedPct(threeLift, 2)}`,
+          `强于随机 ${followConsistency.matched}/${followConsistency.total} 窗口`,
+          `最近2/3码 ${fmtPct(Number(latest?.twoPlusRate || 0), 1)} / ${fmtPct(Number(latest?.threePlusRate || 0), 1)}`,
+          trackingTickets >= 30 ? `追踪ROI ${fmtPct(trackingRoi, 1)} / ${fmtInt(trackingTickets)}注` : "",
+          trackingTickets >= 60 && trackingRoi <= -0.5 ? "追踪负面限制跟随分" : "",
+        ],
+      };
+    })
+    .filter(Boolean);
+}
+
+function strategyAuditBucketRate(items, bucketKey) {
+  let tickets = 0;
+  let twoPlus = 0;
+  let threePlus = 0;
+  let windows = 0;
+  let strongWindows = 0;
+  for (const item of items || []) {
+    let bucketTickets = 0;
+    let bucketTwoPlus = 0;
+    let bucketThreePlus = 0;
+    for (const bucket of item.previousOverlapDistribution || []) {
+      const overlap = Number(bucket.previousOverlap || 0);
+      const key = overlap >= 2 ? "2+" : String(overlap);
+      if (key !== bucketKey) continue;
+      bucketTickets += Number(bucket.tickets || 0);
+      bucketTwoPlus += Number(bucket.twoPlus || 0);
+      bucketThreePlus += Number(bucket.threePlus || 0);
+    }
+    if (bucketTickets > 0) {
+      windows += 1;
+      tickets += bucketTickets;
+      twoPlus += bucketTwoPlus;
+      threePlus += bucketThreePlus;
+      if (bucketThreePlus / bucketTickets > 0) strongWindows += 1;
+    }
+  }
+  return {
+    bucketKey,
+    tickets,
+    twoPlus,
+    threePlus,
+    twoPlusRate: tickets ? twoPlus / tickets : 0,
+    threePlusRate: tickets ? threePlus / tickets : 0,
+    windows,
+    strongWindows,
+  };
+}
+
+function strategyAuditBuildBucketScoreRows(data, windows) {
+  const baselineTwoPlus = strategyAuditAtLeastHitProbability(data.game, 4, 2);
+  const baselineThreePlus = strategyAuditAtLeastHitProbability(data.game, 4, 3);
+  const rows = [];
+  for (const panel of [PREDICTION_PANEL_F, PREDICTION_PANEL_G]) {
+    const items = strategyAuditPanelItems(windows, "ticketPanels", panel);
+    if (!items.length) continue;
+    for (const bucketKey of ["0", "1", "2+"]) {
+      const bucket = strategyAuditBucketRate(items, bucketKey);
+      if (bucket.tickets < 20) continue;
+      const twoLift = bucket.twoPlusRate - baselineTwoPlus;
+      const threeLift = bucket.threePlusRate - baselineThreePlus;
+      const confidence = strategyAuditScoreClamp(
+        18 + Math.min(1, Math.sqrt(bucket.tickets / 120)) * 48 + Math.min(1, bucket.windows / 3) * 20,
+      );
+      const followScore = strategyAuditScoreClamp(48 + threeLift * 950 + twoLift * 320 + (bucket.strongWindows / bucket.windows - 0.5) * 10);
+      const killScore = strategyAuditScoreClamp(48 + -threeLift * 850 + -twoLift * 260);
+      rows.push({
+        key: `bucket-${panel}-${bucketKey}`,
+        mode: "bucket",
+        strategy: `${cdePanelLabel(panel)} 重复${bucketKey}`,
+        followScore,
+        killScore,
+        costRisk: 18,
+        confidence,
+        conclusion:
+          confidence < 38
+            ? "样本观察"
+            : followScore >= 66 && followScore > killScore
+              ? "重复桶偏强"
+              : killScore >= 64 && killScore > followScore
+                ? "重复桶反杀"
+                : "分桶观察",
+        tone: followScore >= 66 && followScore > killScore ? "warn" : killScore >= 64 && killScore > followScore ? "weak" : "observe",
+        evidence: [
+          `样本 ${fmtInt(bucket.tickets)}注`,
+          `2码+ ${fmtSignedPct(twoLift, 1)}`,
+          `3码+ ${fmtSignedPct(threeLift, 1)}`,
+          `${bucket.strongWindows}/${bucket.windows} 窗口有3码+`,
+        ],
+      });
+    }
+  }
+  return rows;
+}
+
+function strategyAuditBuildETopScoreRows(windows) {
+  return [1, 2, 3, 5, 8]
+    .map((topCount) => {
+      const items = strategyAuditETopItems(windows, topCount);
+      if (!items.length) return null;
+      let top8Hits = 0;
+      let missed = 0;
+      for (const item of items) {
+        const coverage = item.roundCoverage || {};
+        top8Hits += Number(coverage.top8FourHitRounds || 0);
+        missed += Number(coverage.missedFourHitRounds || 0);
+      }
+      const missRate = top8Hits ? missed / top8Hits : topCount < 8 ? 1 : 0;
+      const roi = strategyAuditWeightedMean(items, "roi", "stake");
+      const threePlus = strategyAuditWeightedMean(items, "threePlusRate", "tickets");
+      const confidence = strategyAuditConfidenceScore(items, "tickets", 240);
+      const costSave = 1 - topCount / 8;
+      const costRisk = strategyAuditScoreClamp(15 + (topCount / 8) * 55 + missRate * 35);
+      const followScore = strategyAuditScoreClamp(48 + clampNumber(roi, -1, 1) * 10 + threePlus * 120 - missRate * 14);
+      let conclusion = "观察";
+      let tone = "observe";
+      if (topCount < 8 && top8Hits >= 2 && missRate <= 0.25) {
+        conclusion = "压缩候选";
+        tone = "strong";
+      } else if (topCount < 8 && missRate > 0.5) {
+        conclusion = "漏中偏高";
+        tone = "weak";
+      } else if (topCount === 8) {
+        conclusion = "全买基准";
+      }
+      return {
+        key: `etop-${topCount}`,
+        mode: "etop",
+        strategy: `E Top${topCount}`,
+        followScore,
+        killScore: null,
+        costRisk,
+        confidence,
+        conclusion,
+        tone,
+        evidence: [
+          `省票 ${fmtPct(costSave, 1)}`,
+          `Top8命中 ${fmtInt(top8Hits)}次`,
+          `漏中 ${fmtInt(missed)} / ${fmtPct(missRate, 1)}`,
+          `3码+ ${fmtPct(threePlus, 1)}`,
+          `ROI ${fmtPct(roi, 1)}`,
+        ],
+      };
+    })
+    .filter(Boolean);
+}
+
+function strategyAuditBuildRepeatScoreRow(windows) {
+  const repeats = (windows || [])
+    .map((windowItem) =>
+      windowItem.repeat
+        ? {
+            ...windowItem.repeat,
+            auditWindow: Number(windowItem.window || 0),
+            lift: Number(windowItem.repeat.previousNumberHitRate || 0) - Number(windowItem.repeat.baselinePreviousNumberHitRate || 0),
+          }
+        : null,
+    )
+    .filter(Boolean);
+  if (!repeats.length) return [];
+  const latest = repeats.at(-1);
+  const avgLift = strategyAuditWeightedMean(repeats, "lift", "pairs");
+  const consistency = strategyAuditWindowConsistency(repeats, (item) => Number(item.lift || 0) > 0);
+  const confidence = strategyAuditConfidenceScore(repeats, "pairs", 180);
+  const followScore = strategyAuditScoreClamp(46 + avgLift * 800 + Number(latest.meanZ || 0) * 4 + (consistency.share - 0.5) * 12);
+  return [
+    {
+      key: "repeat-overall",
+      mode: "repeat",
+      strategy: "重复号整体",
+      followScore,
+      killScore: null,
+      costRisk: 10,
+      confidence,
+      conclusion: followScore >= 62 && confidence >= 45 ? "轻权观察" : "只观察",
+      tone: followScore >= 62 && confidence >= 45 ? "warn" : "observe",
+      evidence: [
+        `平均偏离 ${fmtSignedPct(avgLift, 2)}`,
+        `最近Z ${fmtNumber(Number(latest.meanZ || 0), 2)}`,
+        `高于基准 ${consistency.matched}/${consistency.total} 窗口`,
+      ],
+    },
+  ];
+}
+
+function strategyAuditBuildScoreRows(data, windows) {
+  const rows = [
+    ...strategyAuditBuildKillScoreRows(windows),
+    ...strategyAuditBuildRepeatScoreRow(windows),
+  ].map(strategyAuditFinalizeScoreRow);
+  return rows.sort((a, b) => {
+    const aAction = Math.max(Number(a.followScore || 0), Number(a.killScore || 0));
+    const bAction = Math.max(Number(b.followScore || 0), Number(b.killScore || 0));
+    return (
+      bAction - aAction ||
+      Number(b.confidence || 0) - Number(a.confidence || 0) ||
+      Number(a.costRisk || 0) - Number(b.costRisk || 0)
+    );
+  });
+}
+
+function renderStrategyAuditScoreMatrix(data, windows) {
+  if (!els.strategyAuditScoreRows) return;
+  const rows = strategyAuditBuildScoreRows(data, windows);
+  if (els.strategyAuditMatrixMeta) {
+    const highFollow = rows.filter((row) => Number(row.followScore || 0) >= 65).length;
+    const highKill = rows.filter((row) => Number(row.killScore || 0) >= 65).length;
+    els.strategyAuditMatrixMeta.textContent = `${fmtInt(rows.length)} 项 · 跟随候选 ${fmtInt(highFollow)} · 主杀/反杀候选 ${fmtInt(
+      highKill,
+    )} · 分数只用于排序，不等于开奖概率`;
+  }
+  els.strategyAuditScoreRows.innerHTML = rows.length
+    ? rows
+        .map((row) => {
+          const tone = strategyAuditScoreTone(row);
+          const evidence = (row.evidence || []).filter(Boolean);
+          return `<tr class="strategy-score-row ${tone}">
+            <td><strong>${escapeHtml(row.strategy || "--")}</strong></td>
+            <td>${strategyAuditScoreCell(row.followScore)}</td>
+            <td>${strategyAuditScoreCell(row.killScore)}</td>
+            <td>${strategyAuditScoreCell(row.costRisk, "risk")}<div class="strategy-audit-inline-note">${strategyAuditRiskLabel(
+              row.costRisk,
+            )}</div></td>
+            <td>${strategyAuditScoreCell(row.confidence, "confidence")}<div class="strategy-audit-inline-note">${strategyAuditConfidenceLabel(
+              row.confidence,
+            )}</div></td>
+            <td><span class="strategy-score-badge ${tone}">${escapeHtml(strategyAuditConclusion(row))}</span></td>
+            <td><div class="strategy-score-evidence">${evidence
+              .map((item) => `<span>${escapeHtml(item)}</span>`)
+              .join("")}</div></td>
+          </tr>`;
+        })
+        .join("")
+    : '<tr><td colspan="7"><span class="muted">暂无可评分策略</span></td></tr>';
+}
+
+function strategyAuditExperimentTone(row) {
+  return row.tone || "observe";
+}
+
+function strategyAuditExperimentBadge(label, tone) {
+  return `<span class="strategy-score-badge ${strategyAuditExperimentTone({ tone })}">${escapeHtml(label || "--")}</span>`;
+}
+
+function strategyAuditExperimentDelta(value, digits = 2) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  return fmtSignedPct(number, digits);
+}
+
+function strategyAuditAggregateETop(items) {
+  let top8Hits = 0;
+  let missed = 0;
+  let covered = 0;
+  for (const item of items || []) {
+    const coverage = item.roundCoverage || {};
+    top8Hits += Number(coverage.top8FourHitRounds || 0);
+    missed += Number(coverage.missedFourHitRounds || 0);
+    covered += Number(coverage.coveredFourHitRounds || 0);
+  }
+  return {
+    tickets: (items || []).reduce((sum, item) => sum + Number(item.tickets || 0), 0),
+    won: (items || []).reduce((sum, item) => sum + Number(item.won || 0), 0),
+    roi: strategyAuditWeightedMean(items, "roi", "stake"),
+    twoPlusRate: strategyAuditWeightedMean(items, "twoPlusRate", "tickets"),
+    threePlusRate: strategyAuditWeightedMean(items, "threePlusRate", "tickets"),
+    top8Hits,
+    missed,
+    covered,
+    missRate: top8Hits ? missed / top8Hits : 0,
+    coverageRate: top8Hits ? covered / top8Hits : 0,
+  };
+}
+
+function strategyAuditExperimentETopRows(windows) {
+  const top8 = strategyAuditAggregateETop(strategyAuditETopItems(windows, 8));
+  return [5, 3, 2, 1].map((topCount) => {
+    const summary = strategyAuditAggregateETop(strategyAuditETopItems(windows, topCount));
+    const costChange = topCount / 8 - 1;
+    let tone = "observe";
+    let conclusion = "观察";
+    if (summary.top8Hits >= 2 && summary.missRate <= 0.25) {
+      tone = "strong";
+      conclusion = "可执行候选";
+    } else if (summary.top8Hits >= 2 && summary.missRate <= 0.5) {
+      tone = "warn";
+      conclusion = "谨慎观察";
+    } else if (summary.top8Hits >= 2 && summary.missRate > 0.5) {
+      tone = "weak";
+      conclusion = "不建议压缩";
+    }
+    return {
+      name: `E Top${topCount} 替代 Top8`,
+      target: "E 成本压缩",
+      trigger: `Top8命中 ${fmtInt(summary.top8Hits)} 次`,
+      cost: strategyAuditExperimentDelta(costChange, 1),
+      metric: `漏 ${fmtInt(summary.missed)} / ${fmtPct(summary.missRate, 1)} · 3码+ ${fmtPct(summary.threePlusRate, 1)}`,
+      relative: `ROI ${fmtPct(summary.roi, 1)} · Top8 ROI ${fmtPct(top8.roi, 1)}`,
+      risk:
+        summary.top8Hits < 2
+          ? "四码样本少"
+          : summary.missRate > 0.5
+            ? "漏中高"
+            : topCount <= 2
+              ? "执行省但漏中敏感"
+              : "成本/覆盖平衡",
+      conclusion,
+      tone,
+    };
+  });
+}
+
+function strategyAuditExperimentDowngradeRows(data, windows) {
+  return [PREDICTION_PANEL_F, PREDICTION_PANEL_G].map((panel) => {
+    const items = strategyAuditPanelItems(windows, "ticketPanels", panel);
+    const latest = items.at(-1) || {};
+    const tracking = strategyAuditTrackingPanel(data.tracking, panel);
+    const trackingTickets = Number(tracking?.tickets || 0);
+    const trackingRoi = Number(tracking?.roi || 0);
+    const twoPlus = strategyAuditWeightedMean(items, "twoPlusRate", "tickets");
+    const threePlus = strategyAuditWeightedMean(items, "threePlusRate", "tickets");
+    const triggered = trackingTickets >= 60 && trackingRoi <= -0.5;
+    return {
+      name: `${cdePanelLabel(panel)} 追踪负面降级`,
+      target: `${cdePanelLabel(panel)} 原始跟随`,
+      trigger: trackingTickets ? `追踪 ${fmtInt(trackingTickets)} 注 · ROI ${fmtPct(trackingRoi, 1)}` : "追踪样本不足",
+      cost: triggered ? "-100.0%" : "0.0%",
+      metric: `审计2/3码 ${fmtPct(twoPlus, 1)} / ${fmtPct(threePlus, 1)}`,
+      relative: `最近四码全中 ${fmtInt(latest.won || 0)} / ${fmtInt(latest.tickets || 0)}`,
+      risk: triggered ? "会错过短窗口回暖" : "未触发",
+      conclusion: triggered ? "可降级观察" : "暂不触发",
+      tone: triggered ? "warn" : "observe",
+    };
+  });
+}
+
+function strategyAuditExperimentReverseKillRows(data, windows) {
+  const singleBaseline = Number(data.game?.drawnNumbers || 0) / Number(data.game?.totalNumbers || 1);
+  return [PREDICTION_PANEL_F, PREDICTION_PANEL_G].map((panel) => {
+    const items = strategyAuditPanelItems(windows, "ticketPanels", panel);
+    const latest = items.at(-1) || {};
+    const numberHitRate = strategyAuditWeightedMean(items, "numberHitRate", "numberPicks");
+    const wrongLift = numberHitRate - singleBaseline;
+    const twoPlus = strategyAuditWeightedMean(items, "twoPlusRate", "tickets");
+    const threePlus = strategyAuditWeightedMean(items, "threePlusRate", "tickets");
+    const baselineTwo = strategyAuditAtLeastHitProbability(data.game, 4, 2);
+    const baselineThree = strategyAuditAtLeastHitProbability(data.game, 4, 3);
+    const weakDensity = twoPlus < baselineTwo && threePlus < baselineThree;
+    let tone = "observe";
+    let conclusion = "不满足";
+    if (wrongLift <= -0.015 && weakDensity) {
+      tone = "strong";
+      conclusion = "反杀候选";
+    } else if (wrongLift <= -0.008 || weakDensity) {
+      tone = "warn";
+      conclusion = "反杀观察";
+    } else {
+      tone = "weak";
+      conclusion = "不建议反杀";
+    }
+    return {
+      name: `${cdePanelLabel(panel)} 弱信号反杀`,
+      target: `${cdePanelLabel(panel)} 四码号码`,
+      trigger: `样本 ${fmtInt(latest.tickets || 0)} 注`,
+      cost: "不下注",
+      metric: `号码错杀率 ${fmtPct(numberHitRate, 2)}`,
+      relative: `随机 ${fmtPct(singleBaseline, 2)} · 偏离 ${strategyAuditExperimentDelta(wrongLift, 2)}`,
+      risk: weakDensity ? "2/3码弱" : "2/3码未同步弱",
+      conclusion,
+      tone,
+    };
+  });
+}
+
+function strategyAuditExperimentRepeatRows(data, windows) {
+  const rows = [];
+  const baselineThree = strategyAuditAtLeastHitProbability(data.game, 4, 3);
+  for (const panel of [PREDICTION_PANEL_F, PREDICTION_PANEL_G]) {
+    const items = strategyAuditPanelItems(windows, "ticketPanels", panel);
+    const overallThree = strategyAuditWeightedMean(items, "threePlusRate", "tickets");
+    const totalTickets = items.reduce((sum, item) => sum + Number(item.tickets || 0), 0);
+    for (const bucketKey of ["0", "1", "2+"]) {
+      const bucket = strategyAuditBucketRate(items, bucketKey);
+      if (bucket.tickets < 20) continue;
+      const keepShare = bucket.tickets / Math.max(1, totalTickets);
+      const liftVsOverall = bucket.threePlusRate - overallThree;
+      const liftVsRandom = bucket.threePlusRate - baselineThree;
+      let tone = "observe";
+      let conclusion = "分桶观察";
+      if (bucket.tickets >= 30 && liftVsOverall >= 0.015 && liftVsRandom >= 0.01) {
+        tone = "warn";
+        conclusion = "过滤候选";
+      } else if (bucket.tickets >= 30 && liftVsOverall <= -0.015 && liftVsRandom <= 0) {
+        tone = "weak";
+        conclusion = "不保留候选";
+      }
+      rows.push({
+        name: `${cdePanelLabel(panel)} 只保留重复${bucketKey}`,
+        target: `${cdePanelLabel(panel)} 重复号分桶`,
+        trigger: `桶样本 ${fmtInt(bucket.tickets)} 注`,
+        cost: strategyAuditExperimentDelta(keepShare - 1, 1),
+        metric: `3码+ ${fmtPct(bucket.threePlusRate, 1)} · 2码+ ${fmtPct(bucket.twoPlusRate, 1)}`,
+        relative: `比整体 ${strategyAuditExperimentDelta(liftVsOverall, 1)} · 比随机 ${strategyAuditExperimentDelta(liftVsRandom, 1)}`,
+        risk: bucket.tickets < 60 ? "分桶样本小" : "可能少买漏强期",
+        conclusion,
+        tone,
+      });
+    }
+  }
+  return rows;
+}
+
+function strategyAuditExperimentKillRows(data, windows) {
+  const singleBaseline = Number(data.game?.drawnNumbers || 0) / Number(data.game?.totalNumbers || 1);
+  return [PREDICTION_PANEL_C].map((panel) => {
+    const items = strategyAuditPanelItems(windows, "killPanels", panel);
+    const latest = items.at(-1) || {};
+    const wrongRate = strategyAuditWeightedMean(items, "wrongRate", "poolTotal");
+    const wrongLift = wrongRate - singleBaseline;
+    let tone = "observe";
+    let conclusion = "主杀观察";
+    if (wrongLift <= -0.012) {
+      tone = "strong";
+      conclusion = "主杀候选";
+    } else if (wrongLift >= 0) {
+      tone = "weak";
+      conclusion = "不建议主杀";
+    }
+    return {
+      name: `${cdePanelLabel(panel)} 单池主杀`,
+      target: "C 杀号池",
+      trigger: `平均池 ${fmtNumber(Number(latest.averagePoolSize || 0), 1)} 码`,
+      cost: "不下注",
+      metric: `错杀率 ${fmtPct(wrongRate, 2)}`,
+      relative: `随机 ${fmtPct(singleBaseline, 2)} · 偏离 ${strategyAuditExperimentDelta(wrongLift, 2)}`,
+      risk: Number(latest.averagePoolSize || 0) > 20 ? "杀池偏大" : "单池风险",
+      conclusion,
+      tone,
+    };
+  });
+}
+
+function strategyAuditBuildExperimentRows(data, windows) {
+  return [
+    ...strategyAuditExperimentKillRows(data, windows),
+  ];
+}
+
+function renderStrategyAuditExperiments(data, windows) {
+  if (!els.strategyAuditExperimentRows) return;
+  const rows = strategyAuditBuildExperimentRows(data, windows);
+  if (els.strategyAuditExperimentMeta) {
+    const executable = rows.filter((row) => row.conclusion.includes("候选") || row.conclusion.includes("降级")).length;
+    els.strategyAuditExperimentMeta.textContent = `${fmtInt(rows.length)} 个只读实验 · 候选 ${fmtInt(
+      executable,
+    )} · 第一版复用审计聚合，不改正式预测`;
+  }
+  els.strategyAuditExperimentRows.innerHTML = rows.length
+    ? rows
+        .map((row) => `<tr class="strategy-experiment-row ${strategyAuditExperimentTone(row)}">
+          <td><strong>${escapeHtml(row.name)}</strong></td>
+          <td>${escapeHtml(row.target)}</td>
+          <td>${escapeHtml(row.trigger)}</td>
+          <td>${escapeHtml(row.cost)}</td>
+          <td>${escapeHtml(row.metric)}</td>
+          <td>${escapeHtml(row.relative)}</td>
+          <td>${escapeHtml(row.risk)}</td>
+          <td>${strategyAuditExperimentBadge(row.conclusion, row.tone)}</td>
+        </tr>`)
+        .join("")
+    : '<tr><td colspan="8"><span class="muted">暂无实验对照数据</span></td></tr>';
+}
+
+function strategyAuditMixedBuyConclusion(item) {
+  const reference = item.reference || {};
+  const sameReference = item.key === reference.key;
+  const costChange = Number(reference.stakeChangeRate || reference.ticketChangeRate || 0);
+  const roiDelta = Number(reference.roiDelta || 0);
+  const missFourRate = Number(reference.missRateWhenReferenceFourHit || 0);
+  const playedRate = Number(item.playedRoundRate || 0);
+  const avgTickets = Number(item.averageTicketsPerRound || 0);
+  if (sameReference) return { tone: "observe", label: "基准" };
+  if (playedRate > 0 && playedRate < 0.18) return { tone: "weak", label: "触发太少" };
+  if (missFourRate >= 0.35) return { tone: "weak", label: "漏中偏高" };
+  if (costChange <= -0.25 && missFourRate <= 0.12 && roiDelta >= -0.1) return { tone: "strong", label: "降成本候选" };
+  if (roiDelta >= 0.05 && missFourRate <= 0.2) return { tone: "warn", label: "改善观察" };
+  if (avgTickets > 6 && roiDelta <= 0) return { tone: "weak", label: "成本偏重" };
+  return { tone: "observe", label: "只读观察" };
+}
+
+function strategyAuditMixedKillConclusion(item) {
+  const wrongLift = Number(item.wrongRateLift || 0);
+  const avgPool = Number(item.averagePoolSize || 0);
+  const poolTotal = Number(item.poolTotal || 0);
+  const triggered = Number(item.triggeredRounds || 0);
+  const category = item.category || "";
+  if (!triggered || poolTotal < 30 || avgPool < 0.5) return { tone: "weak", label: "样本太少" };
+  if (avgPool > 30) return { tone: "weak", label: "杀池过大" };
+  if (wrongLift >= 0) return { tone: "weak", label: category === "fg_reverse" ? "不建议反杀" : "不建议主杀" };
+  if (category === "fg_reverse") {
+    if (wrongLift <= -0.018 && avgPool <= 8) return { tone: "warn", label: "反杀观察" };
+    return { tone: "observe", label: "反杀证据弱" };
+  }
+  if (wrongLift <= -0.015 && avgPool <= 18) return { tone: "strong", label: "主杀候选" };
+  if (wrongLift <= -0.008 && avgPool <= 24) return { tone: "warn", label: "主杀观察" };
+  return { tone: "observe", label: "边际观察" };
+}
+
+function strategyAuditMixedTypeLabel(item) {
+  if (item.mode === "buy") {
+    if (item.category === "e_cost") return "跟随压缩";
+    if (item.category === "fg_repeat") return "F/G过滤";
+    return "混合买票";
+  }
+  if (item.category === "fg_reverse") return "F/G反杀";
+  if (item.category === "cde_intersection") return "共识主杀";
+  if (item.category === "cde_union") return "合并主杀";
+  return "杀号池";
+}
+
+function strategyAuditMixedBuyRow(windowItem, item) {
+  const verdict = strategyAuditMixedBuyConclusion(item);
+  const reference = item.reference || {};
+  const missFour = Number(reference.missRateWhenReferenceFourHit || 0);
+  const missThree = Number(reference.missRateWhenReferenceThreePlus || 0);
+  return {
+    tone: verdict.tone,
+    window: strategyAuditWindowLabel(windowItem),
+    name: item.label || item.key || "--",
+    description: item.description || "",
+    type: strategyAuditMixedTypeLabel(item),
+    sample: `${fmtInt(item.rounds)}期 · ${fmtInt(item.tickets)}票 · 均 ${fmtNumber(Number(item.averageTicketsPerRound || 0), 1)}组`,
+    metric: `ROI ${fmtPct(Number(item.roi || 0), 1)} · 4码期 ${fmtPct(Number(item.roundFourHitRate || 0), 1)} · 3码+期 ${fmtPct(
+      Number(item.roundThreePlusRate || 0),
+      1,
+    )}`,
+    relative:
+      item.key === reference.key
+        ? "自身基准"
+        : `${reference.label || "基准"} · 成本 ${strategyAuditExperimentDelta(
+            Number(reference.stakeChangeRate || reference.ticketChangeRate || 0),
+            1,
+          )} · ROI ${strategyAuditExperimentDelta(Number(reference.roiDelta || 0), 1)}`,
+    risk:
+      item.key === reference.key
+        ? `跳过 ${fmtInt(item.skippedRounds || 0)}期`
+        : `漏4码 ${fmtInt(reference.missedFourHitRounds || 0)}期/${fmtPct(missFour, 1)} · 漏3码+ ${fmtPct(missThree, 1)}`,
+    conclusion: verdict.label,
+  };
+}
+
+function strategyAuditMixedKillRow(windowItem, item) {
+  const verdict = strategyAuditMixedKillConclusion(item);
+  const wrongLift = Number(item.wrongRateLift || 0);
+  return {
+    tone: verdict.tone,
+    window: strategyAuditWindowLabel(windowItem),
+    name: item.label || item.key || "--",
+    description: item.description || "",
+    type: strategyAuditMixedTypeLabel(item),
+    sample: `${fmtInt(item.rounds)}期 · 触发 ${fmtInt(item.triggeredRounds)}期 · 均池 ${fmtNumber(Number(item.averagePoolSize || 0), 1)}码`,
+    metric: `错杀率 ${fmtPct(Number(item.wrongRate || 0), 2)} · 平均错 ${fmtNumber(Number(item.averageWrong || 0), 2)}`,
+    relative: `随机 ${fmtPct(Number(item.baselineWrongRate || 0), 2)} · 偏离 ${strategyAuditExperimentDelta(wrongLift, 2)} · 多错 ${fmtNumber(
+      Number(item.wrongTotalLift || 0),
+      1,
+    )}`,
+    risk: `0/1/2错 ${fmtPct(Number(item.zeroWrongRate || 0), 1)} / ${fmtPct(Number(item.oneOrLessWrongRate || 0), 1)} / ${fmtPct(
+      Number(item.twoOrLessWrongRate || 0),
+      1,
+    )}`,
+    conclusion: verdict.label,
+  };
+}
+
+function strategyAuditBuildMixedRows(windows) {
+  const rows = [];
+  const orderedWindows = [...(windows || [])].sort((a, b) => Number(b.window || 0) - Number(a.window || 0));
+  for (const windowItem of orderedWindows) {
+    for (const item of windowItem.mixedBuyExperiments || []) {
+      rows.push(strategyAuditMixedBuyRow(windowItem, item));
+    }
+    for (const item of windowItem.mixedKillExperiments || []) {
+      rows.push(strategyAuditMixedKillRow(windowItem, item));
+    }
+  }
+  return rows;
+}
+
+function renderStrategyAuditMixedExperiments(windows) {
+  if (!els.strategyAuditMixedRows) return;
+  const rows = strategyAuditBuildMixedRows(windows);
+  if (els.strategyAuditMixedMeta) {
+    const candidates = rows.filter((row) => row.conclusion.includes("候选") || row.conclusion.includes("改善")).length;
+    els.strategyAuditMixedMeta.textContent = `${fmtInt(rows.length)} 条逐期模拟 · 候选 ${fmtInt(
+      candidates,
+    )} · 按每期开奖前历史生成，不改正式预测`;
+  }
+  els.strategyAuditMixedRows.innerHTML = rows.length
+    ? rows
+        .map((row) => `<tr class="strategy-mixed-row ${strategyAuditExperimentTone(row)}">
+          <td>${escapeHtml(row.window)}</td>
+          <td><strong>${escapeHtml(row.name)}</strong><div class="strategy-audit-inline-note">${escapeHtml(row.description)}</div></td>
+          <td>${escapeHtml(row.type)}</td>
+          <td>${escapeHtml(row.sample)}</td>
+          <td>${escapeHtml(row.metric)}</td>
+          <td>${escapeHtml(row.relative)}</td>
+          <td>${escapeHtml(row.risk)}</td>
+          <td>${strategyAuditExperimentBadge(row.conclusion, row.tone)}</td>
+        </tr>`)
+        .join("")
+    : '<tr><td colspan="8"><span class="muted">暂无逐期混合回测数据</span></td></tr>';
+}
+
+function strategyAuditStabilityGameName(payload) {
+  return payload?.game?.shortName || payload?.game?.name || payload?.game?.key || "--";
+}
+
+function strategyAuditStabilityGroupKey(item) {
+  return `${item?.mode || "unknown"}:${item?.key || item?.label || "--"}`;
+}
+
+function strategyAuditStabilityWeight(item, keys) {
+  for (const key of keys) {
+    const value = Number(item?.[key]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 0;
+}
+
+function strategyAuditStabilityWeightedMean(items, valueFn, weightFn) {
+  let total = 0;
+  let weightTotal = 0;
+  for (const item of items || []) {
+    const value = Number(valueFn(item));
+    const weight = Math.max(0, Number(weightFn(item) || 0));
+    if (!Number.isFinite(value) || weight <= 0) continue;
+    total += value * weight;
+    weightTotal += weight;
+  }
+  return weightTotal > 0 ? total / weightTotal : Number.NaN;
+}
+
+function strategyAuditStabilityMean(items, valueFn) {
+  let total = 0;
+  let count = 0;
+  for (const item of items || []) {
+    const value = Number(valueFn(item));
+    if (!Number.isFinite(value)) continue;
+    total += value;
+    count += 1;
+  }
+  return count ? total / count : Number.NaN;
+}
+
+function strategyAuditStabilityMax(items, valueFn) {
+  const values = (items || [])
+    .map((item) => Number(valueFn(item)))
+    .filter((value) => Number.isFinite(value));
+  return values.length ? Math.max(...values) : Number.NaN;
+}
+
+function strategyAuditStabilityCount(items, predicate) {
+  return (items || []).filter((item) => {
+    try {
+      return Boolean(predicate(item));
+    } catch (_) {
+      return false;
+    }
+  }).length;
+}
+
+function strategyAuditStabilityCostChange(item) {
+  const reference = item?.reference || {};
+  const stakeChange = Number(reference.stakeChangeRate);
+  if (Number.isFinite(stakeChange)) return stakeChange;
+  const ticketChange = Number(reference.ticketChangeRate);
+  return Number.isFinite(ticketChange) ? ticketChange : 0;
+}
+
+function strategyAuditStabilityMissFour(item) {
+  const reference = item?.reference || {};
+  if (item?.key && item.key === reference.key) return Number.NaN;
+  const value = Number(reference.missRateWhenReferenceFourHit);
+  return Number.isFinite(value) ? value : Number.NaN;
+}
+
+function strategyAuditStabilityToneRank(tone) {
+  if (tone === "strong") return 0;
+  if (tone === "warn") return 1;
+  if (tone === "observe") return 2;
+  if (tone === "weak") return 3;
+  return 4;
+}
+
+function strategyAuditStabilityCoverage(items) {
+  const games = new Map();
+  const windows = new Set();
+  for (const item of items || []) {
+    const gameName = item.gameName || item.gameKey || "--";
+    const windowValue = Number(item.auditWindow || 0);
+    if (!games.has(gameName)) games.set(gameName, new Set());
+    if (windowValue) {
+      games.get(gameName).add(windowValue);
+      windows.add(windowValue);
+    }
+  }
+  const gameCount = games.size;
+  const windowCount = windows.size;
+  const crossGame = [...games.entries()]
+    .map(([game, gameWindows]) => {
+      const label = [...gameWindows].sort((a, b) => a - b).join("/");
+      return `${game} ${label || "--"}`;
+    })
+    .join(" · ");
+  return {
+    gameCount,
+    windowCount,
+    samples: (items || []).length,
+    crossGame,
+    text: `${fmtInt((items || []).length)}样本 · ${fmtInt(gameCount)}彩种 · ${fmtInt(windowCount)}窗口`,
+  };
+}
+
+function strategyAuditStabilityBuyConclusion(summary) {
+  if (summary.samples < 3) return { tone: "weak", label: "样本不足" };
+  if (summary.sameReference) return { tone: "observe", label: "基准对照" };
+  if (Number.isFinite(summary.missFourMax) && summary.missFourMax >= 0.35) return { tone: "weak", label: "漏中偏高" };
+  if (Number.isFinite(summary.missFourAvg) && summary.missFourAvg >= 0.25) return { tone: "weak", label: "漏中偏高" };
+  if (summary.avgTickets > 6 && summary.roi <= 0 && summary.costChange >= -0.05) return { tone: "weak", label: "成本偏重" };
+  if (
+    summary.costChange <= -0.2 &&
+    (!Number.isFinite(summary.missFourMax) || summary.missFourMax <= 0.18) &&
+    summary.improvedShare >= 0.67 &&
+    summary.gameCount >= 2
+  ) {
+    return { tone: "strong", label: "降成本候选" };
+  }
+  if (summary.costChange <= -0.15 && (!Number.isFinite(summary.missFourMax) || summary.missFourMax <= 0.25) && summary.improvedShare >= 0.5) {
+    return { tone: "warn", label: "压缩观察" };
+  }
+  if (summary.roiImprovedShare >= 0.67 && (!Number.isFinite(summary.missFourAvg) || summary.missFourAvg <= 0.2)) {
+    return { tone: "warn", label: "改善观察" };
+  }
+  return { tone: "observe", label: "只读观察" };
+}
+
+function strategyAuditStabilityKillConclusion(summary) {
+  if (summary.samples < 3 || summary.poolTotal < 100) return { tone: "weak", label: "样本不足" };
+  if (summary.avgPool > 30) return { tone: "weak", label: "杀池过大" };
+  if (summary.wrongLift >= 0 || summary.negativeShare < 0.5) {
+    return { tone: "weak", label: summary.category === "fg_reverse" ? "不建议反杀" : "不建议主杀" };
+  }
+  if (summary.category === "fg_reverse") {
+    if (summary.wrongLift <= -0.01 && summary.negativeShare >= 0.67 && summary.avgPool <= 12) {
+      return { tone: "warn", label: "反杀观察" };
+    }
+    return { tone: "observe", label: "反杀证据弱" };
+  }
+  if (summary.wrongLift <= -0.01 && summary.negativeShare >= 0.67 && summary.avgPool <= 20 && summary.gameCount >= 2) {
+    return { tone: "strong", label: "主杀候选" };
+  }
+  if (summary.wrongLift < 0 && summary.negativeShare >= 0.5 && summary.avgPool <= 24) {
+    return { tone: "warn", label: "主杀观察" };
+  }
+  return { tone: "observe", label: "边际观察" };
+}
+
+function strategyAuditStabilityBuyRow(group) {
+  const items = group.items;
+  const coverage = strategyAuditStabilityCoverage(items);
+  const sameReference = items.every((item) => item.key && item.key === item.reference?.key);
+  const roi = strategyAuditStabilityWeightedMean(items, (item) => item.roi, (item) =>
+    strategyAuditStabilityWeight(item, ["stake", "tickets", "rounds"]),
+  );
+  const costChange = strategyAuditStabilityWeightedMean(items, strategyAuditStabilityCostChange, (item) =>
+    strategyAuditStabilityWeight(item, ["stake", "tickets", "rounds"]),
+  );
+  const roiDelta = strategyAuditStabilityWeightedMean(
+    items,
+    (item) => Number(item.reference?.roiDelta),
+    (item) => strategyAuditStabilityWeight(item, ["stake", "tickets", "rounds"]),
+  );
+  const roundFourHitRate = strategyAuditStabilityWeightedMean(items, (item) => item.roundFourHitRate, (item) =>
+    strategyAuditStabilityWeight(item, ["rounds", "tickets"]),
+  );
+  const roundThreePlusRate = strategyAuditStabilityWeightedMean(items, (item) => item.roundThreePlusRate, (item) =>
+    strategyAuditStabilityWeight(item, ["rounds", "tickets"]),
+  );
+  const playedRate = strategyAuditStabilityWeightedMean(items, (item) => item.playedRoundRate, (item) =>
+    strategyAuditStabilityWeight(item, ["rounds", "tickets"]),
+  );
+  const avgTickets = strategyAuditStabilityWeightedMean(items, (item) => item.averageTicketsPerRound, (item) =>
+    strategyAuditStabilityWeight(item, ["rounds", "tickets"]),
+  );
+  const missFourAvg = strategyAuditStabilityMean(items, strategyAuditStabilityMissFour);
+  const missFourMax = strategyAuditStabilityMax(items, strategyAuditStabilityMissFour);
+  const roiPositiveCount = strategyAuditStabilityCount(items, (item) => Number(item.roi || 0) > 0);
+  const roiImprovedCount = strategyAuditStabilityCount(items, (item) => Number(item.reference?.roiDelta || 0) > 0);
+  const improvedCount = strategyAuditStabilityCount(
+    items,
+    (item) =>
+      Number(item.roi || 0) > 0 ||
+      Number(item.reference?.roiDelta || 0) >= 0 ||
+      (strategyAuditStabilityCostChange(item) <= -0.2 && (Number.isNaN(strategyAuditStabilityMissFour(item)) || strategyAuditStabilityMissFour(item) <= 0.18)),
+  );
+  const summary = {
+    samples: coverage.samples,
+    gameCount: coverage.gameCount,
+    sameReference,
+    roi: Number.isFinite(roi) ? roi : 0,
+    costChange: Number.isFinite(costChange) ? costChange : 0,
+    roiImprovedShare: coverage.samples ? roiImprovedCount / coverage.samples : 0,
+    improvedShare: coverage.samples ? improvedCount / coverage.samples : 0,
+    missFourAvg,
+    missFourMax,
+    avgTickets: Number.isFinite(avgTickets) ? avgTickets : 0,
+  };
+  const verdict = strategyAuditStabilityBuyConclusion(summary);
+  return {
+    key: group.key,
+    mode: "buy",
+    tone: verdict.tone,
+    name: group.label,
+    description: group.description,
+    type: strategyAuditMixedTypeLabel(group.prototype),
+    coverage: coverage.text,
+    windowPerformance: `ROI>0 ${fmtInt(roiPositiveCount)}/${fmtInt(coverage.samples)} · ROI改善 ${fmtInt(roiImprovedCount)}/${fmtInt(
+      coverage.samples,
+    )} · 成本降 ${fmtInt(strategyAuditStabilityCount(items, (item) => strategyAuditStabilityCostChange(item) <= -0.2))}/${fmtInt(coverage.samples)}`,
+    metric: `ROI ${fmtPct(roi, 1)} · ROI差 ${strategyAuditExperimentDelta(roiDelta, 1)} · 成本 ${strategyAuditExperimentDelta(
+      costChange,
+      1,
+    )} · 均 ${fmtNumber(avgTickets, 1)}组`,
+    crossGame: coverage.crossGame || "--",
+    risk: `4码期 ${fmtPct(roundFourHitRate, 1)} · 3码+期 ${fmtPct(roundThreePlusRate, 1)} · 触发 ${fmtPct(playedRate, 1)} · 漏4均/峰 ${
+      Number.isFinite(missFourAvg) ? fmtPct(missFourAvg, 1) : "--"
+    }/${Number.isFinite(missFourMax) ? fmtPct(missFourMax, 1) : "--"}`,
+    conclusion: verdict.label,
+  };
+}
+
+function strategyAuditStabilityKillRow(group) {
+  const items = group.items;
+  const coverage = strategyAuditStabilityCoverage(items);
+  const wrongRate = strategyAuditStabilityWeightedMean(items, (item) => item.wrongRate, (item) =>
+    strategyAuditStabilityWeight(item, ["poolTotal", "triggeredRounds", "rounds"]),
+  );
+  const baselineWrongRate = strategyAuditStabilityWeightedMean(items, (item) => item.baselineWrongRate, (item) =>
+    strategyAuditStabilityWeight(item, ["poolTotal", "triggeredRounds", "rounds"]),
+  );
+  const wrongLift = strategyAuditStabilityWeightedMean(items, (item) => item.wrongRateLift, (item) =>
+    strategyAuditStabilityWeight(item, ["poolTotal", "triggeredRounds", "rounds"]),
+  );
+  const avgPool = strategyAuditStabilityWeightedMean(items, (item) => item.averagePoolSize, (item) =>
+    strategyAuditStabilityWeight(item, ["triggeredRounds", "rounds"]),
+  );
+  const avgWrong = strategyAuditStabilityWeightedMean(items, (item) => item.averageWrong, (item) =>
+    strategyAuditStabilityWeight(item, ["triggeredRounds", "rounds"]),
+  );
+  const triggeredRounds = items.reduce((total, item) => total + Math.max(0, Number(item.triggeredRounds || 0)), 0);
+  const rounds = items.reduce((total, item) => total + Math.max(0, Number(item.rounds || 0)), 0);
+  const poolTotal = items.reduce((total, item) => total + Math.max(0, Number(item.poolTotal || 0)), 0);
+  const negativeCount = strategyAuditStabilityCount(items, (item) => Number(item.wrongRateLift || 0) < 0);
+  const twoOrLessCount = strategyAuditStabilityCount(items, (item) => Number(item.twoOrLessWrongRate || 0) >= 0.2);
+  const summary = {
+    samples: coverage.samples,
+    gameCount: coverage.gameCount,
+    poolTotal,
+    avgPool: Number.isFinite(avgPool) ? avgPool : 0,
+    wrongLift: Number.isFinite(wrongLift) ? wrongLift : 0,
+    negativeShare: coverage.samples ? negativeCount / coverage.samples : 0,
+    category: group.prototype?.category || "",
+  };
+  const verdict = strategyAuditStabilityKillConclusion(summary);
+  return {
+    key: group.key,
+    mode: "kill",
+    tone: verdict.tone,
+    name: group.label,
+    description: group.description,
+    type: strategyAuditMixedTypeLabel(group.prototype),
+    coverage: coverage.text,
+    windowPerformance: `低随机 ${fmtInt(negativeCount)}/${fmtInt(coverage.samples)} · 触发 ${fmtInt(triggeredRounds)}/${fmtInt(
+      rounds,
+    )}期 · 2错内 ${fmtInt(twoOrLessCount)}/${fmtInt(coverage.samples)}`,
+    metric: `错杀 ${fmtPct(wrongRate, 2)} · 随机 ${fmtPct(baselineWrongRate, 2)} · 偏离 ${strategyAuditExperimentDelta(
+      wrongLift,
+      2,
+    )} · 均池 ${fmtNumber(avgPool, 1)}码`,
+    crossGame: coverage.crossGame || "--",
+    risk: `平均错 ${fmtNumber(avgWrong, 2)} · 杀池总 ${fmtInt(poolTotal)}码 · 高于随机 ${fmtInt(
+      coverage.samples - negativeCount,
+    )}/${fmtInt(coverage.samples)}样本`,
+    conclusion: verdict.label,
+  };
+}
+
+function strategyAuditBuildStabilityRows(stability) {
+  const payloads = Array.isArray(stability?.items) ? stability.items : [];
+  const groups = new Map();
+  for (const payload of payloads) {
+    const gameName = strategyAuditStabilityGameName(payload);
+    const gameKey = payload?.game?.key || gameName;
+    for (const windowItem of payload?.windows || []) {
+      const auditWindow = Number(windowItem?.window || 0);
+      for (const item of windowItem?.mixedBuyExperiments || []) {
+        const sample = { ...item, mode: "buy", gameName, gameKey, auditWindow };
+        const key = strategyAuditStabilityGroupKey(sample);
+        if (!groups.has(key)) {
+          groups.set(key, {
+            key,
+            label: item.label || item.key || "--",
+            description: item.description || "",
+            prototype: sample,
+            items: [],
+          });
+        }
+        groups.get(key).items.push(sample);
+      }
+      for (const item of windowItem?.mixedKillExperiments || []) {
+        const sample = { ...item, mode: "kill", gameName, gameKey, auditWindow };
+        const key = strategyAuditStabilityGroupKey(sample);
+        if (!groups.has(key)) {
+          groups.set(key, {
+            key,
+            label: item.label || item.key || "--",
+            description: item.description || "",
+            prototype: sample,
+            items: [],
+          });
+        }
+        groups.get(key).items.push(sample);
+      }
+    }
+  }
+  return [...groups.values()]
+    .map((group) => (group.prototype?.mode === "buy" ? strategyAuditStabilityBuyRow(group) : strategyAuditStabilityKillRow(group)))
+    .sort((a, b) => {
+      const toneDiff = strategyAuditStabilityToneRank(a.tone) - strategyAuditStabilityToneRank(b.tone);
+      if (toneDiff) return toneDiff;
+      if (a.mode !== b.mode) return a.mode === "buy" ? -1 : 1;
+      return a.name.localeCompare(b.name, "zh-CN");
+    });
+}
+
+function renderStrategyAuditStability() {
+  if (!els.strategyAuditStabilityRows) return;
+  const stability = state.strategyAuditStability;
+  const rows = strategyAuditBuildStabilityRows(stability);
+  if (els.strategyAuditStabilityMeta) {
+    const errors = Array.isArray(stability?.errors) ? stability.errors : [];
+    const games = new Set((stability?.items || []).map((item) => item?.game?.key || item?.game?.shortName).filter(Boolean));
+    const candidates = rows.filter((row) => row.conclusion.includes("候选") || row.conclusion.includes("观察")).length;
+    const errorText = errors.length ? ` · ${fmtInt(errors.length)}个彩种读取失败` : "";
+    els.strategyAuditStabilityMeta.textContent = `${fmtInt(rows.length)} 个规则 · ${fmtInt(
+      games.size,
+    )} 个彩种 · 60/180/360 稳定性 · 候选/观察 ${fmtInt(candidates)}${errorText}`;
+  }
+  if (!rows.length) {
+    const errors = (stability?.errors || []).map((item) => item.message).filter(Boolean);
+    els.strategyAuditStabilityRows.innerHTML = `<tr><td colspan="8"><span class="muted">${
+      errors.length ? escapeHtml(errors.join(" · ")) : "暂无多窗口稳定性数据"
+    }</span></td></tr>`;
+    return;
+  }
+  els.strategyAuditStabilityRows.innerHTML = rows
+    .map((row) => `<tr class="strategy-stability-row ${strategyAuditExperimentTone(row)}">
+      <td><strong>${escapeHtml(row.name)}</strong><div class="strategy-audit-inline-note">${escapeHtml(row.description)}</div></td>
+      <td>${escapeHtml(row.type)}</td>
+      <td>${escapeHtml(row.coverage)}</td>
+      <td>${escapeHtml(row.windowPerformance)}</td>
+      <td>${escapeHtml(row.metric)}</td>
+      <td>${escapeHtml(row.crossGame)}</td>
+      <td>${escapeHtml(row.risk)}</td>
+      <td>${strategyAuditExperimentBadge(row.conclusion, row.tone)}</td>
+    </tr>`)
+    .join("");
+}
+
+function renderStrategyAudit() {
+  const data = state.strategyAudit;
+  if (!data) return;
+  state.currentGame = data.game || state.currentGame;
+  updateGameUi();
+  renderSummary(data);
+
+  const windows = Array.isArray(data.windows) ? data.windows : [];
+  const latestWindow = windows.at(-1) || null;
+  const bestKill = strategyAuditBestKill(latestWindow);
+  const repeat = latestWindow?.repeat || null;
+
+  if (els.strategyAuditMeta) {
+    const cacheText = data.cacheHit ? " · 前端/后端缓存" : "";
+    els.strategyAuditMeta.textContent = `${data.game?.shortName || "--"} · 最近 ${fmtInt(data.actualRounds)}期 · 训练 ${fmtInt(
+      data.trainWindow,
+    )}期 · 四码赔率 ${fmtNumber(Number(data.odds || 0), 2)}x · ${fmtInt(data.elapsedMs)}ms${cacheText} · ${fmtDate(data.generatedAt)}`;
+  }
+
+  if (els.strategyAuditStats) {
+    const killLift = Number(bestKill?.wrongRateLift || 0);
+    els.strategyAuditStats.innerHTML = `
+      <article class="accent">
+        <span>审计期数</span>
+        <strong>${fmtInt(data.actualRounds)}</strong>
+        <small>请求 ${fmtInt(data.window)} · 跳过 ${fmtInt(data.skippedRounds || 0)}</small>
+      </article>
+      <article>
+        <span>最稳杀号池</span>
+        <strong class="${strategyAuditLiftClass(killLift, true)}">${
+          bestKill ? `${cdePanelLabel(bestKill.panel)} ${fmtSignedPct(killLift, 2)}` : "--"
+        }</strong>
+        <small>相对随机错杀率，负数才有价值</small>
+      </article>
+      <article>
+        <span>C错杀</span>
+        <strong>${bestKill ? fmtNumber(Number(bestKill.averageWrong || 0), 2) : "--"}</strong>
+        <small>${bestKill ? `C 平均池 ${fmtNumber(Number(bestKill.averagePoolSize || 0), 1)}码` : "只评估 C 杀号"}</small>
+      </article>
+      <article>
+        <span>重复号均值</span>
+        <strong>${repeat ? fmtNumber(Number(repeat.averageOverlap || 0), 2) : "--"}</strong>
+        <small>理论 ${repeat ? fmtNumber(Number(repeat.expectedOverlap || 0), 2) : "--"} · Z ${
+      repeat ? fmtNumber(Number(repeat.meanZ || 0), 2) : "--"
+    }</small>
+      </article>
+    `;
+  }
+
+  if (els.strategyAuditNotes) {
+    els.strategyAuditNotes.textContent = (data.notes || []).join(" ");
+  }
+
+  renderStrategyAuditVerdicts(data, windows);
+  renderStrategyAuditScoreMatrix(data, windows);
+  renderStrategyAuditExperiments(data, windows);
+  renderStrategyAuditKillRows(windows);
+  renderStrategyAuditRepeatRows(windows);
+  renderStrategyAuditTrackingRows(data.tracking);
+  renderStrategyAuditDetailRows(data.items || []);
+}
+
+function renderStrategyAuditKillRows(windows) {
+  if (!els.strategyAuditKillRows) return;
+  const rows = [];
+  for (const windowItem of windows) {
+    for (const item of windowItem.killPanels || []) {
+      const lift = Number(item.wrongRateLift || 0);
+      rows.push(`<tr>
+        <td>${strategyAuditWindowLabel(windowItem)}</td>
+        <td><strong>${cdePanelLabel(item.panel)}</strong><div class="muted">${escapeHtml(item.label || "")}</div></td>
+        <td>${fmtNumber(Number(item.averagePoolSize || 0), 1)}</td>
+        <td>${fmtNumber(Number(item.averageWrong || 0), 2)}</td>
+        <td class="${strategyAuditLiftClass(lift, true)}">${fmtPct(Number(item.wrongRate || 0), 2)}<div class="strategy-audit-inline-note">${fmtSignedPct(
+        lift,
+        2,
+      )}</div></td>
+        <td>${fmtPct(Number(item.baselineWrongRate || 0), 2)}</td>
+        <td>${fmtPct(Number(item.zeroWrongRate || 0), 1)} / ${fmtPct(Number(item.oneOrLessWrongRate || 0), 1)} / ${fmtPct(
+        Number(item.twoOrLessWrongRate || 0),
+        1,
+      )}</td>
+      </tr>`);
+    }
+  }
+  els.strategyAuditKillRows.innerHTML = rows.length
+    ? rows.join("")
+    : '<tr><td colspan="7"><span class="muted">暂无杀号池审计数据</span></td></tr>';
+}
+
+function renderStrategyAuditETopRows(windows) {
+  if (!els.strategyAuditETopRows) return;
+  const rows = [];
+  for (const windowItem of windows) {
+    for (const item of windowItem.eTopTickets || []) {
+      const coverage = item.roundCoverage || {};
+      const roi = Number(item.roi || 0);
+      rows.push(`<tr>
+        <td>${strategyAuditWindowLabel(windowItem)}</td>
+        <td><strong>Top${fmtInt(item.topCount)}</strong></td>
+        <td>${fmtInt(item.tickets)}</td>
+        <td>${fmtInt(item.won)}<div class="strategy-audit-inline-note">${fmtPct(Number(item.hitRate || 0), 2)}</div></td>
+        <td class="${strategyAuditLiftClass(roi)}">${fmtPct(roi, 2)}</td>
+        <td>${fmtPct(Number(item.twoPlusRate || 0), 1)} / ${fmtPct(Number(item.threePlusRate || 0), 1)}</td>
+        <td>${fmtInt(coverage.missedFourHitRounds || 0)} / ${fmtInt(coverage.top8FourHitRounds || 0)}<div class="strategy-audit-inline-note">漏率 ${fmtPct(
+        Number(coverage.missRateWhenTop8Hit || 0),
+        1,
+      )}</div></td>
+      </tr>`);
+    }
+  }
+  els.strategyAuditETopRows.innerHTML = rows.length
+    ? rows.join("")
+    : '<tr><td colspan="7"><span class="muted">暂无 E TopN 审计数据</span></td></tr>';
+}
+
+function renderStrategyAuditFgRows(windows) {
+  if (!els.strategyAuditFgRows) return;
+  const rows = [];
+  for (const windowItem of windows) {
+    for (const item of windowItem.ticketPanels || []) {
+      rows.push(`<tr>
+        <td>${strategyAuditWindowLabel(windowItem)}</td>
+        <td><strong>${cdePanelLabel(item.panel)}</strong><div class="muted">${escapeHtml(item.label || "")}</div></td>
+        <td>${fmtInt(item.tickets)}</td>
+        <td>${fmtInt(item.won)}<div class="strategy-audit-inline-note">${fmtPct(Number(item.hitRate || 0), 2)}</div></td>
+        <td>${fmtPct(Number(item.twoPlusRate || 0), 2)}</td>
+        <td>${fmtPct(Number(item.threePlusRate || 0), 2)}</td>
+        <td>${strategyAuditHitDistribution(item.hitDistribution)}</td>
+        <td>${strategyAuditTicketOverlapSummary(item.previousOverlapDistribution)}</td>
+      </tr>`);
+    }
+  }
+  els.strategyAuditFgRows.innerHTML = rows.length
+    ? rows.join("")
+    : '<tr><td colspan="8"><span class="muted">暂无 F/G 审计数据</span></td></tr>';
+}
+
+function renderStrategyAuditRepeatRows(windows) {
+  if (!els.strategyAuditRepeatRows) return;
+  const rows = [];
+  for (const windowItem of windows) {
+    const item = windowItem.repeat || {};
+    const z = Number(item.meanZ || 0);
+    const repeatLift = Number(item.previousNumberHitRate || 0) - Number(item.baselinePreviousNumberHitRate || 0);
+    rows.push(`<tr>
+      <td>${strategyAuditWindowLabel(windowItem)}</td>
+      <td>${fmtNumber(Number(item.averageOverlap || 0), 2)}</td>
+      <td>${fmtNumber(Number(item.expectedOverlap || 0), 2)}</td>
+      <td class="${strategyAuditLiftClass(z, false, 1.5)}">${fmtNumber(z, 2)}</td>
+      <td>${fmtPct(Number(item.previousNumberHitRate || 0), 2)}<div class="strategy-audit-inline-note ${strategyAuditLiftClass(
+      repeatLift,
+    )}">${fmtSignedPct(repeatLift, 2)}</div></td>
+      <td>${strategyAuditOverlapDistribution(item.overlapDistribution)}</td>
+    </tr>`);
+  }
+  els.strategyAuditRepeatRows.innerHTML = rows.length
+    ? rows.join("")
+    : '<tr><td colspan="6"><span class="muted">暂无重复号统计</span></td></tr>';
+}
+
+function renderStrategyAuditTrackingRows(tracking) {
+  if (!els.strategyAuditTrackingRows) return;
+  if (!tracking?.available) {
+    els.strategyAuditTrackingRows.innerHTML = `<tr><td colspan="7"><span class="muted">${
+      tracking?.error ? `追踪库不可读：${escapeHtml(tracking.error)}` : "暂无可读追踪库"
+    }</span></td></tr>`;
+    return;
+  }
+  const panels = Array.isArray(tracking.panels) ? tracking.panels : [];
+  els.strategyAuditTrackingRows.innerHTML = panels.length
+    ? panels
+        .map((item) => {
+          const roi = Number(item.roi || 0);
+          return `<tr>
+            <td><strong>${cdePanelLabel(item.panel)}</strong></td>
+            <td>${fmtInt(item.tickets)}</td>
+            <td>${fmtInt(item.won)}<div class="strategy-audit-inline-note">${fmtPct(Number(item.hitRate || 0), 2)}</div></td>
+            <td class="${strategyAuditLiftClass(roi)}">${item.tickets ? fmtPct(roi, 2) : "--"}</td>
+            <td>${item.tickets ? fmtPct(Number(item.twoPlusRate || 0), 2) : "--"}</td>
+            <td>${item.tickets ? fmtPct(Number(item.threePlusRate || 0), 2) : "--"}</td>
+            <td>${strategyAuditStatusCounts(item.statusCounts)}</td>
+          </tr>`;
+        })
+        .join("")
+    : '<tr><td colspan="7"><span class="muted">暂无追踪统计</span></td></tr>';
+}
+
+function renderStrategyAuditDetailRows(items) {
+  if (!els.strategyAuditDetailRows) return;
+  const rows = Array.isArray(items) ? items : [];
+  els.strategyAuditDetailRows.innerHTML = rows.length
+    ? rows
+        .map((item) => `<tr>
+          <td><strong>${escapeHtml(item.drawEventId || "--")}</strong></td>
+          <td>${fmtDate(item.drawTimeUtc)}</td>
+          <td>${fmtInt(item.previousOverlap)}</td>
+          <td>${fmtInt(item.cWrong)}</td>
+        </tr>`)
+        .join("")
+    : '<tr><td colspan="4"><span class="muted">暂无最近明细</span></td></tr>';
 }
 
 function cdePanelLabel(panel) {
@@ -2559,7 +4567,7 @@ function cdePanelResultCell(result, panel = "") {
 }
 
 function cdeWrongNumbersCell(panels) {
-  const parts = [PREDICTION_PANEL_C, PREDICTION_PANEL_D, PREDICTION_PANEL_E].map((panel) => {
+  const parts = [PREDICTION_PANEL_C].map((panel) => {
     const result = panels?.[panel];
     const numbers = result?.wrongKilledNumbers || [];
     return `<div class="cde-wrong-group">
@@ -2567,24 +4575,69 @@ function cdeWrongNumbersCell(panels) {
       <div>${cdeNumberBalls(numbers, numbers.length ? "kill wrong" : "safe")}</div>
     </div>`;
   });
-  const fResult = panels?.[PREDICTION_PANEL_F];
-  const fNumbers = fResult?.hitNumbers || fResult?.wrongKilledNumbers || [];
-  parts.push(`<div class="cde-wrong-group">
-    <span>F中</span>
-    <div>${cdeNumberBalls(fNumbers, fNumbers.length ? "hit" : "safe")}</div>
-  </div>`);
-  const gResult = panels?.[PREDICTION_PANEL_G];
-  const gNumbers = gResult?.hitNumbers || gResult?.wrongKilledNumbers || [];
-  parts.push(`<div class="cde-wrong-group">
-    <span>G中</span>
-    <div>${cdeNumberBalls(gNumbers, gNumbers.length ? "hit" : "safe")}</div>
-  </div>`);
   return `<div class="cde-wrong-stack">${parts.join("")}</div>`;
 }
 
+function cdeBucketTone(item) {
+  const lift = Number(item?.wrongRateLift || 0);
+  if (lift >= 0.02) return "rescue";
+  if (lift <= -0.02) return "kill";
+  return "neutral";
+}
+
+function cdeBucketVerdict(item) {
+  const lift = Number(item?.wrongRateLift || 0);
+  if (lift >= 0.02) return "可救观察";
+  if (lift <= -0.02) return "可杀观察";
+  return "接近随机";
+}
+
+function renderCdeKillBucketAudit(bucketAudit) {
+  if (!els.cdeBacktestBucketRows) return;
+  const buckets = Array.isArray(bucketAudit?.buckets) ? bucketAudit.buckets : [];
+  const baseline = Number(bucketAudit?.baselineWrongRate || 0);
+  if (els.cdeBacktestBucketMeta) {
+    els.cdeBacktestBucketMeta.textContent = bucketAudit
+      ? `${fmtInt(bucketAudit.sampleTotal || 0)} 个被杀单号样本 · 错杀 ${fmtInt(bucketAudit.wrongTotal || 0)} · 随机基准 ${fmtPct(
+          baseline,
+          2,
+        )} · 只读不改规则`
+      : "只读观察：错杀率高于随机的桶先考虑救出";
+  }
+  els.cdeBacktestBucketRows.innerHTML = buckets.length
+    ? buckets
+        .map((item) => {
+          const tone = cdeBucketTone(item);
+          const lift = Number(item.wrongRateLift || 0);
+          return `<tr class="cde-bucket-row ${tone}">
+            <td>${escapeHtml(item.dimension || "--")}</td>
+            <td><strong>${escapeHtml(item.label || "--")}</strong></td>
+            <td>${fmtInt(item.killTotal || 0)}杀<div class="cde-inline-note">错 ${fmtInt(item.wrongTotal || 0)} · 对 ${fmtInt(
+              item.rightTotal || 0,
+            )}</div></td>
+            <td class="${strategyAuditLiftClass(lift, true)}">${fmtPct(Number(item.wrongRate || 0), 2)}<div class="cde-inline-note">随机 ${fmtPct(
+              baseline,
+              2,
+            )}</div></td>
+            <td class="${strategyAuditLiftClass(lift, true)}">${fmtSignedPct(lift, 2)}<div class="cde-inline-note">多错 ${fmtNumber(
+              Number(item.wrongTotalLift || 0),
+              1,
+            )}</div></td>
+            <td>少错 ${fmtInt(item.rescueWrongSaved || 0)}<div class="cde-inline-note">代价：少杀对 ${fmtInt(
+              item.rescueRightLost || 0,
+            )}</div></td>
+            <td><span class="cde-bucket-badge ${tone}">${escapeHtml(item.verdict || cdeBucketVerdict(item))}</span></td>
+          </tr>`;
+        })
+        .join("")
+    : '<tr><td colspan="7"><span class="muted">暂无足够样本的错杀分桶</span></td></tr>';
+}
+
 function renderCdeKillBacktest(data) {
-  const summaries = Array.isArray(data.summaries) ? data.summaries : [];
-  const bestPanel = data.bestPanel || summaries[0] || null;
+  const cdePanels = [PREDICTION_PANEL_C];
+  const summaries = (Array.isArray(data.summaries) ? data.summaries : []).filter((summary) => cdePanels.includes(summary?.panel));
+  const rawBestPanel = data.bestPanel || summaries[0] || null;
+  const bestPanel = cdePanels.includes(rawBestPanel?.panel) ? rawBestPanel : summaries[0] || null;
   const allRows = Array.isArray(data.items) ? data.items : [];
   const totalRows = allRows.length;
   const totalPage = Math.max(1, Math.ceil(totalRows / CDE_BACKTEST_PAGE_SIZE));
@@ -2602,18 +4655,14 @@ function renderCdeKillBacktest(data) {
     )}ms`;
   }
   if (els.cdeBacktestStats) {
-    const bestIsPredictionHit =
-      bestPanel?.metricType === "prediction_hit" || bestPanel?.panel === PREDICTION_PANEL_F || bestPanel?.panel === PREDICTION_PANEL_G;
-    const bestMetric = bestIsPredictionHit ? bestPanel?.averageHitCount ?? bestPanel?.averageWrongKillCount : bestPanel?.averageWrongKillCount;
-    const bestLabel = bestPanel
-      ? `${cdePanelLabel(bestPanel.panel)} · ${fmtNumber(Number(bestMetric || 0), 2)}${bestIsPredictionHit ? "中" : "错"}/期`
-      : "--";
+    const bestMetric = bestPanel?.averageWrongKillCount;
+    const bestLabel = bestPanel ? `${cdePanelLabel(bestPanel.panel)} · ${fmtNumber(Number(bestMetric || 0), 2)}错/期` : "--";
     const detailLabel = totalRows ? `${Number(visibleStart).toLocaleString("zh-CN")}-${Number(visibleEnd).toLocaleString("zh-CN")}` : "0";
     els.cdeBacktestStats.innerHTML = `
       <article class="accent"><span>回测期数</span><strong>${Number(data.actualRounds || 0).toLocaleString("zh-CN")}</strong><small>请求 ${Number(
         data.window || 0,
       ).toLocaleString("zh-CN")} 期</small></article>
-      <article><span>最佳面板</span><strong>${escapeHtml(bestLabel)}</strong><small>C/D/E看错杀，F/G看命中</small></article>
+      <article><span>C面板</span><strong>${escapeHtml(bestLabel)}</strong><small>只看 C 错杀</small></article>
       <article><span>训练窗口</span><strong>${Number(data.trainWindow || 0).toLocaleString("zh-CN")}</strong><small>每期只用开奖前历史</small></article>
       <article><span>明细</span><strong>${detailLabel}</strong><small>共 ${Number(totalRows).toLocaleString("zh-CN")} 行 · 每页 ${CDE_BACKTEST_PAGE_SIZE}</small></article>
     `;
@@ -2622,15 +4671,14 @@ function renderCdeKillBacktest(data) {
     els.cdeBacktestPanelCards.innerHTML = summaries.length
       ? summaries
           .map((summary) => {
-            const isPredictionHit = summary.metricType === "prediction_hit" || summary.panel === PREDICTION_PANEL_F || summary.panel === PREDICTION_PANEL_G;
-            const wrong = Number(isPredictionHit ? summary.averageHitCount ?? summary.averageWrongKillCount ?? 0 : summary.averageWrongKillCount || 0);
-            const right = Number(isPredictionHit ? summary.averageMissCount ?? summary.averageRightKillCount ?? 0 : summary.averageRightKillCount || 0);
-            const zeroWrong = Number(isPredictionHit ? summary.zeroHitRate ?? summary.zeroWrongRate ?? 0 : summary.zeroWrongRate || 0);
-            const distributionItems = isPredictionHit ? summary.hitDistribution || summary.wrongDistribution || [] : summary.wrongDistribution || [];
+            const wrong = Number(summary.averageWrongKillCount || 0);
+            const right = Number(summary.averageRightKillCount || 0);
+            const zeroWrong = Number(summary.zeroWrongRate || 0);
+            const distributionItems = summary.wrongDistribution || [];
             const dist = distributionItems
               .map(
                 (item) =>
-                  `<span>${Number((isPredictionHit ? item.hitCount : item.wrongKillCount) || 0)}${isPredictionHit ? "中" : "错"}: ${Number(item.rounds || 0).toLocaleString("zh-CN")}期</span>`,
+                  `<span>${Number(item.wrongKillCount || 0)}错: ${Number(item.rounds || 0).toLocaleString("zh-CN")}期</span>`,
               )
               .join("");
             return `<article class="cde-panel-card">
@@ -2639,12 +4687,10 @@ function renderCdeKillBacktest(data) {
                 <span>${escapeHtml(summary.label || "")}</span>
               </div>
               <div class="cde-panel-metrics">
-                <div><span>${isPredictionHit ? "平均命中" : "平均错杀"}</span><strong class="${
-                  isPredictionHit ? (wrong > 0 ? "positive" : "muted") : wrong > 2 ? "negative" : "positive"
-                }">${fmtNumber(wrong, 2)}</strong></div>
-                <div><span>${isPredictionHit ? "平均未中" : "平均杀对"}</span><strong>${fmtNumber(right, 2)}</strong></div>
-                <div><span>${isPredictionHit ? "命中率" : "错杀率"}</span><strong>${fmtPct(Number(isPredictionHit ? summary.hitRate ?? summary.wrongKillRate ?? 0 : summary.wrongKillRate || 0), 2)}</strong></div>
-                <div><span>${isPredictionHit ? "0中期数" : "0错期数"}</span><strong>${fmtPct(zeroWrong, 2)}</strong></div>
+                <div><span>平均错杀</span><strong class="${wrong > 2 ? "negative" : "positive"}">${fmtNumber(wrong, 2)}</strong></div>
+                <div><span>平均杀对</span><strong>${fmtNumber(right, 2)}</strong></div>
+                <div><span>错杀率</span><strong>${fmtPct(Number(summary.wrongKillRate || 0), 2)}</strong></div>
+                <div><span>0错期数</span><strong>${fmtPct(zeroWrong, 2)}</strong></div>
               </div>
               <div class="cde-distribution">${dist || '<span class="muted">暂无分布</span>'}</div>
             </article>`;
@@ -2652,6 +4698,7 @@ function renderCdeKillBacktest(data) {
           .join("")
       : '<article class="cde-panel-card"><span class="muted">暂无回测结果</span></article>';
   }
+  renderCdeKillBucketAudit(data.killBucketAudit);
   if (els.cdeBacktestNotes) {
     els.cdeBacktestNotes.textContent = (data.notes || []).join(" ");
   }
@@ -2664,15 +4711,11 @@ function renderCdeKillBacktest(data) {
               <td><strong>${escapeHtml(item.drawEventId || "--")}</strong><div class="muted">${fmtDate(item.drawTimeUtc)}</div></td>
               <td><div class="history-balls compact">${cdeNumberBalls(item.drawNumbers || [], "draw")}</div></td>
               <td>${cdePanelResultCell(panels[PREDICTION_PANEL_C], PREDICTION_PANEL_C)}</td>
-              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_D], PREDICTION_PANEL_D)}</td>
-              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_E], PREDICTION_PANEL_E)}</td>
-              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_F], PREDICTION_PANEL_F)}</td>
-              <td>${cdePanelResultCell(panels[PREDICTION_PANEL_G], PREDICTION_PANEL_G)}</td>
               <td>${cdeWrongNumbersCell(panels)}</td>
             </tr>`;
           })
           .join("")
-      : '<tr><td colspan="8"><span class="muted">暂无回测明细</span></td></tr>';
+      : '<tr><td colspan="4"><span class="muted">暂无回测明细</span></td></tr>';
   }
   if (els.cdeBacktestPageInfo) {
     els.cdeBacktestPageInfo.textContent = totalRows
@@ -3594,11 +5637,9 @@ function renderPredictionKillPanel(predictions) {
       ? "ABCDE误杀候选池"
       : isPanelE
         ? "CD杀号"
-        : isPanelD && predictions?.sourcePanel === PREDICTION_PANEL_C
-          ? "C杀号"
-          : isPanelD
-            ? "ABC杀号"
-            : "面板A杀号";
+        : isPanelD
+          ? "CD杀号"
+          : "面板A杀号";
   if (els.predictionKillLabel) {
     els.predictionKillLabel.textContent = killLabel;
   }
@@ -3624,7 +5665,7 @@ function renderPredictionKillPanel(predictions) {
           .join("")
       : `<span class="muted">${killLabel}暂未给出可用主球</span>`;
   }
-  renderPredictionKillSources(predictions, isPanelE || isPanelF || isPanelG);
+  renderPredictionKillSources(predictions, isPanelD || isPanelE || isPanelF || isPanelG);
 }
 
 function renderPredictions(predictions) {
@@ -4100,10 +6141,7 @@ async function refreshCurrentView(options = {}) {
     state.activeView === "prediction" ||
     state.activeView === "predictionB" ||
     state.activeView === "predictionC" ||
-    state.activeView === "predictionD" ||
-    state.activeView === "predictionE" ||
-    state.activeView === "predictionF" ||
-    state.activeView === "predictionG"
+    state.activeView === "predictionD"
   ) {
     const panel = predictionPanelForView(state.activeView);
     setPredictionPanel(panel);
@@ -4122,6 +6160,10 @@ async function refreshCurrentView(options = {}) {
   }
   if (state.activeView === "analysis") {
     await loadAnalysis({ force: options.force });
+    return;
+  }
+  if (state.activeView === "strategyAudit") {
+    await loadStrategyAudit({ force: options.force });
     return;
   }
   if (state.activeView === "history") {
@@ -4145,16 +6187,14 @@ async function switchView(view) {
     .classList.toggle(
       "active",
       view === "prediction" ||
-        view === "predictionB" ||
+      view === "predictionB" ||
         view === "predictionC" ||
-        view === "predictionD" ||
-        view === "predictionE" ||
-        view === "predictionF" ||
-        view === "predictionG",
+        view === "predictionD",
     );
   document.querySelector("#martingaleView").classList.toggle("active", view === "martingale");
   document.querySelector("#backtestView").classList.toggle("active", view === "backtest");
   document.querySelector("#analysisView").classList.toggle("active", view === "analysis");
+  document.querySelector("#strategyAuditView").classList.toggle("active", view === "strategyAudit");
   document.querySelector("#historyView").classList.toggle("active", view === "history");
   await hydrateView(view);
 }
@@ -4186,6 +6226,9 @@ setMartingalePickCount(state.martingalePickCount);
 
 els.applyBtn.addEventListener("click", loadAnalysis);
 els.resetBtn.addEventListener("click", resetFilters);
+if (els.strategyAuditRunBtn) {
+  els.strategyAuditRunBtn.addEventListener("click", () => loadStrategyAudit({ force: true }));
+}
 els.refreshPageBtn.addEventListener("click", () => refreshCurrentView({ force: true }));
 els.syncBtn.addEventListener("click", () => syncData("incremental"));
 els.fullSyncBtn.addEventListener("click", () => syncData("full"));
@@ -4327,6 +6370,19 @@ for (const input of [
   input.addEventListener("change", () => {
     state.analysis = null;
     state.cdeBacktestPage = 1;
+  });
+}
+
+for (const input of [
+  els.strategyAuditWindow,
+  els.strategyAuditTrain,
+].filter(Boolean)) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loadStrategyAudit({ force: true });
+  });
+  input.addEventListener("change", () => {
+    state.strategyAudit = null;
+    state.strategyAuditStability = null;
   });
 }
 

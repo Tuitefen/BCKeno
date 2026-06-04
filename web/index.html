@@ -27,11 +27,9 @@
           <button class="tab-btn" type="button" data-view="predictionB">预测面板B</button>
           <button class="tab-btn" type="button" data-view="predictionC">预测面板C</button>
           <button class="tab-btn" type="button" data-view="predictionD">预测面板D</button>
-          <button class="tab-btn" type="button" data-view="predictionE">预测面板E</button>
-          <button class="tab-btn" type="button" data-view="predictionF">预测面板F</button>
-          <button class="tab-btn" type="button" data-view="predictionG">预测面板G</button>
           <button class="tab-btn" type="button" data-view="martingale">倍投计算</button>
-          <button class="tab-btn" type="button" data-view="analysis">CDE回测</button>
+          <button class="tab-btn" type="button" data-view="analysis">C回测</button>
+          <button class="tab-btn" type="button" data-view="strategyAudit">策略审计</button>
           <button class="tab-btn" type="button" data-view="history">历史开奖</button>
         </nav>
 
@@ -505,8 +503,8 @@
             <section class="panel cde-backtest-panel">
               <div class="panel-title">
                 <div>
-                  <h2>C/D/E 杀号 + F/G预测回测</h2>
-                  <span id="cdeBacktestMeta" class="muted">只测西班牙和波兰，每期用开奖前历史生成杀号池、F召回票和G杀号后预测票</span>
+                  <h2>C 杀号回测</h2>
+                  <span id="cdeBacktestMeta" class="muted">只测西班牙和波兰，每期用开奖前历史生成 C 杀号池</span>
                 </div>
                 <div class="panel-actions">
                   <button id="resetBtn" class="secondary-btn small" type="button">重置</button>
@@ -525,6 +523,28 @@
               </div>
               <div id="cdeBacktestStats" class="tracking-stat-grid cde-backtest-stats"></div>
               <div id="cdeBacktestPanelCards" class="cde-panel-grid"></div>
+              <div class="cde-bucket-panel">
+                <div class="cde-bucket-title">
+                  <h3>C 错杀分桶</h3>
+                  <span id="cdeBacktestBucketMeta" class="muted">只读观察：错杀率高于随机的桶先考虑救出</span>
+                </div>
+                <div class="table-wrap cde-bucket-table">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>维度</th>
+                        <th>分桶</th>
+                        <th>样本</th>
+                        <th>错杀率</th>
+                        <th>相对随机</th>
+                        <th>救出效果</th>
+                        <th>结论</th>
+                      </tr>
+                    </thead>
+                    <tbody id="cdeBacktestBucketRows"></tbody>
+                  </table>
+                </div>
+              </div>
               <div id="cdeBacktestNotes" class="subtle-note"></div>
               <div class="table-wrap cde-backtest-table">
                 <table>
@@ -533,11 +553,7 @@
                       <th>开奖期</th>
                       <th>开奖号码</th>
                       <th>C 错/对</th>
-                      <th>D 错/对</th>
-                      <th>E 错/对</th>
-                      <th>F 命中</th>
-                      <th>G 命中</th>
-                      <th>错杀/命中号码</th>
+                      <th>错杀号码</th>
                     </tr>
                   </thead>
                   <tbody id="cdeBacktestRows"></tbody>
@@ -788,6 +804,168 @@
             <div id="crossBars" class="distribution-list cross-list"></div>
           </section>
           </div>
+        </section>
+
+        <section id="strategyAuditView" class="view">
+          <section class="panel strategy-audit-panel">
+            <div class="panel-title">
+              <div>
+                <h2>策略信号审计</h2>
+                <span id="strategyAuditMeta" class="muted">只读实时审计，不创建追踪记录，不修改预测规则</span>
+              </div>
+              <div class="panel-actions">
+                <button id="strategyAuditRunBtn" class="primary-btn small" type="button">运行审计</button>
+              </div>
+            </div>
+            <div class="strategy-audit-controls">
+              <label>
+                <span>审计最近期数</span>
+                <input id="strategyAuditWindow" type="number" min="30" max="360" step="30" value="180" />
+              </label>
+              <label>
+                <span>每期训练历史</span>
+                <input id="strategyAuditTrain" type="number" min="120" max="600" step="60" value="360" />
+              </label>
+            </div>
+            <div id="strategyAuditStats" class="tracking-stat-grid strategy-audit-stats"></div>
+            <div id="strategyAuditNotes" class="subtle-note"></div>
+            <div id="strategyAuditVerdicts" class="strategy-audit-verdicts"></div>
+            <div class="strategy-audit-score-panel">
+              <div class="strategy-audit-score-title">
+                <h3>策略评分矩阵</h3>
+                <span id="strategyAuditMatrixMeta" class="muted">按跟随、主杀、成本、样本可信度综合排序</span>
+              </div>
+              <div class="table-wrap strategy-audit-score-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>策略</th>
+                      <th>跟随分</th>
+                      <th>主杀分</th>
+                      <th>成本风险</th>
+                      <th>样本可信度</th>
+                      <th>结论</th>
+                      <th>依据</th>
+                    </tr>
+                  </thead>
+                  <tbody id="strategyAuditScoreRows"></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="strategy-audit-experiment-panel">
+              <div class="strategy-audit-score-title">
+                <h3>实验规则对照</h3>
+                <span id="strategyAuditExperimentMeta" class="muted">只读沙盒，对照原规则，不影响正式预测</span>
+              </div>
+              <div class="table-wrap strategy-audit-experiment-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>实验规则</th>
+                      <th>对照对象</th>
+                      <th>触发/样本</th>
+                      <th>成本变化</th>
+                      <th>效果指标</th>
+                      <th>相对基准</th>
+                      <th>风险</th>
+                      <th>结论</th>
+                    </tr>
+                  </thead>
+                  <tbody id="strategyAuditExperimentRows"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <section class="strategy-audit-grid">
+            <article class="panel">
+              <div class="panel-title">
+                <h2>C 杀号池</h2>
+                <span class="muted">错杀率低于随机基准才有杀号价值</span>
+              </div>
+              <div class="table-wrap strategy-audit-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>窗口</th>
+                      <th>面板</th>
+                      <th>平均池</th>
+                      <th>平均错杀</th>
+                      <th>错杀率</th>
+                      <th>随机基准</th>
+                      <th>0/1/2错</th>
+                    </tr>
+                  </thead>
+                  <tbody id="strategyAuditKillRows"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>连续重复号</h2>
+                <span class="muted">先观察，不直接加权进预测</span>
+              </div>
+              <div class="table-wrap strategy-audit-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>窗口</th>
+                      <th>平均重复</th>
+                      <th>理论平均</th>
+                      <th>Z</th>
+                      <th>上一期号再出</th>
+                      <th>分布</th>
+                    </tr>
+                  </thead>
+                  <tbody id="strategyAuditRepeatRows"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>真实追踪库</h2>
+                <span class="muted">已结算记录，样本小的面板只作观察</span>
+              </div>
+              <div class="table-wrap strategy-audit-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>面板</th>
+                      <th>已结算</th>
+                      <th>四码全中</th>
+                      <th>ROI</th>
+                      <th>2码+</th>
+                      <th>3码+</th>
+                      <th>状态</th>
+                    </tr>
+                  </thead>
+                  <tbody id="strategyAuditTrackingRows"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>最近明细</h2>
+                <span class="muted">最近审计窗口前 40 条</span>
+              </div>
+              <div class="table-wrap strategy-audit-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>开奖期</th>
+                      <th>时间</th>
+                      <th>重复</th>
+                      <th>C错杀</th>
+                    </tr>
+                  </thead>
+                  <tbody id="strategyAuditDetailRows"></tbody>
+                </table>
+              </div>
+            </article>
+          </section>
         </section>
 
         <section id="historyView" class="view modal-capable">
