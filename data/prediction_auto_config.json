@@ -5,11 +5,11 @@
   "maxPages": 2,
   "pageSize": 100,
   "sleep": 0.05,
-  "skipSupplement": true,
+  "timeout": 6.0,
+  "retries": 0,
+  "retrySleep": 0.5,
+  "skipSupplement": false,
   "games": {
-    "sk_keno_20_80": {
-      "enabled": false
-    },
     "spain_l_express_20_70": {
       "enabled": true
     },

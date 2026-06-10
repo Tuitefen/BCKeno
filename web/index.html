@@ -23,12 +23,11 @@
         </label>
 
         <nav class="tabs" aria-label="页面">
-          <button class="tab-btn active" type="button" data-view="prediction">预测面板A</button>
-          <button class="tab-btn" type="button" data-view="predictionB">预测面板B</button>
-          <button class="tab-btn" type="button" data-view="predictionC">预测面板C</button>
-          <button class="tab-btn" type="button" data-view="predictionD">预测面板D</button>
+          <button class="tab-btn active" type="button" data-view="prediction">A计划</button>
+          <button class="tab-btn" type="button" data-view="predictionB">B计划</button>
+          <button class="tab-btn" type="button" data-view="predictionM">C计划</button>
           <button class="tab-btn" type="button" data-view="martingale">倍投计算</button>
-          <button class="tab-btn" type="button" data-view="analysis">C回测</button>
+          <button class="tab-btn" type="button" data-view="stakingBacktest">倍投回测</button>
           <button class="tab-btn" type="button" data-view="strategyAudit">策略审计</button>
           <button class="tab-btn" type="button" data-view="history">历史开奖</button>
         </nav>
@@ -94,10 +93,46 @@
           <div id="lastSyncError" class="sync-error hidden"></div>
         </details>
 
+        <details id="telegramPanel" class="telegram-panel">
+          <summary>
+            <span>Telegram 机器人</span>
+            <strong id="telegramStatus">未加载</strong>
+          </summary>
+          <div class="telegram-form-grid">
+            <label class="telegram-toggle">
+              <input id="telegramEnabled" type="checkbox" />
+              <span>启用推送</span>
+            </label>
+            <label class="telegram-toggle">
+              <input id="telegramAllGames" type="checkbox" />
+              <span>全部彩种</span>
+            </label>
+            <label>
+              <span>频道</span>
+              <input id="telegramChannel" type="text" value="@Keno100x" />
+            </label>
+            <label>
+              <span>投注地址</span>
+              <input id="telegramInviteLink" type="url" value="https://playglobal4.com/i-23u4bw0u7-n/" />
+            </label>
+            <label>
+              <span>兜底开奖地址</span>
+              <input id="telegramDrawLink" type="url" placeholder="留空，优先使用每个彩种的具体开奖页" />
+            </label>
+          </div>
+          <div id="telegramGameToggles" class="telegram-game-grid"></div>
+          <div class="telegram-actions">
+            <button id="telegramSaveBtn" class="secondary-btn small" type="button">保存开关</button>
+            <button id="telegramTestBtn" class="secondary-btn small" type="button">测试发送</button>
+            <button id="telegramNotifyNowBtn" class="secondary-btn small" type="button">立即检查</button>
+            <span id="telegramHint" class="muted">token 从本地环境或 local 配置读取，不显示在页面。</span>
+          </div>
+        </details>
+
         <section id="predictionView" class="view active">
           <section class="panel prediction-panel">
             <div class="panel-title">
-              <h2 id="predictionTitle">预测面板A</h2>
+              <h2 id="predictionTitle">A计划</h2>
               <div class="prediction-meta">
                 <strong id="predictionWindow">--</strong>
                 <span id="predictionMethod" class="muted">--</span>
@@ -105,7 +140,7 @@
             </div>
             <div id="predictionKillPanel" class="prediction-kill-panel hidden">
               <div>
-                <span id="predictionKillLabel">面板A杀号</span>
+                <span id="predictionKillLabel">A计划杀号</span>
                 <strong id="predictionKillSummary">--</strong>
               </div>
               <div id="predictionKillNumbers" class="prediction-kill-numbers"></div>
@@ -357,6 +392,184 @@
           </section>
         
           </div>
+        </section>
+
+        <section id="stakingBacktestView" class="view">
+          <section class="panel staking-backtest-panel">
+            <div class="panel-title">
+              <div>
+                <h2>倍投回测</h2>
+                <span id="stakingBacktestMeta" class="muted">默认读取当前 C计划 4 张候选票</span>
+              </div>
+              <div class="panel-actions">
+                <button id="runStakingBacktestBtn" class="primary-btn small" type="button">运行回测</button>
+              </div>
+            </div>
+            <div class="subtle-note fixed-note">
+              固定阶梯回测只验证资金规则：号码不变，命中后下一期回到起始金额，未中按固定连挂间隔升档。它不改变开奖概率，也不等于直接可跟。
+            </div>
+            <div class="staking-backtest-form-grid">
+              <label>
+                <span>号码来源</span>
+                <select id="stakingBacktestSource">
+                  <option value="c_plan">当前C计划</option>
+                  <option value="manual">手动号码</option>
+                </select>
+              </label>
+              <label>
+                <span>回测窗口</span>
+                <select id="stakingBacktestWindow">
+                  <option value="300">近300期</option>
+                  <option value="500">近500期</option>
+                  <option value="1000" selected>近1000期</option>
+                  <option value="all">全部</option>
+                </select>
+              </label>
+              <label>
+                <span>自定义期数</span>
+                <input id="stakingBacktestCustomWindow" type="number" min="30" max="50000" step="1" placeholder="例如 100" />
+              </label>
+              <label>
+                <span>开始日期时间</span>
+                <input id="stakingBacktestStartDateTime" type="datetime-local" />
+              </label>
+              <label>
+                <span>结束日期时间</span>
+                <input id="stakingBacktestEndDateTime" type="datetime-local" />
+              </label>
+              <label>
+                <span>每日开始</span>
+                <input id="stakingBacktestDailyStart" type="time" />
+              </label>
+              <label>
+                <span>每日结束</span>
+                <input id="stakingBacktestDailyEnd" type="time" />
+              </label>
+              <label>
+                <span>时区</span>
+                <select id="stakingBacktestTimeZone">
+                  <option value="Asia/Shanghai" selected>北京时间</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </label>
+              <label>
+                <span>切片粒度</span>
+                <select id="stakingBacktestSliceHours">
+                  <option value="1">1小时</option>
+                  <option value="2" selected>2小时</option>
+                  <option value="4">4小时</option>
+                  <option value="6">6小时</option>
+                </select>
+              </label>
+              <label>
+                <span>起始金额</span>
+                <input id="stakingBacktestBaseStake" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label>
+                <span>每档加金额</span>
+                <input id="stakingBacktestStepStake" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label>
+                <span>保守间隔</span>
+                <input id="stakingBacktestConservativeStep" type="number" min="1" step="1" value="30" />
+              </label>
+              <label>
+                <span>保守最高单注</span>
+                <input id="stakingBacktestConservativeMax" type="number" min="0.01" step="0.01" value="5" />
+              </label>
+              <label>
+                <span>标准间隔</span>
+                <input id="stakingBacktestStandardStep" type="number" min="1" step="1" value="20" />
+              </label>
+              <label>
+                <span>标准最高单注</span>
+                <input id="stakingBacktestStandardMax" type="number" min="0.01" step="0.01" value="8" />
+              </label>
+              <label>
+                <span>激进间隔</span>
+                <input id="stakingBacktestAggressiveStep" type="number" min="1" step="1" value="10" />
+              </label>
+              <label>
+                <span>激进最高单注</span>
+                <input id="stakingBacktestAggressiveMax" type="number" min="0.01" step="0.01" value="12" />
+              </label>
+              <label>
+                <span>自定义间隔</span>
+                <input id="stakingBacktestCustomStep" type="number" min="1" step="1" value="20" />
+              </label>
+              <label>
+                <span>自定义最高单注</span>
+                <input id="stakingBacktestCustomMax" type="number" min="0.01" step="0.01" value="8" />
+              </label>
+              <label id="stakingBacktestManualField" class="staking-backtest-manual-field hidden">
+                <span>手动号码</span>
+                <textarea id="stakingBacktestNumbers" rows="3" placeholder="例如：4-37, 11-37-43"></textarea>
+              </label>
+            </div>
+            <div class="staking-backtest-actions">
+              <span id="stakingBacktestHint" class="muted">平买、保守、标准、激进、自定义会一起回放。</span>
+            </div>
+          </section>
+
+          <section class="staking-backtest-summary-grid" id="stakingBacktestStats"></section>
+
+          <section class="panel staking-backtest-result-panel">
+            <div class="panel-title">
+              <h2>回测结果</h2>
+              <span id="stakingBacktestResultMeta" class="muted">尚未运行</span>
+            </div>
+            <div class="table-wrap staking-backtest-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>候选票</th>
+                    <th>赔率 / 命中</th>
+                    <th>平买</th>
+                    <th>保守</th>
+                    <th>标准</th>
+                    <th>激进</th>
+                    <th>自定义</th>
+                    <th>连挂</th>
+                    <th>结论</th>
+                  </tr>
+                </thead>
+                <tbody id="stakingBacktestRows">
+                  <tr>
+                    <td colspan="9"><span class="muted">等待运行固定阶梯回测</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel staking-backtest-segment-panel">
+            <div class="panel-title">
+              <h2>时段表现排行</h2>
+              <span id="stakingBacktestSegmentMeta" class="muted">按固定小时切片，默认按标准档净收益排序</span>
+            </div>
+            <div class="table-wrap staking-backtest-segments">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>时段</th>
+                    <th>期数</th>
+                    <th>平买</th>
+                    <th>保守</th>
+                    <th>标准</th>
+                    <th>激进</th>
+                    <th>自定义</th>
+                    <th>结论</th>
+                  </tr>
+                </thead>
+                <tbody id="stakingBacktestSegmentRows">
+                  <tr>
+                    <td colspan="9"><span class="muted">等待运行后统计固定时段</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
         </section>
 
         <section id="backtestView" class="view modal-capable">
@@ -878,7 +1091,7 @@
           </section>
 
           <section class="strategy-audit-grid">
-            <article class="panel">
+            <article class="panel hidden">
               <div class="panel-title">
                 <h2>C 杀号池</h2>
                 <span class="muted">错杀率低于随机基准才有杀号价值</span>
@@ -897,6 +1110,30 @@
                     </tr>
                   </thead>
                   <tbody id="strategyAuditKillRows"></tbody>
+                </table>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-title">
+                <h2>A/B 前向票</h2>
+                <span class="muted">官方票全中率对比理论基线</span>
+              </div>
+              <div class="table-wrap strategy-audit-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>窗口</th>
+                      <th>计划</th>
+                      <th>票型</th>
+                      <th>样本</th>
+                      <th>全中</th>
+                      <th>理论</th>
+                      <th>Wilson</th>
+                      <th>ROI</th>
+                    </tr>
+                  </thead>
+                  <tbody id="strategyAuditTicketRows"></tbody>
                 </table>
               </div>
             </article>
@@ -968,12 +1205,8 @@
           </section>
         </section>
 
-        <section id="historyView" class="view modal-capable">
-          <div class="tool-modal-backdrop" data-modal-close="history"></div>
-          <div class="tool-modal-panel history-modal-panel">
-            <button class="modal-close-btn" type="button" data-modal-close="history" aria-label="关闭历史开奖">
-              &times;
-            </button>
+        <section id="historyView" class="view">
+          <div class="history-page-shell">
             <section class="panel history-tools">
               <div class="panel-title">
                 <h2>历史开奖</h2>
@@ -1002,6 +1235,27 @@
                     <option value="500">500</option>
                   </select>
                 </label>
+              </div>
+            </section>
+
+            <section class="panel history-run-panel">
+              <div class="panel-title">
+                <h2>连号形态统计</h2>
+                <span id="historyRunMeta" class="muted">--</span>
+              </div>
+              <div class="table-wrap history-run-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>形态</th>
+                      <th>出现期数</th>
+                      <th>窗口次数</th>
+                      <th>占开奖期</th>
+                      <th>最近出现</th>
+                    </tr>
+                  </thead>
+                  <tbody id="historyRunStats"></tbody>
+                </table>
               </div>
             </section>
 

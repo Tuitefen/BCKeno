@@ -13,6 +13,7 @@ const state = {
   predictionAuto: null,
   predictionAutoPollTimer: null,
   predictionAutoLastCompletedAt: "",
+  telegram: null,
   predictionTrackingRefreshInFlight: false,
   predictionPanel: "a",
   predictionPanels: {
@@ -27,6 +28,16 @@ const state = {
       adjacentHits: null,
     },
     b: {
+      prediction: null,
+      predictionTracking: null,
+      predictionTrackingPage: 1,
+      predictionTrackingStatus: "all",
+      adjacentStats: null,
+      adjacentHitPage: 1,
+      adjacentHitQuery: "",
+      adjacentHits: null,
+    },
+    m: {
       prediction: null,
       predictionTracking: null,
       predictionTrackingPage: 1,
@@ -91,6 +102,7 @@ const state = {
   backtestPollTimer: null,
   backtestScan: null,
   backtestScanPollTimer: null,
+  stakingBacktest: null,
   martingaleMode: "main",
   martingalePickCount: 3,
   martingalePlan: null,
@@ -164,6 +176,7 @@ const els = {
   strategyAuditStabilityMeta: document.querySelector("#strategyAuditStabilityMeta"),
   strategyAuditStabilityRows: document.querySelector("#strategyAuditStabilityRows"),
   strategyAuditKillRows: document.querySelector("#strategyAuditKillRows"),
+  strategyAuditTicketRows: document.querySelector("#strategyAuditTicketRows"),
   strategyAuditETopRows: document.querySelector("#strategyAuditETopRows"),
   strategyAuditRepeatRows: document.querySelector("#strategyAuditRepeatRows"),
   strategyAuditTrackingRows: document.querySelector("#strategyAuditTrackingRows"),
@@ -203,6 +216,17 @@ const els = {
   predictionAutoStatus: document.querySelector("#predictionAutoStatus"),
   predictionAutoToggleBtn: document.querySelector("#predictionAutoToggleBtn"),
   predictionAutoRunBtn: document.querySelector("#predictionAutoRunBtn"),
+  telegramStatus: document.querySelector("#telegramStatus"),
+  telegramEnabled: document.querySelector("#telegramEnabled"),
+  telegramAllGames: document.querySelector("#telegramAllGames"),
+  telegramChannel: document.querySelector("#telegramChannel"),
+  telegramInviteLink: document.querySelector("#telegramInviteLink"),
+  telegramDrawLink: document.querySelector("#telegramDrawLink"),
+  telegramGameToggles: document.querySelector("#telegramGameToggles"),
+  telegramSaveBtn: document.querySelector("#telegramSaveBtn"),
+  telegramTestBtn: document.querySelector("#telegramTestBtn"),
+  telegramNotifyNowBtn: document.querySelector("#telegramNotifyNowBtn"),
+  telegramHint: document.querySelector("#telegramHint"),
   predictionNotice: document.querySelector("#predictionNotice"),
   martingaleView: document.querySelector("#martingaleView"),
   martingaleGameMeta: document.querySelector("#martingaleGameMeta"),
@@ -276,6 +300,36 @@ const els = {
   backtestScanNotice: document.querySelector("#backtestScanNotice"),
   backtestScanRows: document.querySelector("#backtestScanRows"),
   backtestView: document.querySelector("#backtestView"),
+  stakingBacktestView: document.querySelector("#stakingBacktestView"),
+  stakingBacktestMeta: document.querySelector("#stakingBacktestMeta"),
+  stakingBacktestSource: document.querySelector("#stakingBacktestSource"),
+  stakingBacktestWindow: document.querySelector("#stakingBacktestWindow"),
+  stakingBacktestCustomWindow: document.querySelector("#stakingBacktestCustomWindow"),
+  stakingBacktestStartDateTime: document.querySelector("#stakingBacktestStartDateTime"),
+  stakingBacktestEndDateTime: document.querySelector("#stakingBacktestEndDateTime"),
+  stakingBacktestDailyStart: document.querySelector("#stakingBacktestDailyStart"),
+  stakingBacktestDailyEnd: document.querySelector("#stakingBacktestDailyEnd"),
+  stakingBacktestTimeZone: document.querySelector("#stakingBacktestTimeZone"),
+  stakingBacktestSliceHours: document.querySelector("#stakingBacktestSliceHours"),
+  stakingBacktestBaseStake: document.querySelector("#stakingBacktestBaseStake"),
+  stakingBacktestStepStake: document.querySelector("#stakingBacktestStepStake"),
+  stakingBacktestConservativeStep: document.querySelector("#stakingBacktestConservativeStep"),
+  stakingBacktestConservativeMax: document.querySelector("#stakingBacktestConservativeMax"),
+  stakingBacktestStandardStep: document.querySelector("#stakingBacktestStandardStep"),
+  stakingBacktestStandardMax: document.querySelector("#stakingBacktestStandardMax"),
+  stakingBacktestAggressiveStep: document.querySelector("#stakingBacktestAggressiveStep"),
+  stakingBacktestAggressiveMax: document.querySelector("#stakingBacktestAggressiveMax"),
+  stakingBacktestCustomStep: document.querySelector("#stakingBacktestCustomStep"),
+  stakingBacktestCustomMax: document.querySelector("#stakingBacktestCustomMax"),
+  stakingBacktestManualField: document.querySelector("#stakingBacktestManualField"),
+  stakingBacktestNumbers: document.querySelector("#stakingBacktestNumbers"),
+  runStakingBacktestBtn: document.querySelector("#runStakingBacktestBtn"),
+  stakingBacktestHint: document.querySelector("#stakingBacktestHint"),
+  stakingBacktestStats: document.querySelector("#stakingBacktestStats"),
+  stakingBacktestResultMeta: document.querySelector("#stakingBacktestResultMeta"),
+  stakingBacktestRows: document.querySelector("#stakingBacktestRows"),
+  stakingBacktestSegmentMeta: document.querySelector("#stakingBacktestSegmentMeta"),
+  stakingBacktestSegmentRows: document.querySelector("#stakingBacktestSegmentRows"),
   tripleCount: document.querySelector("#tripleCount"),
   runBars: document.querySelector("#runBars"),
   tripleTable: document.querySelector("#tripleTable"),
@@ -300,6 +354,8 @@ const els = {
   historyPageSize: document.querySelector("#historyPageSize"),
   historySearchBtn: document.querySelector("#historySearchBtn"),
   historyCount: document.querySelector("#historyCount"),
+  historyRunMeta: document.querySelector("#historyRunMeta"),
+  historyRunStats: document.querySelector("#historyRunStats"),
   historyTable: document.querySelector("#historyTable"),
   historyView: document.querySelector("#historyView"),
   prevPageBtn: document.querySelector("#prevPageBtn"),
@@ -308,16 +364,22 @@ const els = {
   toast: document.querySelector("#toast"),
 };
 
-const TOOL_MODAL_VIEWS = new Set(["martingale", "backtest", "history"]);
+const TOOL_MODAL_VIEWS = new Set(["martingale", "backtest"]);
 const PREDICTION_PANEL_DEFAULT = "a";
 const PREDICTION_PANEL_B = "b";
 const PREDICTION_PANEL_C = "c";
 const PREDICTION_PANEL_D = "d";
 const PREDICTION_PANEL_E = "e";
+const PREDICTION_PANEL_M = "m";
 const PREDICTION_PANEL_F = "f";
 const PREDICTION_PANEL_G = "g";
 const CDE_KILL_BACKTEST_GAMES = new Set(["spain_l_express_20_70", "poland_keno_20_70"]);
-const STRATEGY_AUDIT_STABILITY_GAMES = ["spain_l_express_20_70", "poland_keno_20_70"];
+const STRATEGY_AUDIT_STABILITY_GAMES = [
+  "spain_l_express_20_70",
+  "poland_keno_20_70",
+  "russia_rapido_8_20",
+  "italy_win_for_life_10_20",
+];
 const STRATEGY_AUDIT_STABILITY_WINDOW = 360;
 const CDE_BACKTEST_PAGE_SIZE = 25;
 const BACKTEST_DUPLICATE_SHAPE_OPTIONS = new Set(["hasPair", "hasTriple", "hasQuad"]);
@@ -663,6 +725,7 @@ function normalizePredictionPanel(panel = state.predictionPanel) {
   if (panel === PREDICTION_PANEL_E) return PREDICTION_PANEL_E;
   if (panel === PREDICTION_PANEL_D) return PREDICTION_PANEL_D;
   if (panel === PREDICTION_PANEL_C) return PREDICTION_PANEL_C;
+  if (panel === PREDICTION_PANEL_M) return PREDICTION_PANEL_M;
   return panel === PREDICTION_PANEL_B ? PREDICTION_PANEL_B : PREDICTION_PANEL_DEFAULT;
 }
 
@@ -672,17 +735,17 @@ function predictionPanelState(panel = state.predictionPanel) {
 
 function predictionPanelLabel(panel = state.predictionPanel) {
   const panelKey = normalizePredictionPanel(panel);
-  if (panelKey === PREDICTION_PANEL_G) return "预测面板G";
-  if (panelKey === PREDICTION_PANEL_F) return "预测面板F";
-  if (panelKey === PREDICTION_PANEL_E) return "预测面板E";
-  if (panelKey === PREDICTION_PANEL_D) return "预测面板D";
-  if (panelKey === PREDICTION_PANEL_C) return "预测面板C";
-  return panelKey === PREDICTION_PANEL_B ? "预测面板B" : "预测面板A";
+  if (panelKey === PREDICTION_PANEL_G) return "旧G计划";
+  if (panelKey === PREDICTION_PANEL_F) return "旧F计划";
+  if (panelKey === PREDICTION_PANEL_E) return "E计划";
+  if (panelKey === PREDICTION_PANEL_D) return "D计划";
+  if (panelKey === PREDICTION_PANEL_C) return "旧C计划";
+  if (panelKey === PREDICTION_PANEL_M) return "C计划";
+  return panelKey === PREDICTION_PANEL_B ? "B计划" : "A计划";
 }
 
 function predictionPanelForView(view) {
-  if (view === "predictionD") return PREDICTION_PANEL_D;
-  if (view === "predictionC") return PREDICTION_PANEL_C;
+  if (view === "predictionM") return PREDICTION_PANEL_M;
   if (view === "predictionB") return PREDICTION_PANEL_B;
   return PREDICTION_PANEL_DEFAULT;
 }
@@ -717,19 +780,18 @@ function setPredictionPanel(panel) {
 
 function predictionPanelForOptions(options = {}) {
   if (options.panel) return normalizePredictionPanel(options.panel);
-  if (state.activeView === "predictionD") return PREDICTION_PANEL_D;
-  if (state.activeView === "predictionC") return PREDICTION_PANEL_C;
+  if (state.activeView === "predictionM") return PREDICTION_PANEL_M;
   if (state.activeView === "predictionB") return PREDICTION_PANEL_B;
   if (state.activeView === "prediction") return PREDICTION_PANEL_DEFAULT;
   return normalizePredictionPanel(state.predictionPanel);
 }
 
 function currentGameSupportsAnalysis() {
-  return CDE_KILL_BACKTEST_GAMES.has(currentGameKey());
+  return false;
 }
 
 function currentGameSupportsStrategyAudit() {
-  return currentGameSupportsAnalysis();
+  return currentGameSupportsPredictions();
 }
 
 function currentGameSupportsPredictions() {
@@ -753,8 +815,8 @@ function currentGameSupportsView(view) {
   if (
     view === "prediction" ||
     view === "predictionB" ||
-    view === "predictionC" ||
-    view === "predictionD"
+    view === "predictionM" ||
+    view === "stakingBacktest"
   ) {
     return currentGameSupportsPredictions();
   }
@@ -772,8 +834,6 @@ function isToolModalView(view) {
 function modalElementForView(view) {
   if (view === "martingale") return els.martingaleView;
   if (view === "backtest") return els.backtestView;
-  if (view === "analysis") return els.analysisView;
-  if (view === "history") return els.historyView;
   return null;
 }
 
@@ -782,6 +842,20 @@ function renderTabState() {
   for (const button of document.querySelectorAll(".tab-btn")) {
     button.classList.toggle("active", button.dataset.view === activeView);
   }
+}
+
+function showHistoryView() {
+  closeToolModal();
+  state.activeView = "history";
+  renderTabState();
+  document.querySelector("#predictionView")?.classList.remove("active");
+  document.querySelector("#martingaleView")?.classList.remove("active");
+  document.querySelector("#backtestView")?.classList.remove("active");
+  document.querySelector("#stakingBacktestView")?.classList.remove("active");
+  document.querySelector("#analysisView")?.classList.remove("active");
+  document.querySelector("#strategyAuditView")?.classList.remove("active");
+  document.querySelector("#historyView")?.classList.add("active");
+  if (!state.history) loadHistory();
 }
 
 function closeToolModal() {
@@ -801,8 +875,7 @@ async function hydrateView(view) {
   if (
     view === "prediction" ||
     view === "predictionB" ||
-    view === "predictionC" ||
-    view === "predictionD"
+    view === "predictionM"
   ) {
     const panel = predictionPanelForView(view);
     setPredictionPanel(panel);
@@ -817,8 +890,11 @@ async function hydrateView(view) {
     loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
     updateMartingaleMeta();
   }
-  if (view === "analysis" && !state.analysis) loadAnalysis();
   if (view === "strategyAudit" && !state.strategyAudit) loadStrategyAudit();
+  if (view === "stakingBacktest") {
+    syncStakingBacktestControls();
+    if (!state.stakingBacktest) loadStakingBacktest();
+  }
   if (view === "backtest") {
     loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
     if (!state.backtest) loadBacktestStatus();
@@ -1007,6 +1083,7 @@ function resetPageState() {
   syncPredictionPanelMirror();
   state.backtest = null;
   state.backtestScan = null;
+  state.stakingBacktest = null;
   state.martingalePlan = null;
   state.martingaleOddsDirty = false;
   state.martingaleDefaultKey = "";
@@ -1701,8 +1778,7 @@ function updateGameUi() {
   }
   renderTabState();
   if (!currentGameSupportsView(state.activeView)) {
-    state.activeView = "prediction";
-    openToolModal("history");
+    showHistoryView();
   }
 }
 
@@ -1736,9 +1812,13 @@ function setLoading(isLoading, label = "") {
     els.strategyAuditRunBtn,
     els.runBacktestBtn,
     els.runBacktestScanBtn,
+    els.runStakingBacktestBtn,
     els.generateMartingaleBtn,
     els.predictionAutoToggleBtn,
     els.predictionAutoRunBtn,
+    els.telegramSaveBtn,
+    els.telegramTestBtn,
+    els.telegramNotifyNowBtn,
   ]) {
     if (button) button.disabled = isLoading;
   }
@@ -1903,33 +1983,24 @@ function renderPredictionLoading() {
   }
   els.predictionWindow.textContent = "预测计算中";
   els.predictionMethod.textContent =
-    panel === PREDICTION_PANEL_D
-      ? "读取C和内部旧D源票并生成CD杀号4码票"
-      : panel === PREDICTION_PANEL_C
-        ? "读取A/B核心号并生成4码结构票"
-        : panel === PREDICTION_PANEL_B
-          ? "读取面板A规则并排除A候选号"
-          : "读取最新开奖并生成策略候选";
-  const showKillPanel = [PREDICTION_PANEL_B, PREDICTION_PANEL_D].includes(panel);
+    panel === PREDICTION_PANEL_M
+      ? "审计低组数2码/3码候选，最多保留4组"
+      : panel === PREDICTION_PANEL_B
+        ? "读取A计划规则并排除A候选号"
+        : "读取最新开奖并生成策略候选";
+  const showKillPanel = panel === PREDICTION_PANEL_B;
   if (els.predictionKillPanel) {
     els.predictionKillPanel.classList.toggle("hidden", !showKillPanel);
   }
   if (els.predictionKillLabel) {
-    els.predictionKillLabel.textContent =
-      panel === PREDICTION_PANEL_D
-        ? "CD杀号"
-        : "面板A杀号";
+    els.predictionKillLabel.textContent = "A计划杀号";
   }
   if (els.predictionKillSummary) {
     els.predictionKillSummary.textContent = showKillPanel ? "计算排除号..." : "--";
   }
   if (els.predictionKillNumbers) {
     els.predictionKillNumbers.innerHTML = showKillPanel
-      ? `<span class="muted">${
-          panel === PREDICTION_PANEL_D
-            ? "等待CD杀号"
-            : "等待面板A杀号"
-        }</span>`
+      ? '<span class="muted">等待A计划杀号</span>'
       : "";
   }
   if (els.predictionStrategyHealth) {
@@ -1946,7 +2017,7 @@ async function loadPrediction(options = {}) {
   setPredictionPanel(panel);
   if (!currentGameSupportsPredictions()) {
     updatePredictionPanelState({ prediction: null, predictionTracking: null }, panel);
-    openToolModal("history");
+    showHistoryView();
     return;
   }
   setLoading(true, "预测中");
@@ -2178,7 +2249,7 @@ function predictionAutoCompletedAt(data) {
 }
 
 function isPredictionMainViewActive() {
-  return !state.activeModal && ["prediction", "predictionB", "predictionC", "predictionD"].includes(state.activeView);
+  return !state.activeModal && ["prediction", "predictionB", "predictionM"].includes(state.activeView);
 }
 
 function startPredictionAutoPolling(delayMs = 12000) {
@@ -2224,7 +2295,103 @@ async function updatePredictionAuto(action) {
   }
 }
 
+function renderTelegramStatus() {
+  if (!els.telegramStatus) return;
+  const data = state.telegram || {};
+  const config = data.config || {};
+  const stateInfo = data.state || {};
+  const enabled = Boolean(config.enabled);
+  const tokenConfigured = Boolean(config.tokenConfigured);
+  els.telegramStatus.textContent = enabled
+    ? tokenConfigured
+      ? "已启用"
+      : "已启用，缺少token"
+    : "已关闭";
+  els.telegramStatus.title = tokenConfigured ? "Telegram token 已配置" : "需要在本地环境或 local 配置中设置 token";
+  if (els.telegramEnabled) els.telegramEnabled.checked = enabled;
+  if (els.telegramAllGames) els.telegramAllGames.checked = Boolean(config.allGames);
+  if (els.telegramChannel) els.telegramChannel.value = config.channelChatId || "@Keno100x";
+  if (els.telegramInviteLink) els.telegramInviteLink.value = config.inviteLink || "";
+  if (els.telegramDrawLink) els.telegramDrawLink.value = config.drawLink || "";
+  if (els.telegramHint) {
+    const errors = Array.isArray(stateInfo.lastErrors) ? stateInfo.lastErrors : [];
+    els.telegramHint.textContent = errors.length
+      ? `最近错误：${errors[errors.length - 1].stage || "--"} ${errors[errors.length - 1].error || ""}`
+      : tokenConfigured
+        ? `已记录计划 ${stateInfo.sentPlanBatches || 0} 批，结算 ${stateInfo.sentResultBatches || 0} 批`
+        : "token 从本地环境或 local 配置读取，不显示在页面。";
+  }
+  if (els.telegramGameToggles) {
+    const games = config.games || {};
+    els.telegramGameToggles.innerHTML = (state.games || [])
+      .map((game) => {
+        const checked = Boolean(games[game.key]?.enabled);
+        return `<label class="telegram-game-toggle">
+          <input type="checkbox" data-telegram-game="${escapeHtml(game.key)}" ${checked ? "checked" : ""} />
+          <span>${escapeHtml(game.shortName)}</span>
+        </label>`;
+      })
+      .join("");
+  }
+}
+
+async function loadTelegramStatus(options = {}) {
+  if (!els.telegramStatus) return null;
+  try {
+    const response = await fetch("/api/telegram");
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`);
+    state.telegram = data;
+    renderTelegramStatus();
+    return data;
+  } catch (error) {
+    if (!options.silent) showToast(`读取 Telegram 状态失败：${error.message}`, true);
+    return null;
+  }
+}
+
+function buildTelegramConfigPayload() {
+  const games = {};
+  for (const input of document.querySelectorAll("[data-telegram-game]")) {
+    games[input.dataset.telegramGame] = { enabled: Boolean(input.checked) };
+  }
+  return {
+    enabled: Boolean(els.telegramEnabled?.checked),
+    allGames: Boolean(els.telegramAllGames?.checked),
+    channelChatId: els.telegramChannel?.value || "@Keno100x",
+    inviteLink: els.telegramInviteLink?.value || "",
+    drawLink: els.telegramDrawLink?.value || "",
+    games,
+  };
+}
+
+async function updateTelegram(action) {
+  setLoading(true, action === "test" ? "测试 Telegram" : "Telegram 处理中");
+  try {
+    const body = action === "save"
+      ? { action, config: buildTelegramConfigPayload() }
+      : { action };
+    const response = await fetch("/api/telegram", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`);
+    state.telegram = data.status || data;
+    renderTelegramStatus();
+    showToast(action === "test" ? "Telegram 测试消息已发送" : action === "notifynow" ? "Telegram 已立即检查" : "Telegram 配置已保存");
+  } catch (error) {
+    showToast(`Telegram 操作失败：${error.message}`, true);
+  } finally {
+    setLoading(false);
+  }
+}
+
 async function loadAnalysis(options = {}) {
+  state.analysis = null;
+  showToast("C回测已停用；当前只保留 A/B/C计划 和策略审计。", true);
+  return;
   if (!currentGameSupportsAnalysis()) {
     showToast("C 杀号回测当前只支持西班牙和波兰", true);
     return;
@@ -2258,6 +2425,8 @@ async function loadAnalysis(options = {}) {
 
 async function loadStrategyAudit(options = {}) {
   if (!currentGameSupportsStrategyAudit()) {
+    showToast("该彩种当前不支持策略审计", true);
+    return;
     showToast("策略信号审计当前只支持西班牙和波兰", true);
     return;
   }
@@ -2546,7 +2715,7 @@ async function pollBacktestScanStatus() {
 
 async function loadBacktestStatus() {
   if (!currentGameSupportsBacktest()) {
-    openToolModal("history");
+    showHistoryView();
     return;
   }
   if (state.backtestPollTimer) {
@@ -2577,6 +2746,263 @@ async function loadBacktestStatus() {
   } finally {
     if (!keepLoading) setLoading(false);
   }
+}
+
+function syncStakingBacktestControls() {
+  if (!els.stakingBacktestSource || !els.stakingBacktestManualField) return;
+  const manual = els.stakingBacktestSource.value === "manual";
+  els.stakingBacktestManualField.classList.toggle("hidden", !manual);
+  if (els.stakingBacktestMeta) {
+    els.stakingBacktestMeta.textContent = manual ? "手动号码按固定票回放" : "默认读取当前 C计划 4 张候选票";
+  }
+}
+
+function buildStakingBacktestQuery() {
+  const customWindow = Number(els.stakingBacktestCustomWindow?.value || 0);
+  const windowValue = Number.isFinite(customWindow) && customWindow > 0
+    ? String(Math.max(30, Math.min(50000, Math.floor(customWindow))))
+    : els.stakingBacktestWindow?.value || "1000";
+  const params = new URLSearchParams({
+    game: currentGameKey(),
+    source: els.stakingBacktestSource?.value || "c_plan",
+    window: windowValue,
+    timeZone: els.stakingBacktestTimeZone?.value || "Asia/Shanghai",
+    sliceHours: els.stakingBacktestSliceHours?.value || "2",
+    baseStake: String(parseNumberInput(els.stakingBacktestBaseStake, 1)),
+    stepStake: String(parseNumberInput(els.stakingBacktestStepStake, 1)),
+    conservativeStepMisses: String(parseNumberInput(els.stakingBacktestConservativeStep, 30)),
+    conservativeMaxStake: String(parseNumberInput(els.stakingBacktestConservativeMax, 5)),
+    standardStepMisses: String(parseNumberInput(els.stakingBacktestStandardStep, 20)),
+    standardMaxStake: String(parseNumberInput(els.stakingBacktestStandardMax, 8)),
+    aggressiveStepMisses: String(parseNumberInput(els.stakingBacktestAggressiveStep, 10)),
+    aggressiveMaxStake: String(parseNumberInput(els.stakingBacktestAggressiveMax, 12)),
+    customStepMisses: String(parseNumberInput(els.stakingBacktestCustomStep, 20)),
+    customStepStake: String(parseNumberInput(els.stakingBacktestStepStake, 1)),
+    customMaxStake: String(parseNumberInput(els.stakingBacktestCustomMax, 8)),
+  });
+  if (params.get("source") === "manual") {
+    params.set("numbers", els.stakingBacktestNumbers?.value || "");
+  }
+  if (els.stakingBacktestStartDateTime?.value) {
+    params.set("startDateTime", els.stakingBacktestStartDateTime.value);
+  }
+  if (els.stakingBacktestEndDateTime?.value) {
+    params.set("endDateTime", els.stakingBacktestEndDateTime.value);
+  }
+  if (els.stakingBacktestDailyStart?.value) {
+    params.set("dailyStart", els.stakingBacktestDailyStart.value);
+  }
+  if (els.stakingBacktestDailyEnd?.value) {
+    params.set("dailyEnd", els.stakingBacktestDailyEnd.value);
+  }
+  return params;
+}
+
+async function loadStakingBacktest() {
+  if (!currentGameSupportsPredictions()) {
+    showHistoryView();
+    return;
+  }
+  syncStakingBacktestControls();
+  setLoading(true, "倍投回测中");
+  if (els.stakingBacktestResultMeta) {
+    els.stakingBacktestResultMeta.textContent = "回测中...";
+  }
+  try {
+    const response = await fetch(`/api/staking-backtest?${buildStakingBacktestQuery().toString()}`);
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    if (!payloadMatchesCurrentGame(data)) return;
+    state.stakingBacktest = data;
+    renderStakingBacktest(data);
+  } catch (error) {
+    showToast(`倍投回测失败：${error.message}`, true);
+    if (els.stakingBacktestResultMeta) {
+      els.stakingBacktestResultMeta.textContent = "回测失败";
+    }
+  } finally {
+    setLoading(false);
+  }
+}
+
+function stakingPolicyCell(policy) {
+  if (!policy || typeof policy !== "object") return '<span class="muted">--</span>';
+  const net = Number(policy.netProfit || 0);
+  const roi = Number(policy.roi || 0);
+  const className = net > 0 ? "positive" : net < 0 ? "negative" : "";
+  const ladder = policy.kind === "flat" ? "不加档" : `每${fmtInt(policy.stepMisses)}期 +${fmtYuan(Number(policy.stepStake || 0), 2)}`;
+  return `<div class="staking-policy-cell">
+    <strong class="${className}">${fmtYuan(net, 2, true)}</strong>
+    <span>ROI ${fmtPct(roi, 2)}</span>
+    <span>投入 ${fmtYuan(Number(policy.totalStake || 0), 2)}</span>
+    <span>回撤 ${fmtYuan(Number(policy.maxDrawdown || 0), 2)}</span>
+    <span>下一注 ${fmtYuan(Number(policy.nextStake || 0), 2)}</span>
+    <small>${escapeHtml(ladder)}</small>
+  </div>`;
+}
+
+function stakingSegmentPolicyCell(policy) {
+  if (!policy || typeof policy !== "object") return '<span class="muted">--</span>';
+  const net = Number(policy.netProfit || 0);
+  const roi = Number(policy.roi || 0);
+  const className = net > 0 ? "positive" : net < 0 ? "negative" : "";
+  return `<div class="staking-segment-policy-cell">
+    <strong class="${className}">${fmtYuan(net, 2, true)}</strong>
+    <span>ROI ${fmtPct(roi, 2)}</span>
+    <small>投入 ${fmtYuan(Number(policy.totalStake || 0), 2)}</small>
+  </div>`;
+}
+
+function stakingVerdictClass(verdict) {
+  const tone = String(verdict?.tone || "");
+  if (tone === "good") return "good";
+  if (tone === "bad") return "bad";
+  return "watch";
+}
+
+function stakingTimeFilterText(data) {
+  const filter = data?.timeFilter || {};
+  const parts = [];
+  if (filter.startDateTime || filter.endDateTime) {
+    parts.push(`日期 ${filter.startDateTime || "不限"} - ${filter.endDateTime || "不限"}`);
+  }
+  if (filter.dailyStart || filter.dailyEnd) {
+    parts.push(`每日 ${filter.dailyStart || "00:00"} - ${filter.dailyEnd || "23:59"}`);
+  }
+  parts.push(filter.timeZone === "UTC" ? "UTC" : "北京时间");
+  return parts.join(" · ");
+}
+
+function renderStakingBacktestSegments(data) {
+  const segments = Array.isArray(data?.timeSegments) ? data.timeSegments : [];
+  const filter = data?.timeFilter || {};
+  if (els.stakingBacktestSegmentMeta) {
+    els.stakingBacktestSegmentMeta.textContent = `${fmtInt(filter.sliceHours || 2)}小时切片 · ${stakingTimeFilterText(data)} · 标准档排序`;
+  }
+  if (!els.stakingBacktestSegmentRows) return;
+  if (!segments.length) {
+    els.stakingBacktestSegmentRows.innerHTML = '<tr><td colspan="9"><span class="muted">暂无时段统计</span></td></tr>';
+    return;
+  }
+  els.stakingBacktestSegmentRows.innerHTML = segments
+    .map((segment) => {
+      const verdict = segment.verdict || {};
+      const verdictClass = stakingVerdictClass(verdict);
+      const reasons = Array.isArray(verdict.reasons) ? verdict.reasons : [];
+      const policies = segment.policies || {};
+      return `<tr class="staking-backtest-row ${verdictClass}">
+        <td>${fmtInt(segment.rank || 0)}</td>
+        <td><strong>${escapeHtml(segment.label || "--")}</strong></td>
+        <td>
+          <div class="staking-miss-cell">
+            <strong>${fmtInt(segment.rows || 0)}</strong>
+            <span>${Number(segment.rows || 0) < 300 ? "样本慎用" : "样本可看"}</span>
+          </div>
+        </td>
+        <td>${stakingSegmentPolicyCell(policies.flat)}</td>
+        <td>${stakingSegmentPolicyCell(policies.conservative)}</td>
+        <td>${stakingSegmentPolicyCell(policies.standard)}</td>
+        <td>${stakingSegmentPolicyCell(policies.aggressive)}</td>
+        <td>${stakingSegmentPolicyCell(policies.custom)}</td>
+        <td>
+          <div class="staking-verdict ${verdictClass}">
+            <strong>${escapeHtml(verdict.label || "--")}</strong>
+            <span>${escapeHtml(reasons.join("；") || "固定切片统计")}</span>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function renderStakingBacktest(data) {
+  if (!data) return;
+  const tickets = Array.isArray(data.tickets) ? data.tickets : [];
+  const summary = data.summary || {};
+  const window = data.window || {};
+  if (els.stakingBacktestMeta) {
+    els.stakingBacktestMeta.textContent = `${data.sourceLabel || "--"} · ${fmtInt(window.rows)}期 · ${fmtDate(data.generatedAt)}`;
+  }
+  if (els.stakingBacktestResultMeta) {
+    els.stakingBacktestResultMeta.textContent = `${data.sourceLabel || "--"} · 回放 ${fmtInt(window.rows)} 期 · ${fmtTime(
+      window.startDrawTimeUtc,
+    )} - ${fmtTime(window.endDrawTimeUtc)} · ${stakingTimeFilterText(data)}`;
+  }
+  if (els.stakingBacktestStats) {
+    els.stakingBacktestStats.innerHTML = `
+      <article class="stat-card">
+        <span>候选票</span>
+        <strong>${fmtInt(summary.ticketCount || tickets.length)}</strong>
+        <small>${escapeHtml(data.sourceLabel || "--")}</small>
+      </article>
+      <article class="stat-card accent">
+        <span>重点观察</span>
+        <strong>${fmtInt(summary.focusCount || 0)}</strong>
+        <small>平买/保守/标准更稳</small>
+      </article>
+      <article class="stat-card">
+        <span>只观察</span>
+        <strong>${fmtInt(summary.watchCount || 0)}</strong>
+        <small>有档位优势但证据不足</small>
+      </article>
+      <article class="stat-card">
+        <span>不跟</span>
+        <strong>${fmtInt(summary.noFollowCount || 0)}</strong>
+        <small>回撤或高档位风险过高</small>
+      </article>`;
+  }
+  if (!els.stakingBacktestRows) return;
+  if (!tickets.length) {
+    els.stakingBacktestRows.innerHTML = '<tr><td colspan="9"><span class="muted">当前没有可回放的候选票</span></td></tr>';
+    return;
+  }
+  els.stakingBacktestRows.innerHTML = tickets
+    .map((ticket) => {
+      const verdict = ticket.verdict || {};
+      const verdictClass = stakingVerdictClass(verdict);
+      const reasons = Array.isArray(verdict.reasons) ? verdict.reasons : [];
+      const policies = ticket.policies || {};
+      const ci = ticket.recentHitRateCi || [0, 0];
+      return `<tr class="staking-backtest-row ${verdictClass}">
+        <td>
+          <div class="staking-ticket">
+            <strong>${escapeHtml(ticket.label || `候选 #${ticket.index || ""}`)}</strong>
+            <div class="ticket-balls">${ticketNumberBalls(ticket)}</div>
+            <span>${escapeHtml(ticket.auditSourceLabel || ticket.ticketLabel || "--")}</span>
+          </div>
+        </td>
+        <td>
+          <div class="staking-odds-cell">
+            <strong>${fmtNumber(Number(ticket.odds || 0), 2)}x</strong>
+            <span>历史 ${fmtPct(Number(ticket.hitRate || 0), 2)}</span>
+            <span>近${fmtInt(ticket.recentWindow || 0)}期 ${fmtPct(Number(ticket.recentHitRate || 0), 2)}</span>
+            <small>理论 ${fmtPct(Number(ticket.theoreticalHitRate || 0), 3)} · 区间 ${fmtPct(Number(ci[0] || 0), 2)}-${fmtPct(Number(ci[1] || 0), 2)}</small>
+          </div>
+        </td>
+        <td>${stakingPolicyCell(policies.flat)}</td>
+        <td>${stakingPolicyCell(policies.conservative)}</td>
+        <td>${stakingPolicyCell(policies.standard)}</td>
+        <td>${stakingPolicyCell(policies.aggressive)}</td>
+        <td>${stakingPolicyCell(policies.custom)}</td>
+        <td>
+          <div class="staking-miss-cell">
+            <strong>${fmtInt(ticket.currentMiss || 0)} / ${fmtInt(ticket.maxMiss || 0)}</strong>
+            <span>当前 / 最长</span>
+            <small>最佳 ${escapeHtml(ticket.bestPolicy?.label || "--")}</small>
+          </div>
+        </td>
+        <td>
+          <div class="staking-verdict ${verdictClass}">
+            <strong>${escapeHtml(verdict.label || "--")}</strong>
+            <span>${escapeHtml(reasons.join("；") || "等待更多结算")}</span>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+  renderStakingBacktestSegments(data);
 }
 
 async function syncData(mode) {
@@ -2701,6 +3127,27 @@ function renderStrategyAuditLoading() {
   if (els.strategyAuditStabilityRows) {
     els.strategyAuditStabilityRows.innerHTML = '<tr><td colspan="8"><span class="muted">多窗口稳定性对照计算中</span></td></tr>';
   }
+  if (els.strategyAuditTicketRows) {
+    els.strategyAuditTicketRows.innerHTML = '<tr><td colspan="8"><span class="muted">A/B 前向票审计计算中</span></td></tr>';
+  }
+  if (els.strategyAuditVerdicts) {
+    els.strategyAuditVerdicts.innerHTML = `
+      <article class="strategy-verdict-card observe">
+        <div class="strategy-verdict-head">
+          <strong>自动判读</strong>
+          <span>计算中</span>
+        </div>
+        <p>正在读取 A/B/C计划 前向票、真实追踪和重复号特征。</p>
+      </article>
+    `;
+  }
+  if (els.strategyAuditTicketRows) {
+    els.strategyAuditTicketRows.innerHTML = '<tr><td colspan="8"><span class="muted">A/B/C计划 前向票审计计算中</span></td></tr>';
+  }
+  if (els.strategyAuditKillRows) {
+    els.strategyAuditKillRows.closest(".panel")?.classList.add("hidden");
+    els.strategyAuditKillRows.innerHTML = "";
+  }
 }
 
 function strategyAuditWindowLabel(windowItem) {
@@ -2821,6 +3268,29 @@ function strategyAuditPanelItems(windows, listKey, panel) {
     .filter(Boolean);
 }
 
+function strategyAuditTicketItems(windows, panel, pickCount, mode = "main") {
+  return (windows || [])
+    .map((windowItem) => {
+      const list = Array.isArray(windowItem?.ticketPanels) ? windowItem.ticketPanels : [];
+      const found = list.find(
+        (item) =>
+          item.panel === panel &&
+          Number(item.pickCount || 0) === Number(pickCount) &&
+          String(item.mode || "main") === mode,
+      );
+      return found ? { ...found, auditWindow: Number(windowItem.window || 0), windowRounds: Number(windowItem.rounds || 0) } : null;
+    })
+    .filter(Boolean);
+}
+
+function strategyAuditPlanLabel(panel) {
+  if (panel === PREDICTION_PANEL_DEFAULT) return "A计划";
+  if (panel === PREDICTION_PANEL_B) return "B计划";
+  if (panel === PREDICTION_PANEL_M) return "C计划";
+  if (panel === PREDICTION_PANEL_C) return "旧C计划";
+  return cdePanelLabel(panel);
+}
+
 function strategyAuditETopItems(windows, topCount) {
   return (windows || [])
     .map((windowItem) => {
@@ -2929,6 +3399,53 @@ function strategyAuditKillVerdict(windows) {
       `低于随机 ${best.consistency.matched}/${best.consistency.total} 窗口`,
       `平均池 ${fmtNumber(best.avgPool, 1)} 码`,
       weakPanels.length ? `不适合主杀：${weakPanels.join("/")}` : "",
+    ],
+  });
+}
+
+function strategyAuditBTwoVerdict(windows) {
+  const item = strategyAuditTicketItems(windows, PREDICTION_PANEL_B, 2).at(-1);
+  if (!item) {
+    return strategyAuditVerdictCard({
+      title: "B 2码",
+      status: "observe",
+      label: "无数据",
+      summary: "当前窗口没有 B 官方2码前向审计数据。",
+    });
+  }
+  const tickets = Number(item.tickets || 0);
+  const won = Number(item.won || 0);
+  const hitRate = Number(item.hitRate || 0);
+  const theoretical = Number(item.theoreticalHitRate || 0);
+  const ci = Array.isArray(item.hitRateCi) ? item.hitRateCi : [0, 0];
+  const ciLow = Number(ci[0] || 0);
+  const ciHigh = Number(ci[1] || 0);
+  let status = "observe";
+  let label = "只观察";
+  let summary = "B 官方2码当前还没有统计上站稳，继续低成本观察。";
+  if (tickets >= 100 && ciHigh < theoretical) {
+    status = "weak";
+    label = "不跟";
+    summary = "B 官方2码 Wilson 上沿低于理论基线，不支持继续加注或做四码派生。";
+  } else if (tickets >= 300 && ciLow > theoretical) {
+    status = "strong";
+    label = "跟";
+    summary = "B 官方2码 Wilson 下沿高于理论基线，才具备推进低票数派生的前提。";
+  } else if (tickets >= 100 && hitRate > theoretical) {
+    status = "warn";
+    label = "只观察";
+    summary = "B 官方2码表面高于理论基线，但置信区间仍跨过基线，先不扩票。";
+  }
+  return strategyAuditVerdictCard({
+    title: "B 2码",
+    status,
+    label,
+    summary,
+    details: [
+      `命中 ${fmtInt(won)}/${fmtInt(tickets)} · ${fmtPct(hitRate, 2)}`,
+      `理论 ${fmtPct(theoretical, 2)}`,
+      `Wilson ${fmtPct(ciLow, 2)}-${fmtPct(ciHigh, 2)}`,
+      `偏离 ${fmtSignedPct(Number(item.hitRateVsTheory || 0), 2)}`,
     ],
   });
 }
@@ -3102,7 +3619,7 @@ function strategyAuditTrackingVerdict(tracking) {
 function renderStrategyAuditVerdicts(data, windows) {
   if (!els.strategyAuditVerdicts) return;
   els.strategyAuditVerdicts.innerHTML = [
-    strategyAuditKillVerdict(windows),
+    strategyAuditBTwoVerdict(windows),
     strategyAuditRepeatVerdict(windows),
     strategyAuditTrackingVerdict(data.tracking),
   ].join("");
@@ -3135,7 +3652,7 @@ function strategyAuditTrackingPanel(tracking, panel) {
 }
 
 function strategyAuditScoreTone(row) {
-  if (row.tone && row.mode === "etop") return row.tone;
+  if (row.tone && ["etop", "officialTicket"].includes(row.mode)) return row.tone;
   const follow = Number(row.followScore || 0);
   const kill = Number(row.killScore || 0);
   if (follow >= 70 || kill >= 70) return "strong";
@@ -3299,62 +3816,56 @@ function strategyAuditBuildKillScoreRows(windows) {
 }
 
 function strategyAuditBuildTicketScoreRows(data, windows) {
-  const baselineTwoPlus = strategyAuditAtLeastHitProbability(data.game, 4, 2);
-  const baselineThreePlus = strategyAuditAtLeastHitProbability(data.game, 4, 3);
-  return [PREDICTION_PANEL_F, PREDICTION_PANEL_G]
-    .map((panel) => {
-      const items = strategyAuditPanelItems(windows, "ticketPanels", panel);
-      if (!items.length) return null;
+  const rows = [];
+  for (const panel of [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_M]) {
+    for (const pickCount of [1, 2, 3]) {
+      const items = strategyAuditTicketItems(windows, panel, pickCount);
+      if (!items.length) continue;
       const latest = items.at(-1);
-      const twoLift = strategyAuditWeightedMean(items, "twoPlusRate", "tickets") - baselineTwoPlus;
-      const threeLift = strategyAuditWeightedMean(items, "threePlusRate", "tickets") - baselineThreePlus;
-      const followConsistency = strategyAuditWindowConsistency(
-        items,
-        (item) => Number(item.threePlusRate || 0) >= baselineThreePlus && Number(item.twoPlusRate || 0) >= baselineTwoPlus,
-      );
-      const killConsistency = strategyAuditWindowConsistency(
-        items,
-        (item) => Number(item.threePlusRate || 0) < baselineThreePlus && Number(item.twoPlusRate || 0) < baselineTwoPlus,
-      );
-      const trackingPanel = strategyAuditTrackingPanel(data.tracking, panel);
-      const trackingTickets = Number(trackingPanel?.tickets || 0);
-      const trackingRoi = Number(trackingPanel?.roi || 0);
-      const trackingAdjust = trackingTickets >= 30 ? clampNumber(trackingRoi / 0.25, -1, 1) * 12 : 0;
-      let followScore = strategyAuditScoreClamp(
-        50 + threeLift * 1000 + twoLift * 350 + (followConsistency.share - 0.5) * 18 + trackingAdjust,
-      );
-      if (trackingTickets >= 60 && trackingRoi <= -0.5) {
-        followScore = Math.min(followScore, 58);
-      } else if (trackingTickets >= 30 && trackingRoi <= -0.3) {
-        followScore = Math.min(followScore, 65);
+      const avgLift = strategyAuditWeightedMean(items, "hitRateVsTheory", "tickets");
+      const consistency = strategyAuditWindowConsistency(items, (item) => Number(item.hitRate || 0) >= Number(item.theoreticalHitRate || 0));
+      const ci = Array.isArray(latest?.hitRateCi) ? latest.hitRateCi : [0, 0];
+      const ciLow = Number(ci[0] || 0);
+      const ciHigh = Number(ci[1] || 0);
+      const theoretical = Number(latest?.theoreticalHitRate || 0);
+      const tickets = Number(latest?.tickets || 0);
+      const confidence = strategyAuditConfidenceScore(items, "tickets", pickCount === 2 ? 300 : 180);
+      let followScore = strategyAuditScoreClamp(48 + avgLift * (pickCount === 2 ? 420 : 260) + (consistency.share - 0.5) * 18);
+      let conclusion = "只观察";
+      let tone = "observe";
+      if (tickets >= 100 && ciHigh < theoretical) {
+        followScore = Math.min(followScore, 35);
+        conclusion = "不跟";
+        tone = "weak";
+      } else if (tickets >= 300 && ciLow > theoretical) {
+        followScore = Math.max(followScore, 72);
+        conclusion = "跟";
+        tone = "strong";
+      } else if (tickets >= 100 && Number(latest?.hitRate || 0) > theoretical) {
+        followScore = Math.max(followScore, 58);
+        conclusion = "只观察";
+        tone = "warn";
       }
-      const killScore = strategyAuditScoreClamp(
-        50 + -threeLift * 900 + -twoLift * 300 + (killConsistency.share - 0.5) * 18 - trackingAdjust,
-      );
-      const confidence = strategyAuditConfidenceScore(items, "tickets", 180);
-      let conclusion = strategyAuditConclusion({ followScore, killScore, confidence });
-      if (confidence >= 38 && killScore >= 65 && killScore >= followScore + 8) conclusion = "反向主杀候选";
-      return {
-        key: `ticket-${panel}`,
-        mode: "ticket",
-        strategy: `${cdePanelLabel(panel)} 四码`,
+      rows.push({
+        key: `ticket-${panel}-${pickCount}`,
+        mode: "officialTicket",
+        strategy: `${strategyAuditPlanLabel(panel)} ${pickCount}码`,
         followScore,
-        killScore,
-        costRisk: 20,
+        killScore: null,
+        costRisk: pickCount === 2 ? 28 : 16,
         confidence,
         conclusion,
-        tone: followScore >= 70 && followScore >= killScore ? "strong" : killScore >= 65 && killScore > followScore ? "weak" : "observe",
+        tone,
         evidence: [
-          `2码+ ${fmtSignedPct(twoLift, 2)}`,
-          `3码+ ${fmtSignedPct(threeLift, 2)}`,
-          `强于随机 ${followConsistency.matched}/${followConsistency.total} 窗口`,
-          `最近2/3码 ${fmtPct(Number(latest?.twoPlusRate || 0), 1)} / ${fmtPct(Number(latest?.threePlusRate || 0), 1)}`,
-          trackingTickets >= 30 ? `追踪ROI ${fmtPct(trackingRoi, 1)} / ${fmtInt(trackingTickets)}注` : "",
-          trackingTickets >= 60 && trackingRoi <= -0.5 ? "追踪负面限制跟随分" : "",
+          `命中 ${fmtPct(Number(latest?.hitRate || 0), 2)}`,
+          `理论 ${fmtPct(theoretical, 2)}`,
+          `Wilson ${fmtPct(ciLow, 2)}-${fmtPct(ciHigh, 2)}`,
+          `高于基线 ${consistency.matched}/${consistency.total} 窗口`,
         ],
-      };
-    })
-    .filter(Boolean);
+      });
+    }
+  }
+  return rows;
 }
 
 function strategyAuditBucketRate(items, bucketKey) {
@@ -3533,7 +4044,7 @@ function strategyAuditBuildRepeatScoreRow(windows) {
 
 function strategyAuditBuildScoreRows(data, windows) {
   const rows = [
-    ...strategyAuditBuildKillScoreRows(windows),
+    ...strategyAuditBuildTicketScoreRows(data, windows),
     ...strategyAuditBuildRepeatScoreRow(windows),
   ].map(strategyAuditFinalizeScoreRow);
   return rows.sort((a, b) => {
@@ -3789,9 +4300,7 @@ function strategyAuditExperimentKillRows(data, windows) {
 }
 
 function strategyAuditBuildExperimentRows(data, windows) {
-  return [
-    ...strategyAuditExperimentKillRows(data, windows),
-  ];
+  return [];
 }
 
 function renderStrategyAuditExperiments(data, windows) {
@@ -4331,6 +4840,7 @@ function renderStrategyAudit() {
   state.currentGame = data.game || state.currentGame;
   updateGameUi();
   renderSummary(data);
+  els.strategyAuditKillRows?.closest(".panel")?.classList.add("hidden");
 
   const windows = Array.isArray(data.windows) ? data.windows : [];
   const latestWindow = windows.at(-1) || null;
@@ -4346,6 +4856,10 @@ function renderStrategyAudit() {
 
   if (els.strategyAuditStats) {
     const killLift = Number(bestKill?.wrongRateLift || 0);
+    const bTwo = strategyAuditTicketItems(windows, PREDICTION_PANEL_B, 2).at(-1);
+    const mTwo = strategyAuditTicketItems(windows, PREDICTION_PANEL_M, 2).at(-1);
+    const mThree = strategyAuditTicketItems(windows, PREDICTION_PANEL_M, 3).at(-1);
+    const bTwoLift = Number(bTwo?.hitRateVsTheory || 0);
     els.strategyAuditStats.innerHTML = `
       <article class="accent">
         <span>审计期数</span>
@@ -4365,6 +4879,40 @@ function renderStrategyAudit() {
         <small>${bestKill ? `C 平均池 ${fmtNumber(Number(bestKill.averagePoolSize || 0), 1)}码` : "只评估 C 杀号"}</small>
       </article>
       <article>
+        <span>B2前向</span>
+        <strong class="${strategyAuditLiftClass(bTwoLift)}">${bTwo ? fmtPct(Number(bTwo.hitRate || 0), 2) : "--"}</strong>
+        <small>${bTwo ? `理论 ${fmtPct(Number(bTwo.theoreticalHitRate || 0), 2)} · ${fmtSignedPct(bTwoLift, 2)}` : "等待 B 2码样本"}</small>
+      </article>
+      <article>
+        <span>重复号均值</span>
+        <strong>${repeat ? fmtNumber(Number(repeat.averageOverlap || 0), 2) : "--"}</strong>
+        <small>理论 ${repeat ? fmtNumber(Number(repeat.expectedOverlap || 0), 2) : "--"} · Z ${
+      repeat ? fmtNumber(Number(repeat.meanZ || 0), 2) : "--"
+    }</small>
+      </article>
+    `;
+    els.strategyAuditStats.innerHTML = `
+      <article class="accent">
+        <span>审计期数</span>
+        <strong>${fmtInt(data.actualRounds)}</strong>
+        <small>请求 ${fmtInt(data.window)} · 跳过 ${fmtInt(data.skippedRounds || 0)}</small>
+      </article>
+      <article>
+        <span>B 2码前向</span>
+        <strong class="${strategyAuditLiftClass(bTwoLift)}">${bTwo ? fmtPct(Number(bTwo.hitRate || 0), 2) : "--"}</strong>
+        <small>${bTwo ? `理论 ${fmtPct(Number(bTwo.theoreticalHitRate || 0), 2)} · ${fmtSignedPct(bTwoLift, 2)}` : "等待 B 2码样本"}</small>
+      </article>
+      <article>
+        <span>C计划 2码前向</span>
+        <strong class="${strategyAuditLiftClass(Number(mTwo?.hitRateVsTheory || 0))}">${mTwo ? fmtPct(Number(mTwo.hitRate || 0), 2) : "--"}</strong>
+        <small>${mTwo ? `理论 ${fmtPct(Number(mTwo.theoreticalHitRate || 0), 2)} · ${fmtSignedPct(Number(mTwo.hitRateVsTheory || 0), 2)}` : "等待 C计划 2码样本"}</small>
+      </article>
+      <article>
+        <span>C计划 3码前向</span>
+        <strong class="${strategyAuditLiftClass(Number(mThree?.hitRateVsTheory || 0))}">${mThree ? fmtPct(Number(mThree.hitRate || 0), 2) : "--"}</strong>
+        <small>${mThree ? `理论 ${fmtPct(Number(mThree.theoreticalHitRate || 0), 2)} · ${fmtSignedPct(Number(mThree.hitRateVsTheory || 0), 2)}` : "等待 C计划 3码样本"}</small>
+      </article>
+      <article>
         <span>重复号均值</span>
         <strong>${repeat ? fmtNumber(Number(repeat.averageOverlap || 0), 2) : "--"}</strong>
         <small>理论 ${repeat ? fmtNumber(Number(repeat.expectedOverlap || 0), 2) : "--"} · Z ${
@@ -4382,6 +4930,7 @@ function renderStrategyAudit() {
   renderStrategyAuditScoreMatrix(data, windows);
   renderStrategyAuditExperiments(data, windows);
   renderStrategyAuditKillRows(windows);
+  renderStrategyAuditTicketRows(windows);
   renderStrategyAuditRepeatRows(windows);
   renderStrategyAuditTrackingRows(data.tracking);
   renderStrategyAuditDetailRows(data.items || []);
@@ -4389,6 +4938,9 @@ function renderStrategyAudit() {
 
 function renderStrategyAuditKillRows(windows) {
   if (!els.strategyAuditKillRows) return;
+  els.strategyAuditKillRows.closest(".panel")?.classList.add("hidden");
+  els.strategyAuditKillRows.innerHTML = "";
+  return;
   const rows = [];
   for (const windowItem of windows) {
     for (const item of windowItem.killPanels || []) {
@@ -4441,26 +4993,39 @@ function renderStrategyAuditETopRows(windows) {
     : '<tr><td colspan="7"><span class="muted">暂无 E TopN 审计数据</span></td></tr>';
 }
 
-function renderStrategyAuditFgRows(windows) {
-  if (!els.strategyAuditFgRows) return;
+function renderStrategyAuditTicketRows(windows) {
+  if (!els.strategyAuditTicketRows) return;
   const rows = [];
   for (const windowItem of windows) {
     for (const item of windowItem.ticketPanels || []) {
+      if (![PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_M].includes(item.panel)) continue;
+      if (String(item.mode || "main") !== "main") continue;
+      const lift = Number(item.hitRateVsTheory || 0);
+      const ci = Array.isArray(item.hitRateCi) ? item.hitRateCi : [0, 0];
       rows.push(`<tr>
         <td>${strategyAuditWindowLabel(windowItem)}</td>
-        <td><strong>${cdePanelLabel(item.panel)}</strong><div class="muted">${escapeHtml(item.label || "")}</div></td>
+        <td><strong>${strategyAuditPlanLabel(item.panel)}</strong><div class="muted">${escapeHtml(item.label || "")}</div></td>
+        <td>${fmtInt(item.pickCount)}码<div class="strategy-audit-inline-note">${escapeHtml(item.mode || "main")}</div></td>
         <td>${fmtInt(item.tickets)}</td>
-        <td>${fmtInt(item.won)}<div class="strategy-audit-inline-note">${fmtPct(Number(item.hitRate || 0), 2)}</div></td>
-        <td>${fmtPct(Number(item.twoPlusRate || 0), 2)}</td>
-        <td>${fmtPct(Number(item.threePlusRate || 0), 2)}</td>
-        <td>${strategyAuditHitDistribution(item.hitDistribution)}</td>
-        <td>${strategyAuditTicketOverlapSummary(item.previousOverlapDistribution)}</td>
+        <td class="${strategyAuditLiftClass(lift)}">${fmtInt(item.won)}<div class="strategy-audit-inline-note">${fmtPct(
+        Number(item.hitRate || 0),
+        2,
+      )} · ${fmtSignedPct(lift, 2)}</div></td>
+        <td>${fmtPct(Number(item.theoreticalHitRate || 0), 2)}<div class="strategy-audit-inline-note">期望 ${fmtNumber(
+        Number(item.expectedWins || 0),
+        1,
+      )}</div></td>
+        <td>${fmtPct(Number(ci[0] || 0), 2)} - ${fmtPct(Number(ci[1] || 0), 2)}</td>
+        <td class="${strategyAuditLiftClass(Number(item.roi || 0))}">${fmtPct(Number(item.roi || 0), 2)}<div class="strategy-audit-inline-note">理论 ${fmtPct(
+        Number(item.theoreticalRoi || 0),
+        2,
+      )}</div></td>
       </tr>`);
     }
   }
-  els.strategyAuditFgRows.innerHTML = rows.length
+  els.strategyAuditTicketRows.innerHTML = rows.length
     ? rows.join("")
-    : '<tr><td colspan="8"><span class="muted">暂无 F/G 审计数据</span></td></tr>';
+    : '<tr><td colspan="8"><span class="muted">暂无 A/B 前向票审计数据</span></td></tr>';
 }
 
 function renderStrategyAuditRepeatRows(windows) {
@@ -4500,7 +5065,7 @@ function renderStrategyAuditTrackingRows(tracking) {
         .map((item) => {
           const roi = Number(item.roi || 0);
           return `<tr>
-            <td><strong>${cdePanelLabel(item.panel)}</strong></td>
+            <td><strong>${strategyAuditPlanLabel(item.panel)}</strong><div class="strategy-audit-inline-note">${fmtInt(item.pickCount || 0)}码</div></td>
             <td>${fmtInt(item.tickets)}</td>
             <td>${fmtInt(item.won)}<div class="strategy-audit-inline-note">${fmtPct(Number(item.hitRate || 0), 2)}</div></td>
             <td class="${strategyAuditLiftClass(roi)}">${item.tickets ? fmtPct(roi, 2) : "--"}</td>
@@ -4515,6 +5080,8 @@ function renderStrategyAuditTrackingRows(tracking) {
 
 function renderStrategyAuditDetailRows(items) {
   if (!els.strategyAuditDetailRows) return;
+  const headerCells = els.strategyAuditDetailRows.closest("table")?.querySelectorAll("th") || [];
+  if (headerCells[3]) headerCells[3].textContent = "A/B/C命中";
   const rows = Array.isArray(items) ? items : [];
   els.strategyAuditDetailRows.innerHTML = rows.length
     ? rows
@@ -4522,7 +5089,7 @@ function renderStrategyAuditDetailRows(items) {
           <td><strong>${escapeHtml(item.drawEventId || "--")}</strong></td>
           <td>${fmtDate(item.drawTimeUtc)}</td>
           <td>${fmtInt(item.previousOverlap)}</td>
-          <td>${fmtInt(item.cWrong)}</td>
+          <td>A2 ${fmtInt(item.aTwoWon)} · B2 ${fmtInt(item.bTwoWon)} · M2 ${fmtInt(item.mTwoWon)} · M3 ${fmtInt(item.mThreeWon)}</td>
         </tr>`)
         .join("")
     : '<tr><td colspan="4"><span class="muted">暂无最近明细</span></td></tr>';
@@ -4901,6 +5468,68 @@ function ticketExpectedMetric(ev) {
   return { className, label, value, title };
 }
 
+function fmtYuan(value, digits = 2, signed = false) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "--";
+  const prefix = signed && number > 0 ? "+" : "";
+  return `${prefix}${number.toFixed(digits)}元`;
+}
+
+function stakingPolicyText(policy) {
+  if (!policy || typeof policy !== "object") return "--";
+  if (policy.kind === "flat") return "不加倍，1元平买";
+  return `连挂 ${fmtInt(policy.missBeforeDouble)} 期后加倍`;
+}
+
+function renderTicketStakingSimulation(ticket) {
+  const sim = ticket.stakingSimulation;
+  if (!sim || typeof sim !== "object") return "";
+  if (!sim.enabled) {
+    return `<div class="ticket-staking-sim disabled"><span>${escapeHtml(sim.reason || "当前候选暂无法做倍投回放。")}</span></div>`;
+  }
+  const best = sim.best || {};
+  const flat = sim.flat || {};
+  const bestDouble = sim.bestDouble || {};
+  const bestNet = Number(best.netProfit || 0);
+  const flatNet = Number(flat.netProfit || 0);
+  const bestDoubleNet = Number(bestDouble.netProfit || 0);
+  const bestClass = bestNet > 0 ? "positive" : bestNet < 0 ? "negative" : "";
+  const flatClass = flatNet > 0 ? "positive" : flatNet < 0 ? "negative" : "";
+  const actionText = best.kind === "flat" ? "历史最优：不加倍" : `历史最优：${stakingPolicyText(best)}`;
+  const compareText =
+    best.kind === "flat" && bestDouble.kind
+      ? `最佳翻倍 ${stakingPolicyText(bestDouble)}，净 ${fmtYuan(bestDoubleNet, 2, true)}`
+      : `平买净 ${fmtYuan(flatNet, 2, true)}`;
+  const firstDoubleText =
+    best.kind === "flat"
+      ? "平买未触发加倍"
+      : best.firstDoubleRound
+        ? `第 ${fmtInt(best.firstDoubleRound)} 期首次加倍`
+        : "历史窗口内未触发加倍";
+  return `<div class="ticket-staking-sim">
+    <div class="ticket-staking-head">
+      <strong>倍投模拟</strong>
+      <span>1元起步 · 上限 ${fmtInt(sim.maxMultiplier)} 倍 · 回放 ${fmtInt(sim.lookback)} 期</span>
+    </div>
+    <div class="ticket-staking-verdict ${bestClass}">
+      <strong>${escapeHtml(actionText)}</strong>
+      <span>${escapeHtml(firstDoubleText)} · 当前连挂 ${fmtInt(best.currentMissStreak)}，下一注 ${fmtYuan(best.nextStake, 2)}</span>
+    </div>
+    <div class="ticket-staking-grid">
+      <div><span>总投入</span><strong>${fmtYuan(best.totalStake, 2)}</strong></div>
+      <div><span>总返奖</span><strong>${fmtYuan(best.totalPayout, 2)}</strong></div>
+      <div><span>净收益</span><strong class="${bestClass}">${fmtYuan(bestNet, 2, true)}</strong></div>
+      <div><span>ROI</span><strong class="${bestClass}">${fmtPct(Number(best.roi || 0), 2)}</strong></div>
+      <div><span>最大单注</span><strong>${fmtYuan(best.maxStake, 2)}</strong></div>
+      <div><span>最大回撤</span><strong>${fmtYuan(best.maxDrawdown, 2)}</strong></div>
+    </div>
+    <div class="ticket-staking-note">
+      <span class="${flatClass}">${escapeHtml(compareText)}</span>
+      <span>命中 ${fmtInt(best.wins)} / ${fmtInt(best.rounds)}，最长连挂 ${fmtInt(best.longestMissStreak)}</span>
+    </div>
+  </div>`;
+}
+
 function renderPredictionStrategyTickets(tickets = []) {
   if (!els.predictionStrategyTickets) return;
   if (!tickets.length) {
@@ -4921,12 +5550,14 @@ function renderPredictionStrategyTickets(tickets = []) {
       const panelKey = normalizePredictionPanel(ticket.panel || state.predictionPanel);
       const isPanelFTicket = panelKey === PREDICTION_PANEL_F;
       const isPanelGTicket = panelKey === PREDICTION_PANEL_G;
+      const isPanelMTicket = panelKey === PREDICTION_PANEL_M;
       const recallNumbers = Array.isArray(ticket.recallNumbers) && ticket.recallNumbers.length
         ? ticket.recallNumbers
         : Array.isArray(ticket.reversalNumbers) && ticket.reversalNumbers.length
           ? ticket.reversalNumbers
           : companionNumbers;
       const sourcePoolCount = Number(ticket.sourcePoolCount || ticket.sourcePoolNumbers?.length || ticket.excludedNumbers?.length || 0);
+      const sourceLabels = Array.isArray(ticket.sourceCoreTicketLabels) ? ticket.sourceCoreTicketLabels.filter(Boolean) : [];
       const structureNote = ticket.structureType
         ? `<div class="ticket-structure">
             <span>${escapeHtml(ticket.structureLabel || ticket.structureType)}</span>
@@ -4937,6 +5568,9 @@ function renderPredictionStrategyTickets(tickets = []) {
                 : isPanelGTicket
                   ? `<span>杀号池 ${sourcePoolCount ? `${sourcePoolCount.toLocaleString("zh-CN")}个` : "--"}</span>
                      <span>剩余池预测</span>`
+                : isPanelMTicket
+                  ? `<span>来源 ${escapeHtml(ticket.auditSourceLabel || sourceLabels.join(" / ") || "--")}</span>
+                     <span>${escapeHtml(ticket.followDecision || "只观察")}</span>`
                 : `<span>核心 ${escapeHtml(coreNumbers.join("-") || "--")}</span>
                    <span>派生 ${escapeHtml(companionNumbers.join("-") || "--")}</span>`
             }
@@ -4961,6 +5595,7 @@ function renderPredictionStrategyTickets(tickets = []) {
           <span>遗漏 ${Number(ticket.currentMiss || 0).toLocaleString("zh-CN")} / 最大 ${Number(ticket.maxMiss || 0).toLocaleString("zh-CN")}</span>
           <span>${Number(ticket.chasePeriods || 0)} 期全挂 ${fmtPct(Number(ticket.missAllProbability || 0), 2)}</span>
         </div>
+        ${renderTicketStakingSimulation(ticket)}
         ${sampleNote}
       </article>`;
     })
@@ -5470,12 +6105,14 @@ function renderPredictionTracking() {
       const recordPanel = normalizePredictionPanel(record.panel || state.predictionPanel);
       const isPanelFRecord = recordPanel === PREDICTION_PANEL_F;
       const isPanelGRecord = recordPanel === PREDICTION_PANEL_G;
+      const isPanelMRecord = recordPanel === PREDICTION_PANEL_M;
       const recallNumbers = Array.isArray(record.recallNumbers) && record.recallNumbers.length
         ? record.recallNumbers
         : Array.isArray(record.reversalNumbers) && record.reversalNumbers.length
           ? record.reversalNumbers
           : companionNumbers;
       const sourcePoolCount = Number(record.sourcePoolCount || record.sourcePoolNumbers?.length || record.excludedNumbers?.length || 0);
+      const sourceLabels = Array.isArray(record.sourceCoreTicketLabels) ? record.sourceCoreTicketLabels.filter(Boolean) : [];
       const structureMeta = record.structureType
         ? isPanelFRecord
           ? `<div class="muted tracking-structure">${escapeHtml(record.structureLabel || record.structureType)} · 召回 ${escapeHtml(
@@ -5485,6 +6122,10 @@ function renderPredictionTracking() {
             ? `<div class="muted tracking-structure">${escapeHtml(record.structureLabel || record.structureType)} · 杀号池 ${
                 sourcePoolCount ? `${sourcePoolCount.toLocaleString("zh-CN")}个` : "--"
               } · 剩余池预测</div>`
+          : isPanelMRecord
+            ? `<div class="muted tracking-structure">${escapeHtml(record.structureLabel || record.structureType)} · 来源 ${escapeHtml(
+                record.auditSourceLabel || sourceLabels.join(" / ") || "--",
+              )} · ${escapeHtml(record.followDecision || "只观察")}</div>`
           : `<div class="muted tracking-structure">${escapeHtml(record.structureLabel || record.structureType)} · 核心 ${escapeHtml(
               coreNumbers.join("-") || "--",
             )} · 派生 ${escapeHtml(companionNumbers.join("-") || "--")}</div>`
@@ -5618,11 +6259,9 @@ function renderPredictionKillPanel(predictions) {
   if (!els.predictionKillPanel) return;
   const panel = normalizePredictionPanel(predictions?.panel || state.predictionPanel);
   const isPanelB = panel === PREDICTION_PANEL_B;
-  const isPanelD = panel === PREDICTION_PANEL_D;
-  const isPanelE = panel === PREDICTION_PANEL_E;
   const isPanelF = panel === PREDICTION_PANEL_F;
   const isPanelG = panel === PREDICTION_PANEL_G;
-  const showKillPanel = isPanelB || isPanelD || isPanelE || isPanelF || isPanelG;
+  const showKillPanel = isPanelB || isPanelF || isPanelG;
   els.predictionKillPanel.classList.toggle("hidden", !showKillPanel);
   if (!showKillPanel) {
     if (els.predictionKillSummary) els.predictionKillSummary.textContent = "--";
@@ -5635,11 +6274,7 @@ function renderPredictionKillPanel(predictions) {
       ? "CDE候选杀号池"
       : isPanelF
       ? "ABCDE误杀候选池"
-      : isPanelE
-        ? "CD杀号"
-        : isPanelD
-          ? "CD杀号"
-          : "面板A杀号";
+      : "A计划杀号";
   if (els.predictionKillLabel) {
     els.predictionKillLabel.textContent = killLabel;
   }
@@ -5665,7 +6300,7 @@ function renderPredictionKillPanel(predictions) {
           .join("")
       : `<span class="muted">${killLabel}暂未给出可用主球</span>`;
   }
-  renderPredictionKillSources(predictions, isPanelD || isPanelE || isPanelF || isPanelG);
+  renderPredictionKillSources(predictions, isPanelF || isPanelG);
 }
 
 function renderPredictions(predictions) {
@@ -6057,8 +6692,9 @@ function renderGroupTable({ table, count, data, key, className }) {
 function runHighlightMap(numbers) {
   const numberSet = new Set(numbers);
   const levels = new Map(numbers.map((number) => [number, 0]));
-  for (const length of [4, 3, 2]) {
-    for (let start = 1; start <= 80 - length + 1; start += 1) {
+  const totalNumbers = Number(state.currentGame?.totalNumbers || Math.max(0, ...numbers));
+  for (const length of [7, 6, 5, 4, 3, 2]) {
+    for (let start = 1; start <= totalNumbers - length + 1; start += 1) {
       const group = Array.from({ length }, (_, index) => start + index);
       if (!group.every((number) => numberSet.has(number))) continue;
       for (const number of group) {
@@ -6070,10 +6706,49 @@ function runHighlightMap(numbers) {
 }
 
 function historyBallClass(level) {
-  if (level >= 4) return "ball quad";
+  if (level >= 7) return "ball seven-run";
+  if (level === 6) return "ball six-run";
+  if (level === 5) return "ball five-run";
+  if (level === 4) return "ball quad";
   if (level === 3) return "ball triple";
   if (level === 2) return "ball pair";
   return "ball";
+}
+
+function renderHistoryRunStats(data) {
+  if (!els.historyRunStats) return;
+  const stats = data?.runStats || {};
+  const drawCount = Number(stats.drawCount || 0);
+  const items = Array.isArray(stats.items) ? stats.items : [];
+  if (els.historyRunMeta) {
+    els.historyRunMeta.textContent = drawCount
+      ? `${drawCount.toLocaleString("zh-CN")} 期有效开奖`
+      : "--";
+  }
+  if (!items.length) {
+    els.historyRunStats.innerHTML = '<tr><td colspan="5"><span class="muted">暂无连号统计</span></td></tr>';
+    return;
+  }
+  els.historyRunStats.innerHTML = items
+    .map((item) => {
+      const length = Number(item.length || 0);
+      const draws = Number(item.draws || 0);
+      const occurrences = Number(item.occurrences || 0);
+      const share = Number(item.drawShare || 0);
+      const latestTime = fmtDate(item.latestDrawTimeUtc || "");
+      const latestId = item.latestDrawEventId || "";
+      const latest = latestId ? `${latestTime} · ${escapeHtml(latestId)}` : "--";
+      return `<tr>
+        <td><span class="${historyBallClass(length)}">${length}</span><strong>${escapeHtml(item.label || `${length}连`)}</strong></td>
+        <td>${draws.toLocaleString("zh-CN")}</td>
+        <td>${occurrences.toLocaleString("zh-CN")}<div class="history-run-note">单期最多 ${Number(
+          item.maxOccurrencesInDraw || 0,
+        ).toLocaleString("zh-CN")} 组</div></td>
+        <td>${fmtPct(share, 2)}<div class="history-run-note">均值 ${fmtNumber(Number(item.avgOccurrencesPerDraw || 0), 3)} 组/期</div></td>
+        <td>${latest}</td>
+      </tr>`;
+    })
+    .join("");
 }
 
 function renderHistory() {
@@ -6082,6 +6757,7 @@ function renderHistory() {
   state.currentGame = data.game || state.currentGame;
   updateGameUi();
   renderSummary(data);
+  renderHistoryRunStats(data);
   els.historyCount.textContent = `${data.total.toLocaleString("zh-CN")} 条 · 第 ${data.page}/${data.totalPage} 页`;
   els.pageInfo.textContent = `第 ${data.page} / ${data.totalPage} 页`;
   els.prevPageBtn.disabled = state.loading || data.page <= 1;
@@ -6140,8 +6816,7 @@ async function refreshCurrentView(options = {}) {
   if (
     state.activeView === "prediction" ||
     state.activeView === "predictionB" ||
-    state.activeView === "predictionC" ||
-    state.activeView === "predictionD"
+    state.activeView === "predictionM"
   ) {
     const panel = predictionPanelForView(state.activeView);
     setPredictionPanel(panel);
@@ -6166,6 +6841,10 @@ async function refreshCurrentView(options = {}) {
     await loadStrategyAudit({ force: options.force });
     return;
   }
+  if (state.activeView === "stakingBacktest") {
+    await loadStakingBacktest();
+    return;
+  }
   if (state.activeView === "history") {
     await loadHistory();
   }
@@ -6188,12 +6867,12 @@ async function switchView(view) {
       "active",
       view === "prediction" ||
       view === "predictionB" ||
-        view === "predictionC" ||
-        view === "predictionD",
+      view === "predictionM",
     );
   document.querySelector("#martingaleView").classList.toggle("active", view === "martingale");
   document.querySelector("#backtestView").classList.toggle("active", view === "backtest");
-  document.querySelector("#analysisView").classList.toggle("active", view === "analysis");
+  document.querySelector("#stakingBacktestView")?.classList.toggle("active", view === "stakingBacktest");
+  document.querySelector("#analysisView")?.classList.toggle("active", view === "analysis");
   document.querySelector("#strategyAuditView").classList.toggle("active", view === "strategyAudit");
   document.querySelector("#historyView").classList.toggle("active", view === "history");
   await hydrateView(view);
@@ -6221,11 +6900,12 @@ document.addEventListener("keydown", (event) => {
 });
 
 syncBacktestControls();
+syncStakingBacktestControls();
 syncMartingaleModeControls();
 setMartingalePickCount(state.martingalePickCount);
 
-els.applyBtn.addEventListener("click", loadAnalysis);
-els.resetBtn.addEventListener("click", resetFilters);
+if (els.applyBtn) els.applyBtn.addEventListener("click", loadAnalysis);
+if (els.resetBtn) els.resetBtn.addEventListener("click", resetFilters);
 if (els.strategyAuditRunBtn) {
   els.strategyAuditRunBtn.addEventListener("click", () => loadStrategyAudit({ force: true }));
 }
@@ -6276,6 +6956,22 @@ if (els.predictionAutoToggleBtn) {
 if (els.predictionAutoRunBtn) {
   els.predictionAutoRunBtn.addEventListener("click", () => updatePredictionAuto("runOnce"));
 }
+if (els.telegramSaveBtn) {
+  els.telegramSaveBtn.addEventListener("click", () => updateTelegram("save"));
+}
+if (els.telegramTestBtn) {
+  els.telegramTestBtn.addEventListener("click", () => updateTelegram("test"));
+}
+if (els.telegramNotifyNowBtn) {
+  els.telegramNotifyNowBtn.addEventListener("click", () => updateTelegram("notifynow"));
+}
+if (els.telegramAllGames) {
+  els.telegramAllGames.addEventListener("change", () => {
+    for (const input of document.querySelectorAll("[data-telegram-game]")) {
+      input.checked = Boolean(els.telegramAllGames.checked);
+    }
+  });
+}
 if (els.predictionAdjacentStats) {
   els.predictionAdjacentStats.addEventListener("click", (event) => {
     const target = event.target;
@@ -6311,6 +7007,15 @@ if (els.predictionAdjacentStats) {
 els.runBacktestBtn.addEventListener("click", runBacktest);
 if (els.runBacktestScanBtn) {
   els.runBacktestScanBtn.addEventListener("click", runBacktestScan);
+}
+if (els.runStakingBacktestBtn) {
+  els.runStakingBacktestBtn.addEventListener("click", loadStakingBacktest);
+}
+if (els.stakingBacktestSource) {
+  els.stakingBacktestSource.addEventListener("change", () => {
+    syncStakingBacktestControls();
+    state.stakingBacktest = null;
+  });
 }
 els.backtestStrategy.addEventListener("change", () => {
   syncBacktestControls();
@@ -6386,6 +7091,35 @@ for (const input of [
   });
 }
 
+for (const input of [
+  els.stakingBacktestWindow,
+  els.stakingBacktestCustomWindow,
+  els.stakingBacktestStartDateTime,
+  els.stakingBacktestEndDateTime,
+  els.stakingBacktestDailyStart,
+  els.stakingBacktestDailyEnd,
+  els.stakingBacktestTimeZone,
+  els.stakingBacktestSliceHours,
+  els.stakingBacktestBaseStake,
+  els.stakingBacktestStepStake,
+  els.stakingBacktestConservativeStep,
+  els.stakingBacktestConservativeMax,
+  els.stakingBacktestStandardStep,
+  els.stakingBacktestStandardMax,
+  els.stakingBacktestAggressiveStep,
+  els.stakingBacktestAggressiveMax,
+  els.stakingBacktestCustomStep,
+  els.stakingBacktestCustomMax,
+  els.stakingBacktestNumbers,
+].filter(Boolean)) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && input !== els.stakingBacktestNumbers) loadStakingBacktest();
+  });
+  input.addEventListener("change", () => {
+    state.stakingBacktest = null;
+  });
+}
+
 for (const input of [els.historyQuery, els.historySort, els.historyPageSize]) {
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -6433,6 +7167,7 @@ async function init() {
     await loadGames();
     await refreshCurrentView();
     await loadPredictionAutoStatus({ silent: true, refreshTracking: false });
+    await loadTelegramStatus({ silent: true });
     startPredictionAutoPolling();
   } catch (error) {
     showToast(`初始化失败：${error.message}`, true);

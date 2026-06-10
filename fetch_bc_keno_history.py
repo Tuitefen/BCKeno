@@ -32,8 +32,18 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-API_URL = "https://bcgame.nz/api/platform-lottery/lottery-detail/history"
-LOTTERY_URL = "https://bcgame.nz/zh-CN/lottery/detail/{lottery_id}?tab=1"
+API_PATH = "/api/platform-lottery/lottery-detail/history"
+DEFAULT_API_BASE_URLS = ("https://playglobal5.com", "https://bcgame.nz")
+API_BASE_URLS = tuple(
+    base.rstrip("/")
+    for base in os.environ.get(
+        "BCGAME_API_BASE_URLS",
+        ",".join(DEFAULT_API_BASE_URLS),
+    ).split(",")
+    if base.strip()
+) or DEFAULT_API_BASE_URLS
+API_URL = f"{API_BASE_URLS[0]}{API_PATH}"
+LOTTERY_URL = "{base_url}/zh-CN/lottery/detail/{lottery_id}?tab=1"
 DEFAULT_LOTTERY_ID = "115889"
 ROOT = Path(__file__).resolve().parent
 DATA_ROOT = Path(os.environ.get("BCKENO_DATA_DIR", ROOT / "data")).resolve()
@@ -76,7 +86,8 @@ def is_cancelled_item(item: dict[str, Any]) -> bool:
     return status in CANCELLED_STATUS_CODES and normal_ball == ""
 
 
-def api_headers(lottery_id: str) -> dict[str, str]:
+def api_headers(lottery_id: str, *, base_url: str | None = None) -> dict[str, str]:
+    base_url = (base_url or API_BASE_URLS[0]).rstrip("/")
     return {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -85,8 +96,8 @@ def api_headers(lottery_id: str) -> dict[str, str]:
         "Accept": "application/json, text/plain, */*",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
         "Content-Type": "application/json",
-        "Origin": "https://bcgame.nz",
-        "Referer": LOTTERY_URL.format(lottery_id=lottery_id),
+        "Origin": base_url,
+        "Referer": LOTTERY_URL.format(base_url=base_url, lottery_id=lottery_id),
     }
 
 
@@ -107,27 +118,36 @@ def post_history_page(
         "sort": "DESC",
     }
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-    request = Request(API_URL, data=body, headers=api_headers(lottery_id), method="POST")
-
     last_error: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            with urlopen(request, timeout=timeout) as response:
-                charset = response.headers.get_content_charset() or "utf-8"
-                text = response.read().decode(charset)
-            decoded = json.loads(text)
-            if decoded.get("code") != 0:
-                raise RuntimeError(
-                    f"API returned code={decoded.get('code')!r}, msg={decoded.get('msg')!r}"
-                )
-            return decoded["data"]
-        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
-            last_error = exc
-            if attempt >= retries:
-                break
-            time.sleep(retry_sleep * (attempt + 1))
+    base_errors: list[str] = []
+    for base_url in API_BASE_URLS:
+        api_url = f"{base_url.rstrip('/')}{API_PATH}"
+        for attempt in range(retries + 1):
+            request = Request(
+                api_url,
+                data=body,
+                headers=api_headers(lottery_id, base_url=base_url),
+                method="POST",
+            )
+            try:
+                with urlopen(request, timeout=timeout) as response:
+                    charset = response.headers.get_content_charset() or "utf-8"
+                    text = response.read().decode(charset)
+                decoded = json.loads(text)
+                if decoded.get("code") != 0:
+                    raise RuntimeError(
+                        f"API returned code={decoded.get('code')!r}, msg={decoded.get('msg')!r}"
+                    )
+                return decoded["data"]
+            except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, RuntimeError) as exc:
+                last_error = exc
+                if attempt >= retries:
+                    break
+                time.sleep(retry_sleep * (attempt + 1))
+        base_errors.append(f"{base_url}: {last_error}")
 
-    raise RuntimeError(f"failed to fetch page {page}: {last_error}") from last_error
+    message = "; ".join(base_errors) if base_errors else str(last_error)
+    raise RuntimeError(f"failed to fetch page {page}: {message}") from last_error
 
 
 def normalize_row(

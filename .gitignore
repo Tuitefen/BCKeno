@@ -20,6 +20,12 @@ backups/
 .env.*
 !.env.example
 !.env.local.example
+data/telegram_bot_config.local.json
+data/telegram_bot_state.local.json
+data/prediction_tracking.sqlite3
+
+ScreenShot_*.png
+wechat_longscreenshot_*.png
 
 *.log
 .DS_Store
