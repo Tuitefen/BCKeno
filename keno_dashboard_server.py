@@ -13788,8 +13788,9 @@ def default_prediction_auto_config() -> dict[str, Any]:
         "retries": 1,
         "retrySleep": 0.5,
         "skipSupplement": False,
+        "autoGameSelectionConfigured": False,
         "games": {
-            key: {"enabled": supports_predictions(config)}
+            key: {"enabled": key == "poland_keno_20_70" and supports_predictions(config)}
             for key, config in LOTTERY_GAMES.items()
         },
     }
@@ -13809,6 +13810,9 @@ def load_prediction_auto_config() -> dict[str, Any]:
             for key, value in stored_games.items():
                 if key in config["games"] and isinstance(value, dict):
                     config["games"][key].update(value)
+            if not config.get("autoGameSelectionConfigured"):
+                for key in config["games"]:
+                    config["games"][key]["enabled"] = key == "poland_keno_20_70"
     for key, game_config in LOTTERY_GAMES.items():
         if not supports_predictions(game_config):
             config["games"].setdefault(key, {})["enabled"] = False
@@ -14086,6 +14090,7 @@ def start_prediction_auto(config_update: dict[str, Any] | None = None) -> dict[s
     if config_update:
         config.update({key: value for key, value in config_update.items() if key != "games"})
         if isinstance(config_update.get("games"), dict):
+            config["autoGameSelectionConfigured"] = True
             for key, value in config_update["games"].items():
                 if key in config["games"] and isinstance(value, dict):
                     config["games"][key].update(value)
@@ -14123,6 +14128,11 @@ def prediction_auto_request(payload: dict[str, Any]) -> dict[str, Any]:
         config = load_prediction_auto_config()
         if isinstance(payload.get("config"), dict):
             config.update({key: value for key, value in payload["config"].items() if key != "games"})
+            if isinstance(payload["config"].get("games"), dict):
+                config["autoGameSelectionConfigured"] = True
+                for key, value in payload["config"]["games"].items():
+                    if key in config["games"] and isinstance(value, dict):
+                        config["games"][key].update(value)
         started_at = utc_now_iso()
         results, errors = run_prediction_auto_once(config)
         completed_at = utc_now_iso()
@@ -14141,6 +14151,7 @@ def prediction_auto_request(payload: dict[str, Any]) -> dict[str, Any]:
         update = payload.get("config") if isinstance(payload.get("config"), dict) else {}
         config.update({key: value for key, value in update.items() if key != "games"})
         if isinstance(update.get("games"), dict):
+            config["autoGameSelectionConfigured"] = True
             for key, value in update["games"].items():
                 if key in config["games"] and isinstance(value, dict):
                     config["games"][key].update(value)

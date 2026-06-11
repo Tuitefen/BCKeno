@@ -508,7 +508,8 @@ body.tool-modal-open {
   padding: 0 14px 10px;
 }
 
-.telegram-game-toggle {
+.telegram-game-toggle,
+.auto-game-toggle {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -520,6 +521,22 @@ body.tool-modal-open {
   background: var(--panel-2);
   font-size: 12px;
   font-weight: 850;
+}
+
+.auto-game-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(112px, 1fr));
+  gap: 7px;
+  width: 100%;
+}
+
+.auto-game-toggle {
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.auto-game-toggle input {
+  width: auto;
 }
 
 .telegram-actions {

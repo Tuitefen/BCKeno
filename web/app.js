@@ -220,6 +220,7 @@ const els = {
   predictionAutoStatus: document.querySelector("#predictionAutoStatus"),
   predictionAutoToggleBtn: document.querySelector("#predictionAutoToggleBtn"),
   predictionAutoRunBtn: document.querySelector("#predictionAutoRunBtn"),
+  predictionAutoGameToggles: document.querySelector("#predictionAutoGameToggles"),
   telegramStatus: document.querySelector("#telegramStatus"),
   telegramEnabled: document.querySelector("#telegramEnabled"),
   telegramAllGames: document.querySelector("#telegramAllGames"),
@@ -2301,6 +2302,39 @@ async function updatePredictionAuto(action) {
     );
   } catch (error) {
     showToast(`追踪操作失败：${error.message}`, true);
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function savePredictionAutoGames() {
+  if (!els.predictionAutoGameToggles) return;
+  const inputs = [...els.predictionAutoGameToggles.querySelectorAll("[data-auto-game]")];
+  const selected = inputs.filter((input) => input.checked);
+  if (!selected.length) {
+    showToast("至少保留一个自动追踪彩种", true);
+    renderPredictionAutoGameToggles();
+    return;
+  }
+  const games = {};
+  for (const input of inputs) {
+    games[input.dataset.autoGame] = { enabled: Boolean(input.checked) };
+  }
+  setLoading(true, "保存追踪彩种");
+  try {
+    const response = await fetch("/api/prediction-auto", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "save", config: { games } }),
+    });
+    const data = await response.json();
+    if (!response.ok || data.ok === false) throw new Error(data.error || `HTTP ${response.status}`);
+    state.predictionAuto = data;
+    renderPredictionAutoStatus();
+    showToast("已保存自动追踪彩种");
+  } catch (error) {
+    showToast(`保存追踪彩种失败：${error.message}`, true);
+    renderPredictionAutoGameToggles();
   } finally {
     setLoading(false);
   }
@@ -6332,6 +6366,22 @@ function renderPredictionAutoStatus() {
     els.predictionAutoRunBtn.textContent = "立即同步一次";
     els.predictionAutoRunBtn.title = resultCount || errorCount ? `上次 ${resultCount} 成功，${errorCount} 错误` : "";
   }
+  renderPredictionAutoGameToggles();
+}
+
+function renderPredictionAutoGameToggles() {
+  if (!els.predictionAutoGameToggles) return;
+  const games = state.predictionAuto?.config?.games || {};
+  els.predictionAutoGameToggles.innerHTML = (state.games || [])
+    .filter((game) => game.supportsPredictions)
+    .map((game) => {
+      const checked = Boolean(games[game.key]?.enabled);
+      return `<label class="auto-game-toggle">
+        <input type="checkbox" data-auto-game="${escapeHtml(game.key)}" ${checked ? "checked" : ""} />
+        <span>${escapeHtml(game.shortName || game.name || game.key)}</span>
+      </label>`;
+    })
+    .join("");
 }
 
 function predictionSourceTicketUniqueNumbers(tickets = []) {
@@ -7126,6 +7176,13 @@ if (els.predictionAutoToggleBtn) {
 }
 if (els.predictionAutoRunBtn) {
   els.predictionAutoRunBtn.addEventListener("click", () => updatePredictionAuto("runOnce"));
+}
+if (els.predictionAutoGameToggles) {
+  els.predictionAutoGameToggles.addEventListener("change", (event) => {
+    if (event.target?.matches?.("[data-auto-game]")) {
+      savePredictionAutoGames();
+    }
+  });
 }
 if (els.telegramSaveBtn) {
   els.telegramSaveBtn.addEventListener("click", () => updateTelegram("save"));
