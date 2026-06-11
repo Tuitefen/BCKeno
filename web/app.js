@@ -103,6 +103,9 @@ const state = {
   backtestScan: null,
   backtestScanPollTimer: null,
   stakingBacktest: null,
+  currentBacktest: null,
+  fixedTripleObservation: null,
+  fixedTripleOmission: null,
   martingaleMode: "main",
   martingalePickCount: 3,
   martingalePlan: null,
@@ -330,6 +333,53 @@ const els = {
   stakingBacktestRows: document.querySelector("#stakingBacktestRows"),
   stakingBacktestSegmentMeta: document.querySelector("#stakingBacktestSegmentMeta"),
   stakingBacktestSegmentRows: document.querySelector("#stakingBacktestSegmentRows"),
+  currentBacktestView: document.querySelector("#currentBacktestView"),
+  currentBacktestMeta: document.querySelector("#currentBacktestMeta"),
+  currentBacktestSource: document.querySelector("#currentBacktestSource"),
+  currentBacktestSlot: document.querySelector("#currentBacktestSlot"),
+  currentBacktestStartDateTime: document.querySelector("#currentBacktestStartDateTime"),
+  currentBacktestEndDateTime: document.querySelector("#currentBacktestEndDateTime"),
+  currentBacktestDailyStart: document.querySelector("#currentBacktestDailyStart"),
+  currentBacktestDailyEnd: document.querySelector("#currentBacktestDailyEnd"),
+  currentBacktestTimeZone: document.querySelector("#currentBacktestTimeZone"),
+  currentBacktestBaseStake: document.querySelector("#currentBacktestBaseStake"),
+  currentBacktestStepStake: document.querySelector("#currentBacktestStepStake"),
+  currentBacktestConservativeStep: document.querySelector("#currentBacktestConservativeStep"),
+  currentBacktestConservativeMax: document.querySelector("#currentBacktestConservativeMax"),
+  currentBacktestStandardStep: document.querySelector("#currentBacktestStandardStep"),
+  currentBacktestStandardMax: document.querySelector("#currentBacktestStandardMax"),
+  currentBacktestAggressiveStep: document.querySelector("#currentBacktestAggressiveStep"),
+  currentBacktestAggressiveMax: document.querySelector("#currentBacktestAggressiveMax"),
+  runCurrentBacktestBtn: document.querySelector("#runCurrentBacktestBtn"),
+  currentBacktestHint: document.querySelector("#currentBacktestHint"),
+  currentBacktestStats: document.querySelector("#currentBacktestStats"),
+  currentBacktestWarnings: document.querySelector("#currentBacktestWarnings"),
+  currentBacktestResultMeta: document.querySelector("#currentBacktestResultMeta"),
+  currentBacktestRows: document.querySelector("#currentBacktestRows"),
+  fixedTripleObservationView: document.querySelector("#fixedTripleObservationView"),
+  fixedTripleObservationMeta: document.querySelector("#fixedTripleObservationMeta"),
+  fixedTripleObservationPickCount: document.querySelector("#fixedTripleObservationPickCount"),
+  fixedTripleObservationDays: document.querySelector("#fixedTripleObservationDays"),
+  fixedTripleObservationTop: document.querySelector("#fixedTripleObservationTop"),
+  fixedTripleObservationMinDailyHits: document.querySelector("#fixedTripleObservationMinDailyHits"),
+  fixedTripleObservationForwardDays: document.querySelector("#fixedTripleObservationForwardDays"),
+  fixedTripleObservationStartDateTime: document.querySelector("#fixedTripleObservationStartDateTime"),
+  fixedTripleObservationEndDateTime: document.querySelector("#fixedTripleObservationEndDateTime"),
+  fixedTripleObservationTimeZone: document.querySelector("#fixedTripleObservationTimeZone"),
+  fixedTripleObservationBaseStake: document.querySelector("#fixedTripleObservationBaseStake"),
+  fixedTripleObservationStepStake: document.querySelector("#fixedTripleObservationStepStake"),
+  fixedTripleObservationConservativeStep: document.querySelector("#fixedTripleObservationConservativeStep"),
+  fixedTripleObservationConservativeMax: document.querySelector("#fixedTripleObservationConservativeMax"),
+  runFixedTripleObservationBtn: document.querySelector("#runFixedTripleObservationBtn"),
+  fixedTripleObservationStats: document.querySelector("#fixedTripleObservationStats"),
+  fixedTripleObservationResultMeta: document.querySelector("#fixedTripleObservationResultMeta"),
+  fixedTripleObservationRows: document.querySelector("#fixedTripleObservationRows"),
+  fixedTripleOmissionMeta: document.querySelector("#fixedTripleOmissionMeta"),
+  fixedTripleOmissionNumbers: document.querySelector("#fixedTripleOmissionNumbers"),
+  fixedTripleOmissionDate: document.querySelector("#fixedTripleOmissionDate"),
+  runFixedTripleOmissionBtn: document.querySelector("#runFixedTripleOmissionBtn"),
+  fixedTripleOmissionStats: document.querySelector("#fixedTripleOmissionStats"),
+  fixedTripleOmissionRows: document.querySelector("#fixedTripleOmissionRows"),
   tripleCount: document.querySelector("#tripleCount"),
   runBars: document.querySelector("#runBars"),
   tripleTable: document.querySelector("#tripleTable"),
@@ -745,6 +795,7 @@ function predictionPanelLabel(panel = state.predictionPanel) {
 }
 
 function predictionPanelForView(view) {
+  if (view === "predictionD") return PREDICTION_PANEL_D;
   if (view === "predictionM") return PREDICTION_PANEL_M;
   if (view === "predictionB") return PREDICTION_PANEL_B;
   return PREDICTION_PANEL_DEFAULT;
@@ -781,6 +832,7 @@ function setPredictionPanel(panel) {
 function predictionPanelForOptions(options = {}) {
   if (options.panel) return normalizePredictionPanel(options.panel);
   if (state.activeView === "predictionM") return PREDICTION_PANEL_M;
+  if (state.activeView === "predictionD") return PREDICTION_PANEL_D;
   if (state.activeView === "predictionB") return PREDICTION_PANEL_B;
   if (state.activeView === "prediction") return PREDICTION_PANEL_DEFAULT;
   return normalizePredictionPanel(state.predictionPanel);
@@ -816,7 +868,10 @@ function currentGameSupportsView(view) {
     view === "prediction" ||
     view === "predictionB" ||
     view === "predictionM" ||
-    view === "stakingBacktest"
+    view === "predictionD" ||
+    view === "stakingBacktest" ||
+    view === "currentBacktest" ||
+    view === "fixedTripleObservation"
   ) {
     return currentGameSupportsPredictions();
   }
@@ -852,6 +907,8 @@ function showHistoryView() {
   document.querySelector("#martingaleView")?.classList.remove("active");
   document.querySelector("#backtestView")?.classList.remove("active");
   document.querySelector("#stakingBacktestView")?.classList.remove("active");
+  document.querySelector("#currentBacktestView")?.classList.remove("active");
+  document.querySelector("#fixedTripleObservationView")?.classList.remove("active");
   document.querySelector("#analysisView")?.classList.remove("active");
   document.querySelector("#strategyAuditView")?.classList.remove("active");
   document.querySelector("#historyView")?.classList.add("active");
@@ -875,7 +932,8 @@ async function hydrateView(view) {
   if (
     view === "prediction" ||
     view === "predictionB" ||
-    view === "predictionM"
+    view === "predictionM" ||
+    view === "predictionD"
   ) {
     const panel = predictionPanelForView(view);
     setPredictionPanel(panel);
@@ -895,6 +953,8 @@ async function hydrateView(view) {
     syncStakingBacktestControls();
     if (!state.stakingBacktest) loadStakingBacktest();
   }
+  if (view === "currentBacktest" && !state.currentBacktest) loadCurrentBacktest();
+  if (view === "fixedTripleObservation" && !state.fixedTripleObservation) loadFixedTripleObservation();
   if (view === "backtest") {
     loadCurrentSummary().catch((error) => showToast(`加载最新开奖失败：${error.message}`, true));
     if (!state.backtest) loadBacktestStatus();
@@ -1084,6 +1144,9 @@ function resetPageState() {
   state.backtest = null;
   state.backtestScan = null;
   state.stakingBacktest = null;
+  state.currentBacktest = null;
+  state.fixedTripleObservation = null;
+  state.fixedTripleOmission = null;
   state.martingalePlan = null;
   state.martingaleOddsDirty = false;
   state.martingaleDefaultKey = "";
@@ -1813,6 +1876,9 @@ function setLoading(isLoading, label = "") {
     els.runBacktestBtn,
     els.runBacktestScanBtn,
     els.runStakingBacktestBtn,
+    els.runCurrentBacktestBtn,
+    els.runFixedTripleObservationBtn,
+    els.runFixedTripleOmissionBtn,
     els.generateMartingaleBtn,
     els.predictionAutoToggleBtn,
     els.predictionAutoRunBtn,
@@ -1983,7 +2049,9 @@ function renderPredictionLoading() {
   }
   els.predictionWindow.textContent = "预测计算中";
   els.predictionMethod.textContent =
-    panel === PREDICTION_PANEL_M
+    panel === PREDICTION_PANEL_D
+      ? "生成共识、拆解、逆向、形态四类2码/3码观察候选"
+      : panel === PREDICTION_PANEL_M
       ? "审计低组数2码/3码候选，最多保留4组"
       : panel === PREDICTION_PANEL_B
         ? "读取A计划规则并排除A候选号"
@@ -2042,7 +2110,7 @@ async function loadPrediction(options = {}) {
       if (state.predictionPanel === panel) {
         renderPredictionPage();
       }
-      loadPredictionTracking({ silent: true, panel, refreshAdjacent: true });
+      loadPredictionTracking({ silent: true, panel });
       return;
     }
     const response = await fetch(url);
@@ -2065,7 +2133,7 @@ async function loadPrediction(options = {}) {
     if (state.predictionPanel === panel) {
       renderPredictionPage();
     }
-    loadPredictionTracking({ silent: true, panel, refreshAdjacent: true });
+    loadPredictionTracking({ silent: true, panel });
   } catch (error) {
     showToast(`加载预测失败：${error.message}`, true);
   } finally {
@@ -2126,72 +2194,11 @@ async function loadPredictionTracking(options = {}) {
 }
 
 async function loadAdjacentStats(options = {}) {
-  if (!currentGameSupportsPredictionTracking() || !els.predictionAdjacentStats) return null;
-  const panel = predictionPanelForOptions(options);
-  try {
-    const params = new URLSearchParams({ game: currentGameKey(), panel });
-    const response = await fetch(`/api/adjacent-derived-stats?${params.toString()}`);
-    const data = await response.json();
-    if (!response.ok || data.ok === false) {
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-    if (!payloadMatchesCurrentGame(data)) return null;
-    updatePredictionPanelState(
-      {
-        adjacentStats: data.adjacentStats || null,
-        adjacentHits: null,
-        adjacentHitPage: 1,
-      },
-      panel,
-    );
-    if (state.predictionPanel === panel) {
-      renderPredictionAdjacentStats();
-    }
-    return data;
-  } catch (error) {
-    if (!options.silent) {
-      showToast(`加载临码派生统计失败：${error.message}`, true);
-    }
-    return null;
-  }
+  return null;
 }
 
 async function loadAdjacentHits(options = {}) {
-  if (!currentGameSupportsPredictionTracking() || !els.predictionAdjacentStats) return null;
-  const panel = predictionPanelForOptions(options);
-  const slot = predictionPanelState(panel);
-  try {
-    const params = new URLSearchParams({
-      game: currentGameKey(),
-      panel,
-      q: slot.adjacentHitQuery || "",
-      groupBy: "record",
-      page: String(slot.adjacentHitPage || 1),
-      pageSize: "20",
-    });
-    const response = await fetch(`/api/adjacent-derived-hits?${params.toString()}`);
-    const data = await response.json();
-    if (!response.ok || data.ok === false) {
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-    if (!payloadMatchesCurrentGame(data)) return null;
-    updatePredictionPanelState(
-      {
-        adjacentHits: data,
-        adjacentHitPage: Number(data.page || 1),
-      },
-      panel,
-    );
-    if (state.predictionPanel === panel) {
-      renderPredictionAdjacentStats();
-    }
-    return data;
-  } catch (error) {
-    if (!options.silent) {
-      showToast(`加载派生中奖查询失败：${error.message}`, true);
-    }
-    return null;
-  }
+  return null;
 }
 
 async function loadPredictionAutoStatus(options = {}) {
@@ -2221,7 +2228,7 @@ async function loadPredictionAutoStatus(options = {}) {
         await loadPredictionTracking({
           silent: true,
           panel: state.predictionPanel,
-          refreshAdjacent: true,
+          refreshAdjacent: false,
           refreshAutoStatus: false,
         });
       } finally {
@@ -2249,7 +2256,7 @@ function predictionAutoCompletedAt(data) {
 }
 
 function isPredictionMainViewActive() {
-  return !state.activeModal && ["prediction", "predictionB", "predictionM"].includes(state.activeView);
+  return !state.activeModal && ["prediction", "predictionB", "predictionM", "predictionD"].includes(state.activeView);
 }
 
 function startPredictionAutoPolling(delayMs = 12000) {
@@ -2279,7 +2286,7 @@ async function updatePredictionAuto(action) {
     if (completedAt) state.predictionAutoLastCompletedAt = completedAt;
     renderPredictionAutoStatus();
     if (action === "runOnce") {
-      await loadPredictionTracking({ silent: true, panel: state.predictionPanel, refreshAdjacent: true });
+      await loadPredictionTracking({ silent: true, panel: state.predictionPanel });
     }
     showToast(
       action === "start"
@@ -2804,7 +2811,7 @@ async function loadStakingBacktest() {
     return;
   }
   syncStakingBacktestControls();
-  setLoading(true, "倍投回测中");
+  setLoading(true, "固定回测中");
   if (els.stakingBacktestResultMeta) {
     els.stakingBacktestResultMeta.textContent = "回测中...";
   }
@@ -2818,7 +2825,7 @@ async function loadStakingBacktest() {
     state.stakingBacktest = data;
     renderStakingBacktest(data);
   } catch (error) {
-    showToast(`倍投回测失败：${error.message}`, true);
+    showToast(`固定回测失败：${error.message}`, true);
     if (els.stakingBacktestResultMeta) {
       els.stakingBacktestResultMeta.textContent = "回测失败";
     }
@@ -2847,10 +2854,16 @@ function stakingSegmentPolicyCell(policy) {
   if (!policy || typeof policy !== "object") return '<span class="muted">--</span>';
   const net = Number(policy.netProfit || 0);
   const roi = Number(policy.roi || 0);
+  const peak = Number(policy.peakProfit);
+  const peakTime = policy.peakTimeUtc ? fmtTime(policy.peakTimeUtc) : "";
   const className = net > 0 ? "positive" : net < 0 ? "negative" : "";
+  const peakLine = Number.isFinite(peak)
+    ? `<small>最高 ${fmtYuan(peak, 2, true)}${peakTime ? ` · ${escapeHtml(peakTime)}` : ""}</small>`
+    : "";
   return `<div class="staking-segment-policy-cell">
     <strong class="${className}">${fmtYuan(net, 2, true)}</strong>
     <span>ROI ${fmtPct(roi, 2)}</span>
+    ${peakLine}
     <small>投入 ${fmtYuan(Number(policy.totalStake || 0), 2)}</small>
   </div>`;
 }
@@ -2870,6 +2883,9 @@ function stakingTimeFilterText(data) {
   }
   if (filter.dailyStart || filter.dailyEnd) {
     parts.push(`每日 ${filter.dailyStart || "00:00"} - ${filter.dailyEnd || "23:59"}`);
+  }
+  if (filter.gameDayTimeZone) {
+    parts.push(`开奖日 ${filter.gameDayTimeZone}`);
   }
   parts.push(filter.timeZone === "UTC" ? "UTC" : "北京时间");
   return parts.join(" · ");
@@ -3005,6 +3021,394 @@ function renderStakingBacktest(data) {
   renderStakingBacktestSegments(data);
 }
 
+function buildCurrentBacktestQuery() {
+  const params = new URLSearchParams({
+    game: currentGameKey(),
+    source: els.currentBacktestSource?.value || "m",
+    slot: els.currentBacktestSlot?.value || "p3_1",
+    timeZone: els.currentBacktestTimeZone?.value || "Asia/Shanghai",
+    baseStake: String(parseNumberInput(els.currentBacktestBaseStake, 1)),
+    stepStake: String(parseNumberInput(els.currentBacktestStepStake, 1)),
+    conservativeStepMisses: String(parseNumberInput(els.currentBacktestConservativeStep, 30)),
+    conservativeMaxStake: String(parseNumberInput(els.currentBacktestConservativeMax, 5)),
+    standardStepMisses: String(parseNumberInput(els.currentBacktestStandardStep, 20)),
+    standardMaxStake: String(parseNumberInput(els.currentBacktestStandardMax, 8)),
+    aggressiveStepMisses: String(parseNumberInput(els.currentBacktestAggressiveStep, 10)),
+    aggressiveMaxStake: String(parseNumberInput(els.currentBacktestAggressiveMax, 12)),
+    customStepMisses: String(parseNumberInput(els.currentBacktestStandardStep, 20)),
+    customStepStake: String(parseNumberInput(els.currentBacktestStepStake, 1)),
+    customMaxStake: String(parseNumberInput(els.currentBacktestStandardMax, 8)),
+  });
+  if (els.currentBacktestStartDateTime?.value) {
+    params.set("startDateTime", els.currentBacktestStartDateTime.value);
+  }
+  if (els.currentBacktestEndDateTime?.value) {
+    params.set("endDateTime", els.currentBacktestEndDateTime.value);
+  }
+  if (els.currentBacktestDailyStart?.value) {
+    params.set("dailyStart", els.currentBacktestDailyStart.value);
+  }
+  if (els.currentBacktestDailyEnd?.value) {
+    params.set("dailyEnd", els.currentBacktestDailyEnd.value);
+  }
+  return params;
+}
+
+async function loadCurrentBacktest() {
+  if (!currentGameSupportsPredictions()) {
+    showHistoryView();
+    return;
+  }
+  setLoading(true, "当前回测中");
+  if (els.currentBacktestResultMeta) {
+    els.currentBacktestResultMeta.textContent = "回测中...";
+  }
+  try {
+    const response = await fetch(`/api/current-staking-backtest?${buildCurrentBacktestQuery().toString()}`);
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    if (!payloadMatchesCurrentGame(data)) return;
+    state.currentBacktest = data;
+    renderCurrentBacktest(data);
+  } catch (error) {
+    showToast(`当前回测失败：${error.message}`, true);
+    if (els.currentBacktestResultMeta) {
+      els.currentBacktestResultMeta.textContent = "回测失败";
+    }
+  } finally {
+    setLoading(false);
+  }
+}
+
+function renderCurrentBacktest(data) {
+  if (!data) return;
+  const days = Array.isArray(data.days) ? data.days : [];
+  const summary = data.summary || {};
+  const coverage = data.coverage || {};
+  const policies = summary.policies || {};
+  const conservative = policies.conservative || {};
+  const selectionText = `${data.selection?.sourceLabel || "C计划"} · ${data.selection?.label || "--"}`;
+  if (els.currentBacktestMeta) {
+    els.currentBacktestMeta.textContent = `${selectionText} · ${fmtInt(coverage.selectedDraws || 0)}期 · ${fmtDate(data.generatedAt)}`;
+  }
+  if (els.currentBacktestResultMeta) {
+    els.currentBacktestResultMeta.textContent = `${selectionText} · ${fmtInt(summary.rounds || 0)}期 / ${fmtInt(
+      summary.bets || 0,
+    )}票 · ${fmtTime(coverage.startTimeUtc)} - ${fmtTime(coverage.endTimeUtc)} · ${stakingTimeFilterText(data)}`;
+  }
+  const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+  if (els.currentBacktestWarnings) {
+    els.currentBacktestWarnings.classList.toggle("hidden", !warnings.length);
+    els.currentBacktestWarnings.textContent = warnings.join(" ");
+  }
+  if (els.currentBacktestStats) {
+    els.currentBacktestStats.innerHTML = `
+      <article class="stat-card">
+        <span>覆盖天数</span>
+        <strong>${fmtInt(summary.days || days.length)}</strong>
+        <small>${escapeHtml(selectionText)}</small>
+      </article>
+      <article class="stat-card">
+        <span>真实推荐期</span>
+        <strong>${fmtInt(summary.rounds || 0)}</strong>
+        <small>追踪库已结算</small>
+      </article>
+      <article class="stat-card accent">
+        <span>保守净利</span>
+        <strong class="${Number(conservative.netProfit || 0) >= 0 ? "positive" : "negative"}">${fmtYuan(
+          Number(conservative.netProfit || 0),
+          2,
+          true,
+        )}</strong>
+        <small>ROI ${fmtPct(Number(conservative.roi || 0), 2)}</small>
+      </article>`;
+  }
+  if (!els.currentBacktestRows) return;
+  if (!days.length) {
+    els.currentBacktestRows.innerHTML = '<tr><td colspan="7"><span class="muted">没有可回放的真实逐期候选</span></td></tr>';
+    return;
+  }
+  els.currentBacktestRows.innerHTML = days
+    .map((day) => {
+      const dayPolicies = day.policies || {};
+      const verdict = day.verdict || {};
+      const verdictClass = stakingVerdictClass(verdict);
+      const reasons = Array.isArray(verdict.reasons) ? verdict.reasons : [];
+      return `<tr class="staking-backtest-row ${verdictClass}">
+        <td>
+          <div class="staking-miss-cell">
+            <strong>${escapeHtml(day.date || "--")}</strong>
+            <span>${fmtTime(day.startTimeUtc)} - ${fmtTime(day.endTimeUtc)}</span>
+          </div>
+        </td>
+        <td>
+          <div class="staking-miss-cell">
+            <strong>${fmtInt(day.rounds || 0)}期</strong>
+            <span>${fmtInt(day.bets || 0)}张票</span>
+          </div>
+        </td>
+        <td>${stakingSegmentPolicyCell(dayPolicies.flat)}</td>
+        <td>${stakingSegmentPolicyCell(dayPolicies.conservative)}</td>
+        <td>${stakingSegmentPolicyCell(dayPolicies.standard)}</td>
+        <td>${stakingSegmentPolicyCell(dayPolicies.aggressive)}</td>
+        <td>
+          <div class="staking-verdict ${verdictClass}">
+            <strong>${escapeHtml(verdict.label || "--")}</strong>
+            <span>${escapeHtml(reasons.join("；") || "真实逐期回放")}</span>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function buildFixedTripleObservationQuery() {
+  const params = new URLSearchParams({
+    game: currentGameKey(),
+    pickCount: els.fixedTripleObservationPickCount?.value || "3",
+    days: String(parseNumberInput(els.fixedTripleObservationDays, 31)),
+    top: String(parseNumberInput(els.fixedTripleObservationTop, 3)),
+    minDailyHits: String(parseNumberInput(els.fixedTripleObservationMinDailyHits, 3)),
+    forwardDays: String(parseNumberInput(els.fixedTripleObservationForwardDays, 3)),
+    timeZone: els.fixedTripleObservationTimeZone?.value || "Asia/Shanghai",
+    baseStake: String(parseNumberInput(els.fixedTripleObservationBaseStake, 1)),
+    stepStake: String(parseNumberInput(els.fixedTripleObservationStepStake, 1)),
+    conservativeStepMisses: String(parseNumberInput(els.fixedTripleObservationConservativeStep, 30)),
+    conservativeMaxStake: String(parseNumberInput(els.fixedTripleObservationConservativeMax, 5)),
+  });
+  if (els.fixedTripleObservationStartDateTime?.value) {
+    params.set("startDateTime", els.fixedTripleObservationStartDateTime.value);
+  }
+  if (els.fixedTripleObservationEndDateTime?.value) {
+    params.set("endDateTime", els.fixedTripleObservationEndDateTime.value);
+  }
+  return params;
+}
+
+async function loadFixedTripleObservation() {
+  if (!currentGameSupportsPredictions()) {
+    showHistoryView();
+    return;
+  }
+  setLoading(true, "频码观察统计中");
+  if (els.fixedTripleObservationResultMeta) {
+    els.fixedTripleObservationResultMeta.textContent = "统计中...";
+  }
+  try {
+    const response = await fetch(`/api/frequency-observation?${buildFixedTripleObservationQuery().toString()}`);
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    if (!payloadMatchesCurrentGame(data)) return;
+    state.fixedTripleObservation = data;
+    renderFixedTripleObservation(data);
+  } catch (error) {
+    showToast(`频码观察失败：${error.message}`, true);
+    if (els.fixedTripleObservationResultMeta) {
+      els.fixedTripleObservationResultMeta.textContent = "统计失败";
+    }
+  } finally {
+    setLoading(false);
+  }
+}
+
+function renderFixedTripleObservation(data) {
+  if (!data) return;
+  const items = Array.isArray(data.items) ? data.items : [];
+  const summary = data.summary || {};
+  const settings = data.settings || {};
+  const pickCount = Number(settings.pickCount || data.items?.[0]?.pickCount || 3);
+  if (els.fixedTripleObservationMeta) {
+    els.fixedTripleObservationMeta.textContent = `${fmtInt(pickCount)}码 · 近${fmtInt(settings.actualDays || settings.days || 0)}天 · 稳定Top ${fmtInt(
+      settings.top || 0,
+    )} · 每天≥${fmtInt(settings.minDailyHits || 3)}次 · 后续${fmtInt(settings.forwardDays || 0)}天`;
+  }
+  if (els.fixedTripleObservationResultMeta) {
+    els.fixedTripleObservationResultMeta.textContent = `${escapeHtml(summary.sourceStartDay || "--")} - ${escapeHtml(
+      summary.sourceEndDay || "--",
+    )} · ${fmtInt(
+      summary.items || 0,
+    )}组固定${fmtInt(pickCount)}码 · 合格池 ${fmtInt(summary.filteredCombos || 0)} / ${fmtInt(summary.allCombos || 0)} · ${stakingTimeFilterText(data)}`;
+  }
+  if (els.fixedTripleObservationStats) {
+    els.fixedTripleObservationStats.innerHTML = `
+      <article class="stat-card">
+        <span>统计天数</span>
+        <strong>${fmtInt(summary.days || 0)}</strong>
+        <small>${escapeHtml(summary.sourceStartDay || "--")} - ${escapeHtml(summary.sourceEndDay || "--")}</small>
+      </article>
+      <article class="stat-card">
+        <span>合格固定${fmtInt(pickCount)}码</span>
+        <strong>${fmtInt(summary.filteredCombos || 0)}</strong>
+        <small>每天≥${fmtInt(settings.minDailyHits || 3)}次</small>
+      </article>
+      <article class="stat-card accent">
+        <span>历史保守盈利</span>
+        <strong>${fmtInt(summary.profitableHistoryConservative || 0)}</strong>
+        <small>输出 ${fmtInt(summary.items || items.length)} 组</small>
+      </article>
+      <article class="stat-card">
+        <span>后续观察</span>
+        <strong>${fmtInt(summary.forwardDays || 0)}</strong>
+        <small>${summary.forwardStartDay ? `${escapeHtml(summary.forwardStartDay)} - ${escapeHtml(summary.forwardEndDay || "--")}` : "待未来开奖"}</small>
+      </article>`;
+  }
+  if (!els.fixedTripleObservationRows) return;
+  if (!items.length) {
+    els.fixedTripleObservationRows.innerHTML = `<tr><td colspan="8"><span class="muted">没有满足跨天过滤条件的固定${fmtInt(pickCount)}码；可以降低“最低每日出现”。</span></td></tr>`;
+    return;
+  }
+  if (els.fixedTripleOmissionNumbers && !els.fixedTripleOmissionNumbers.value && items[0]?.numbers) {
+    els.fixedTripleOmissionNumbers.value = (items[0].numbers || []).join("-");
+  }
+  els.fixedTripleObservationRows.innerHTML = items
+    .map((item) => {
+      const verdict = item.verdict || {};
+      const verdictClass = stakingVerdictClass(verdict);
+      const reasons = Array.isArray(verdict.reasons) ? verdict.reasons : [];
+      return `<tr class="staking-backtest-row ${verdictClass}">
+        <td>
+          <div class="staking-miss-cell">
+            <strong>#${fmtInt(item.rank || 0)}</strong>
+            <span>${fmtInt(item.sourceDays || 0)}天全勤</span>
+          </div>
+        </td>
+        <td><div class="staking-ticket"><div class="ticket-balls">${numberBadge(item.numbers || [], "ticket-main")}</div><span>${fmtNumber(Number(item.odds || 0), 2)}x</span></div></td>
+        <td>
+          <div class="staking-miss-cell">
+            <strong>日均 ${fmtNumber(Number(item.averageDailyHits || 0), 2)}</strong>
+            <span>最低/最高 ${fmtInt(item.minDailyHits || 0)} / ${fmtInt(item.maxDailyHits || 0)}</span>
+            <small>合计 ${fmtInt(item.totalHits || 0)}次 · ${fmtInt(item.sourceDraws || 0)}期</small>
+          </div>
+        </td>
+        <td>${stakingSegmentPolicyCell(item.historyFlat)}</td>
+        <td>${stakingSegmentPolicyCell(item.historyConservative)}</td>
+        <td>
+          <div class="staking-miss-cell">
+            <strong>${fmtInt(item.forwardHits || 0)} / ${fmtInt(item.forwardDraws || 0)}</strong>
+            <span>${fmtPct(Number(item.forwardHitRate || 0), 2)}</span>
+            <small>${item.forwardStartDay ? `${escapeHtml(item.forwardStartDay)} - ${escapeHtml(item.forwardEndDay || "--")}` : "等待后续开奖"}</small>
+          </div>
+        </td>
+        <td>${stakingSegmentPolicyCell(item.forwardConservative)}</td>
+        <td>
+          <div class="staking-verdict ${verdictClass}">
+            <strong>${escapeHtml(verdict.label || "--")}</strong>
+            <span>${escapeHtml(reasons.join("；") || "等待后续样本")}</span>
+          </div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+}
+
+function buildFixedTripleOmissionQuery() {
+  const numbers = (els.fixedTripleOmissionNumbers?.value || "").trim();
+  const params = new URLSearchParams({
+    game: currentGameKey(),
+    numbers,
+    pickCount: els.fixedTripleObservationPickCount?.value || "",
+    timeZone: els.fixedTripleObservationTimeZone?.value || "Asia/Shanghai",
+    baseStake: String(parseNumberInput(els.fixedTripleObservationBaseStake, 1)),
+    stepStake: String(parseNumberInput(els.fixedTripleObservationStepStake, 1)),
+    conservativeStepMisses: String(parseNumberInput(els.fixedTripleObservationConservativeStep, 30)),
+    conservativeMaxStake: String(parseNumberInput(els.fixedTripleObservationConservativeMax, 5)),
+  });
+  if (els.fixedTripleOmissionDate?.value) {
+    params.set("date", els.fixedTripleOmissionDate.value);
+  }
+  return params;
+}
+
+async function loadFixedTripleOmission() {
+  const numbers = (els.fixedTripleOmissionNumbers?.value || "").trim();
+  if (!numbers) {
+    showToast("请先输入固定频码，例如 3-51-61", true);
+    return;
+  }
+  setLoading(true, "固定3码遗漏查询中");
+  if (els.fixedTripleOmissionMeta) {
+    els.fixedTripleOmissionMeta.textContent = "查询中...";
+  }
+  try {
+    const response = await fetch(`/api/fixed-triple-omission?${buildFixedTripleOmissionQuery().toString()}`);
+    const data = await response.json();
+    if (!response.ok || data.ok === false) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    if (!payloadMatchesCurrentGame(data)) return;
+    state.fixedTripleOmission = data;
+    renderFixedTripleOmission(data);
+  } catch (error) {
+    showToast(`遗漏查询失败：${error.message}`, true);
+    if (els.fixedTripleOmissionMeta) {
+      els.fixedTripleOmissionMeta.textContent = "查询失败";
+    }
+  } finally {
+    setLoading(false);
+  }
+}
+
+function renderFixedTripleOmission(data) {
+  if (!data) return;
+  const conservative = data.conservative || {};
+  const verdict = data.verdict || {};
+  const verdictClass = stakingVerdictClass(verdict);
+  const reasons = Array.isArray(verdict.reasons) ? verdict.reasons : [];
+  if (els.fixedTripleOmissionMeta) {
+    els.fixedTripleOmissionMeta.textContent = `${escapeHtml(data.ticketLabel || "--")} · ${escapeHtml(
+      data.date || "--",
+    )} · ${fmtTime(data.firstDrawTimeUtc)} - ${fmtTime(data.latestDrawTimeUtc)}`;
+  }
+  if (els.fixedTripleOmissionStats) {
+    els.fixedTripleOmissionStats.innerHTML = `
+      <article class="stat-card">
+        <span>今日命中</span>
+        <strong>${fmtInt(data.hits || 0)} / ${fmtInt(data.draws || 0)}</strong>
+        <small>${fmtPct(Number(data.hitRate || 0), 2)}</small>
+      </article>
+      <article class="stat-card">
+        <span>当前遗漏</span>
+        <strong>${fmtInt(data.currentMiss || 0)}</strong>
+        <small>最长 ${fmtInt(data.maxMiss || 0)} · 上次 ${data.lastHitTimeUtc ? fmtTime(data.lastHitTimeUtc) : "未中"}</small>
+      </article>
+      <article class="stat-card accent">
+        <span>今日保守</span>
+        <strong class="${Number(conservative.netProfit || 0) >= 0 ? "positive" : "negative"}">${fmtYuan(
+          Number(conservative.netProfit || 0),
+          2,
+          true,
+        )}</strong>
+        <small>投入 ${fmtYuan(Number(conservative.totalStake || 0), 2)} · 下一注 ${fmtYuan(Number(conservative.nextStake || 0), 2)}</small>
+      </article>
+      <article class="stat-card">
+        <span>判断</span>
+        <strong class="${verdictClass === "good" ? "positive" : verdictClass === "bad" ? "negative" : ""}">${escapeHtml(
+          verdict.label || "--",
+        )}</strong>
+        <small>${escapeHtml(reasons.join("；") || "等待更多开奖")}</small>
+      </article>`;
+  }
+  const rows = Array.isArray(data.recentHitTimes) ? data.recentHitTimes : [];
+  if (!els.fixedTripleOmissionRows) return;
+  if (!rows.length) {
+    els.fixedTripleOmissionRows.innerHTML = '<tr><td colspan="3"><span class="muted">今天暂时没有命中记录</span></td></tr>';
+    return;
+  }
+  els.fixedTripleOmissionRows.innerHTML = rows
+    .map(
+      (item) => `<tr>
+        <td><strong>${fmtInt(item.drawIndex || 0)}</strong></td>
+        <td>${fmtDate(item.drawTimeUtc || "")}</td>
+        <td>${escapeHtml(item.drawEventId || "--")}</td>
+      </tr>`,
+    )
+    .join("");
+}
+
 async function syncData(mode) {
   const isFull = mode === "full";
   if (isFull) {
@@ -3063,6 +3467,10 @@ async function syncData(mode) {
     state.strategyAuditStability = null;
     state.history = null;
     state.backtest = null;
+    state.stakingBacktest = null;
+    state.currentBacktest = null;
+    state.fixedTripleObservation = null;
+    state.fixedTripleOmission = null;
     await refreshCurrentView({ preserve: Boolean(preservePrediction) });
   } catch (error) {
     showToast(`同步失败：${error.message}`, true);
@@ -5720,263 +6128,8 @@ function trackingDrawResult(record) {
   </div>`;
 }
 
-function adjacentEvidenceLabel(samples) {
-  if (samples < 300) return "仅展示";
-  if (samples < 1000) return "趋势观察";
-  if (samples < 2000) return "初步比较";
-  return "样本较足";
-}
-
-function renderAdjacentExample(example) {
-  const source = Array.isArray(example.sourceNumbers) ? example.sourceNumbers.join("-") : "--";
-  const derived = Array.isArray(example.derivedNumbers) ? example.derivedNumbers.join("-") : "--";
-  return `${fmtTime(example.targetDrawTimeUtc)} ${escapeHtml(source)} -> ${escapeHtml(derived)} ${
-    example.hit ? "中" : "未中"
-  }`;
-}
-
-function adjacentNumbersLabel(numbers) {
-  return Array.isArray(numbers) && numbers.length ? numbers.join("-") : "--";
-}
-
-function renderAdjacentHitPills(examples = [], limit = 4) {
-  const hits = Array.isArray(examples) ? examples.slice(0, limit) : [];
-  if (!hits.length) return '<span class="muted">暂无中奖</span>';
-  return hits
-    .map(
-      (example) =>
-        `<span class="adjacent-hit-pill" title="来源 ${escapeHtml(adjacentNumbersLabel(example.sourceNumbers))} · 开奖 ${escapeHtml(
-          adjacentNumbersLabel(example.drawNumbers),
-        )}">${fmtTime(example.targetDrawTimeUtc)} ${escapeHtml(adjacentNumbersLabel(example.derivedNumbers))}</span>`,
-    )
-    .join("");
-}
-
-function renderAdjacentSchemeSummary(schemeSummary) {
-  const items = Array.isArray(schemeSummary?.items) ? schemeSummary.items : [];
-  if (!items.length) return "";
-  return `<div class="adjacent-stat-section">
-    <div class="adjacent-section-title">整套派生方案</div>
-    <div class="adjacent-scheme-grid">${items
-      .map((item) => {
-        const roi = Number(item.roi || 0);
-        const profit = Number(item.profitTotal || 0);
-        return `<article class="adjacent-scheme-card">
-          <div class="adjacent-stat-title">
-            <div>
-              <strong>${escapeHtml(item.label || "--")}</strong>
-              <span>${Number(item.records || 0).toLocaleString("zh-CN")} 期 · 平均 ${fmtNumber(
-                Number(item.avgTicketsPerRecord || 0),
-                1,
-              )} 注/期</span>
-            </div>
-            <span class="adjacent-evidence">${Number(item.winningRecords || 0).toLocaleString("zh-CN")} 期中</span>
-          </div>
-          <div class="adjacent-stat-metrics">
-            <div><span>期命中</span><strong>${fmtPct(Number(item.recordHitRate || 0), 2)}</strong><small>${fmtPct(
-              Number(item.recordHitRateCi?.[0] || 0),
-              2,
-            )} - ${fmtPct(Number(item.recordHitRateCi?.[1] || 0), 2)}</small></div>
-            <div><span>注命中</span><strong>${Number(item.hitTickets || 0).toLocaleString("zh-CN")}</strong><small>${Number(
-              item.ticketTotal || 0,
-            ).toLocaleString("zh-CN")} 注</small></div>
-            <div><span>投入/返还</span><strong>${fmtNumber(Number(item.stakeTotal || 0), 0)}</strong><small>返还 ${fmtNumber(
-              Number(item.payoutTotal || 0),
-              0,
-            )}</small></div>
-            <div><span>ROI</span><strong class="${roi > 0 ? "positive" : roi < 0 ? "negative" : ""}">${fmtPct(
-              roi,
-              2,
-            )}</strong><small class="${profit > 0 ? "positive" : profit < 0 ? "negative" : ""}">利润 ${fmtMoney(
-              profit,
-              0,
-            )}</small></div>
-          </div>
-        </article>`;
-      })
-      .join("")}</div>
-  </div>`;
-}
-
-function renderAdjacentHitLookup() {
-  const data = state.adjacentHits;
-  const rows = Array.isArray(data?.items) ? data.items : [];
-  const page = Number(data?.page || state.adjacentHitPage || 1);
-  const totalPage = Number(data?.totalPage || 1);
-  return `<div class="adjacent-hit-lookup">
-    <div class="adjacent-hit-toolbar">
-      <div>
-        <div class="adjacent-section-title">派生中奖查询</div>
-        <span class="muted">${data ? `共 ${Number(data.total || 0).toLocaleString("zh-CN")} 条 · ${page} / ${totalPage}` : "等待查询"}</span>
-      </div>
-      <div class="adjacent-hit-controls">
-        <input id="adjacentHitQuery" type="search" placeholder="查号码 / 策略 / 时间" value="${escapeHtml(state.adjacentHitQuery)}" />
-        <button id="adjacentHitSearchBtn" class="secondary-btn small" type="button">查询</button>
-        <button id="adjacentHitPrevBtn" class="secondary-btn small" type="button" ${page <= 1 ? "disabled" : ""}>上一页</button>
-        <button id="adjacentHitNextBtn" class="secondary-btn small" type="button" ${page >= totalPage ? "disabled" : ""}>下一页</button>
-      </div>
-    </div>
-    <div class="table-wrap adjacent-hit-table-wrap">
-      <table class="adjacent-hit-table">
-        <thead>
-          <tr>
-            <th>时间</th>
-            <th>来源</th>
-            <th>中奖派生号码</th>
-            <th>命中/总注</th>
-            <th>开奖</th>
-            <th>返还</th>
-            <th>整套利润</th>
-          </tr>
-        </thead>
-        <tbody>${
-          rows.length
-            ? rows
-                .map(
-                  (row) => `<tr>
-                    <td>${fmtTime(row.targetDrawTimeUtc)}</td>
-                    <td>${escapeHtml(adjacentNumbersLabel(row.sourceNumbers))}</td>
-                    <td><div class="adjacent-hit-derived-list">${(row.derivedTickets || [])
-                      .map(
-                        (ticket) =>
-                          `<span class="adjacent-hit-derived-pill" title="${escapeHtml(ticket.strategyLabel || "")}">${escapeHtml(
-                            adjacentNumbersLabel(ticket.derivedNumbers),
-                          )}</span>`,
-                      )
-                      .join("")}</div></td>
-                    <td>${Number(row.hitTickets || 0).toLocaleString("zh-CN")} / ${Number(row.stakeTotal || 0).toLocaleString("zh-CN")}</td>
-                    <td>${escapeHtml(adjacentNumbersLabel(row.drawNumbers))}</td>
-                    <td>${fmtMoney(Number(row.payoutTotal || 0), 2)}</td>
-                    <td class="${Number(row.profitTotal || 0) > 0 ? "positive" : ""}">${fmtMoney(Number(row.profitTotal || 0), 2)}</td>
-                  </tr>`,
-                )
-                .join("")
-            : '<tr><td colspan="7"><span class="muted">没有匹配的派生中奖记录</span></td></tr>'
-        }</tbody>
-      </table>
-    </div>
-  </div>`;
-}
-
 function renderPredictionAdjacentStats() {
-  const block = els.predictionAdjacentStats;
-  if (!block) return;
-  const stats = state.adjacentStats;
-  const items = Array.isArray(stats?.items) ? stats.items : [];
-  const enabled = Boolean(stats?.enabled);
-  if (els.predictionAdjacentStatsWrap) {
-    els.predictionAdjacentStatsWrap.classList.toggle("hidden", !enabled && !currentGameSupportsPredictionTracking());
-  }
-  block.classList.toggle("hidden", !enabled);
-  if (!enabled) {
-    if (els.predictionAdjacentStatsSummary) {
-      els.predictionAdjacentStatsSummary.textContent = "等待加载";
-    }
-    block.innerHTML = currentGameSupportsPredictionTracking()
-      ? '<span class="loading-inline">临码派生统计加载中...</span>'
-      : "";
-    return;
-  }
-  const ticketItems = items.filter((item) => item.category === "ticket");
-  if (els.predictionAdjacentStatsSummary) {
-    els.predictionAdjacentStatsSummary.textContent = `来源 ${Number(
-      stats.sourceSettledRecords || 0,
-    ).toLocaleString("zh-CN")} 条 · 可投注 ${ticketItems.length.toLocaleString("zh-CN")} 项`;
-  }
-  if (!state.adjacentHits) {
-    loadAdjacentHits({ silent: true, panel: state.predictionPanel });
-  }
-  const renderItem = (item) => {
-    const samples = Number(item.samples || 0);
-    const hits = Number(item.hits || 0);
-    const hitRate = Number(item.hitRate || 0);
-    const theory = Number(item.theoreticalHitRate || 0);
-    const breakEven = Number(item.breakEvenHitRate || 0);
-    const theoryEv = theory * Number(item.odds || 0) - 1;
-    const roi = Number(item.roi || 0);
-    const profit = Number(item.profitTotal || 0);
-    const stake = Number(item.stakeTotal || 0);
-    const payout = Number(item.payoutTotal || 0);
-    const isTicket = item.category === "ticket";
-    const independentSamples = Number(item.independentSamples || samples);
-    const sourceHitRecords = Number(item.sourceHitRecords || hits);
-    const sourceHitRate = Number(item.sourceHitRate || 0);
-    const sourceCi = item.sourceHitRateCi || [0, 0];
-    const usesIndependentRate = isTicket && independentSamples !== samples;
-    const displayedCi = sourceCi;
-    const hitExamples = Array.isArray(item.hitExamples) ? item.hitExamples : [];
-    return `<article class="adjacent-stat-card ${isTicket ? "ticket" : "diagnostic"}">
-      <div class="adjacent-stat-title">
-        <div>
-          <strong>${escapeHtml(item.label || "--")}</strong>
-          <span>${
-            isTicket
-              ? `${Number(item.derivedPickCount || 0)}码票 · ${fmtNumber(Number(item.odds || 0), 2)}x`
-              : "诊断统计"
-          }</span>
-        </div>
-        <span class="adjacent-evidence">${adjacentEvidenceLabel(independentSamples)}</span>
-      </div>
-      <div class="adjacent-stat-metrics">
-        <div><span>${isTicket ? "中奖" : "命中"}</span><strong>${hits.toLocaleString("zh-CN")}</strong><small>${
-          isTicket ? `${samples.toLocaleString("zh-CN")} 注` : `${samples.toLocaleString("zh-CN")} 样本`
-        }</small></div>
-        <div><span>${usesIndependentRate ? "独立期命中" : "命中率"}</span><strong>${
-          usesIndependentRate
-            ? independentSamples
-              ? fmtPct(sourceHitRate, 2)
-              : "--"
-            : samples
-              ? fmtPct(hitRate, 2)
-              : "--"
-        }</strong><small>${
-          (usesIndependentRate ? independentSamples : samples)
-            ? `${fmtPct(Number(displayedCi[0] || 0), 2)} - ${fmtPct(Number(displayedCi[1] || 0), 2)}`
-            : "--"
-        }</small></div>
-        <div><span>${isTicket ? "投入/返还" : "理论基准"}</span><strong>${
-          isTicket ? fmtNumber(stake, 0) : "--"
-        }</strong><small>${isTicket ? `返还 ${fmtNumber(payout, 0)}` : "诊断项不估算赔率"}</small></div>
-        <div><span>ROI</span><strong class="${roi > 0 ? "positive" : roi < 0 ? "negative" : ""}">${
-          isTicket && samples ? fmtPct(roi, 2) : "--"
-        }</strong><small class="${profit > 0 ? "positive" : profit < 0 ? "negative" : ""}">${
-          isTicket && samples ? `利润 ${fmtMoney(profit, 0)}` : "--"
-        }</small></div>
-      </div>
-      ${
-        isTicket
-          ? `<div class="adjacent-ev-line">理论 EV <strong class="${theoryEv > 0 ? "positive" : theoryEv < 0 ? "negative" : ""}">${fmtPct(
-              theoryEv,
-              2,
-            )}</strong> · 理论命中 ${fmtPct(theory, 3)} · 盈亏线 ${fmtPct(breakEven, 3)}</div>`
-          : ""
-      }
-      ${
-        usesIndependentRate
-          ? `<div class="adjacent-sample-note">独立 ${independentSamples.toLocaleString("zh-CN")} 期，${sourceHitRecords.toLocaleString("zh-CN")} 期至少中一注。</div>`
-          : ""
-      }
-      <div class="adjacent-hit-strip">${renderAdjacentHitPills(hitExamples)}</div>
-    </article>`;
-  };
-  block.innerHTML = `<div class="adjacent-stat-header">
-    <div>
-      <h4>临码派生统计</h4>
-      <span class="muted">${escapeHtml(stats.note || "")}</span>
-    </div>
-    <span class="muted">来源 ${Number(stats.sourceSettledRecords || 0).toLocaleString("zh-CN")} 条已结算预测</span>
-  </div>
-  ${renderAdjacentSchemeSummary(stats.schemeSummary)}
-  <div class="adjacent-stat-section">
-    <div class="adjacent-section-title">可投注派生票</div>
-    <div class="adjacent-stat-grid">${
-      ticketItems.length
-        ? ticketItems.map(renderItem).join("")
-        : '<article class="adjacent-stat-card empty"><span class="muted">暂无可投注派生样本</span></article>'
-    }</div>
-  </div>
-  ${renderAdjacentHitLookup()}
-  `;
+  return;
 }
 
 function renderPredictionTracking() {
@@ -6816,7 +6969,8 @@ async function refreshCurrentView(options = {}) {
   if (
     state.activeView === "prediction" ||
     state.activeView === "predictionB" ||
-    state.activeView === "predictionM"
+    state.activeView === "predictionM" ||
+    state.activeView === "predictionD"
   ) {
     const panel = predictionPanelForView(state.activeView);
     setPredictionPanel(panel);
@@ -6845,6 +6999,14 @@ async function refreshCurrentView(options = {}) {
     await loadStakingBacktest();
     return;
   }
+  if (state.activeView === "currentBacktest") {
+    await loadCurrentBacktest();
+    return;
+  }
+  if (state.activeView === "fixedTripleObservation") {
+    await loadFixedTripleObservation();
+    return;
+  }
   if (state.activeView === "history") {
     await loadHistory();
   }
@@ -6867,11 +7029,16 @@ async function switchView(view) {
       "active",
       view === "prediction" ||
       view === "predictionB" ||
-      view === "predictionM",
+      view === "predictionM" ||
+      view === "predictionD",
     );
   document.querySelector("#martingaleView").classList.toggle("active", view === "martingale");
   document.querySelector("#backtestView").classList.toggle("active", view === "backtest");
   document.querySelector("#stakingBacktestView")?.classList.toggle("active", view === "stakingBacktest");
+  document.querySelector("#currentBacktestView")?.classList.toggle("active", view === "currentBacktest");
+  document
+    .querySelector("#fixedTripleObservationView")
+    ?.classList.toggle("active", view === "fixedTripleObservation");
   document.querySelector("#analysisView")?.classList.toggle("active", view === "analysis");
   document.querySelector("#strategyAuditView").classList.toggle("active", view === "strategyAudit");
   document.querySelector("#historyView").classList.toggle("active", view === "history");
@@ -7011,6 +7178,15 @@ if (els.runBacktestScanBtn) {
 if (els.runStakingBacktestBtn) {
   els.runStakingBacktestBtn.addEventListener("click", loadStakingBacktest);
 }
+if (els.runCurrentBacktestBtn) {
+  els.runCurrentBacktestBtn.addEventListener("click", loadCurrentBacktest);
+}
+if (els.runFixedTripleObservationBtn) {
+  els.runFixedTripleObservationBtn.addEventListener("click", loadFixedTripleObservation);
+}
+if (els.runFixedTripleOmissionBtn) {
+  els.runFixedTripleOmissionBtn.addEventListener("click", loadFixedTripleOmission);
+}
 if (els.stakingBacktestSource) {
   els.stakingBacktestSource.addEventListener("change", () => {
     syncStakingBacktestControls();
@@ -7117,6 +7293,66 @@ for (const input of [
   });
   input.addEventListener("change", () => {
     state.stakingBacktest = null;
+  });
+}
+
+for (const input of [
+  els.currentBacktestSlot,
+  els.currentBacktestSource,
+  els.currentBacktestStartDateTime,
+  els.currentBacktestEndDateTime,
+  els.currentBacktestDailyStart,
+  els.currentBacktestDailyEnd,
+  els.currentBacktestTimeZone,
+  els.currentBacktestBaseStake,
+  els.currentBacktestStepStake,
+  els.currentBacktestConservativeStep,
+  els.currentBacktestConservativeMax,
+  els.currentBacktestStandardStep,
+  els.currentBacktestStandardMax,
+  els.currentBacktestAggressiveStep,
+  els.currentBacktestAggressiveMax,
+].filter(Boolean)) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loadCurrentBacktest();
+  });
+  input.addEventListener("change", () => {
+    state.currentBacktest = null;
+  });
+}
+
+for (const input of [
+  els.fixedTripleObservationPickCount,
+  els.fixedTripleObservationDays,
+  els.fixedTripleObservationTop,
+  els.fixedTripleObservationMinDailyHits,
+  els.fixedTripleObservationForwardDays,
+  els.fixedTripleObservationStartDateTime,
+  els.fixedTripleObservationEndDateTime,
+  els.fixedTripleObservationTimeZone,
+  els.fixedTripleObservationBaseStake,
+  els.fixedTripleObservationStepStake,
+  els.fixedTripleObservationConservativeStep,
+  els.fixedTripleObservationConservativeMax,
+].filter(Boolean)) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loadFixedTripleObservation();
+  });
+  input.addEventListener("change", () => {
+    state.fixedTripleObservation = null;
+    state.fixedTripleOmission = null;
+  });
+}
+
+for (const input of [
+  els.fixedTripleOmissionNumbers,
+  els.fixedTripleOmissionDate,
+].filter(Boolean)) {
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") loadFixedTripleOmission();
+  });
+  input.addEventListener("change", () => {
+    state.fixedTripleOmission = null;
   });
 }
 

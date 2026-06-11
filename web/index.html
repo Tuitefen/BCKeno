@@ -26,8 +26,11 @@
           <button class="tab-btn active" type="button" data-view="prediction">A计划</button>
           <button class="tab-btn" type="button" data-view="predictionB">B计划</button>
           <button class="tab-btn" type="button" data-view="predictionM">C计划</button>
+          <button class="tab-btn" type="button" data-view="predictionD">D计划</button>
           <button class="tab-btn" type="button" data-view="martingale">倍投计算</button>
-          <button class="tab-btn" type="button" data-view="stakingBacktest">倍投回测</button>
+          <button class="tab-btn" type="button" data-view="stakingBacktest">固定回测</button>
+          <button class="tab-btn" type="button" data-view="currentBacktest">当前回测</button>
+          <button class="tab-btn" type="button" data-view="fixedTripleObservation">频码观察</button>
           <button class="tab-btn" type="button" data-view="strategyAudit">策略审计</button>
           <button class="tab-btn" type="button" data-view="history">历史开奖</button>
         </nav>
@@ -196,13 +199,6 @@
                 <span id="predictionTrackingPageInfo" class="muted">--</span>
                 <button id="predictionTrackingNextBtn" class="secondary-btn small" type="button">下一页</button>
               </div>
-              <details id="predictionAdjacentStatsWrap" class="adjacent-stat-details hidden">
-                <summary>
-                  <span>临码派生统计</span>
-                  <strong id="predictionAdjacentStatsSummary">等待加载</strong>
-                </summary>
-                <div id="predictionAdjacentStats" class="adjacent-stat-block"></div>
-              </details>
             </div>
             <div id="predictionNotice" class="subtle-note">
               当前为启发式统计排序，不代表开奖概率被改变；下注前应以理论命中率、赔率盈亏线和资金风险为准。
@@ -398,21 +394,21 @@
           <section class="panel staking-backtest-panel">
             <div class="panel-title">
               <div>
-                <h2>倍投回测</h2>
-                <span id="stakingBacktestMeta" class="muted">默认读取当前 C计划 4 张候选票</span>
+                <h2>固定回测</h2>
+                <span id="stakingBacktestMeta" class="muted">默认读取当前 C计划，按固定号码回滚历史</span>
               </div>
               <div class="panel-actions">
                 <button id="runStakingBacktestBtn" class="primary-btn small" type="button">运行回测</button>
               </div>
             </div>
             <div class="subtle-note fixed-note">
-              固定阶梯回测只验证资金规则：号码不变，命中后下一期回到起始金额，未中按固定连挂间隔升档。它不改变开奖概率，也不等于直接可跟。
+              固定回测只验证“这组号码如果早就一直买”的资金结果：当前号码或手动号码不变，回滚历史开奖。它不是逐期推荐回测，也不代表 C计划 当时真实给出的号码。
             </div>
             <div class="staking-backtest-form-grid">
               <label>
                 <span>号码来源</span>
                 <select id="stakingBacktestSource">
-                  <option value="c_plan">当前C计划</option>
+                  <option value="c_plan">当前C计划固定票</option>
                   <option value="manual">手动号码</option>
                 </select>
               </label>
@@ -507,7 +503,7 @@
               </label>
             </div>
             <div class="staking-backtest-actions">
-              <span id="stakingBacktestHint" class="muted">平买、保守、标准、激进、自定义会一起回放。</span>
+              <span id="stakingBacktestHint" class="muted">平买、保守、标准、激进、自定义会一起回放；注意这里的号码全程不变。</span>
             </div>
           </section>
 
@@ -535,7 +531,7 @@
                 </thead>
                 <tbody id="stakingBacktestRows">
                   <tr>
-                    <td colspan="9"><span class="muted">等待运行固定阶梯回测</span></td>
+                    <td colspan="9"><span class="muted">等待运行固定号码回测</span></td>
                   </tr>
                 </tbody>
               </table>
@@ -565,6 +561,282 @@
                 <tbody id="stakingBacktestSegmentRows">
                   <tr>
                     <td colspan="9"><span class="muted">等待运行后统计固定时段</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="currentBacktestView" class="view">
+          <section class="panel staking-backtest-panel">
+            <div class="panel-title">
+              <div>
+                <h2>当前回测</h2>
+                <span id="currentBacktestMeta" class="muted">按追踪库里的真实逐期 C计划 候选回放</span>
+              </div>
+              <div class="panel-actions">
+                <button id="runCurrentBacktestBtn" class="primary-btn small" type="button">运行回测</button>
+              </div>
+            </div>
+            <div class="subtle-note fixed-note">
+              当前回测使用每期开奖前实际保存到追踪库的 C计划 候选，按当天从第一条有效推荐开始重置资金。这个口径更接近真实执行收益。
+            </div>
+            <div class="staking-backtest-form-grid">
+              <label>
+                <span>计划来源</span>
+                <select id="currentBacktestSource">
+                  <option value="m" selected>C计划</option>
+                  <option value="d">D计划</option>
+                </select>
+              </label>
+              <label>
+                <span>候选槽位</span>
+                <select id="currentBacktestSlot">
+                  <option value="p3_1" selected>3码1</option>
+                  <option value="p3_2">3码2</option>
+                  <option value="p3_3">3码3</option>
+                  <option value="p3_4">3码4</option>
+                  <option value="p3_all">全部3码</option>
+                  <option value="p2_1">2码1</option>
+                  <option value="p2_2">2码2</option>
+                  <option value="p2_3">2码3</option>
+                  <option value="p2_4">2码4</option>
+                  <option value="p2_all">全部2码</option>
+                  <option value="all">全部候选</option>
+                </select>
+              </label>
+              <label>
+                <span>开始日期时间</span>
+                <input id="currentBacktestStartDateTime" type="datetime-local" />
+              </label>
+              <label>
+                <span>结束日期时间</span>
+                <input id="currentBacktestEndDateTime" type="datetime-local" />
+              </label>
+              <label>
+                <span>每日开始</span>
+                <input id="currentBacktestDailyStart" type="time" />
+              </label>
+              <label>
+                <span>每日结束</span>
+                <input id="currentBacktestDailyEnd" type="time" />
+              </label>
+              <label>
+                <span>时区</span>
+                <select id="currentBacktestTimeZone">
+                  <option value="Asia/Shanghai" selected>北京时间</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </label>
+              <label>
+                <span>起始金额</span>
+                <input id="currentBacktestBaseStake" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label>
+                <span>每档加金额</span>
+                <input id="currentBacktestStepStake" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label>
+                <span>保守间隔</span>
+                <input id="currentBacktestConservativeStep" type="number" min="1" step="1" value="30" />
+              </label>
+              <label>
+                <span>保守最高单注</span>
+                <input id="currentBacktestConservativeMax" type="number" min="0.01" step="0.01" value="5" />
+              </label>
+              <label>
+                <span>标准间隔</span>
+                <input id="currentBacktestStandardStep" type="number" min="1" step="1" value="20" />
+              </label>
+              <label>
+                <span>标准最高单注</span>
+                <input id="currentBacktestStandardMax" type="number" min="0.01" step="0.01" value="8" />
+              </label>
+              <label>
+                <span>激进间隔</span>
+                <input id="currentBacktestAggressiveStep" type="number" min="1" step="1" value="10" />
+              </label>
+              <label>
+                <span>激进最高单注</span>
+                <input id="currentBacktestAggressiveMax" type="number" min="0.01" step="0.01" value="12" />
+              </label>
+            </div>
+            <div class="staking-backtest-actions">
+              <span id="currentBacktestHint" class="muted">只读取已结算追踪记录；追踪库没有覆盖的历史，不能伪造逐期推荐。</span>
+            </div>
+          </section>
+
+          <section class="staking-backtest-summary-grid" id="currentBacktestStats"></section>
+          <section id="currentBacktestWarnings" class="subtle-note fixed-note hidden"></section>
+
+          <section class="panel staking-backtest-result-panel">
+            <div class="panel-title">
+              <h2>每日真实回放</h2>
+              <span id="currentBacktestResultMeta" class="muted">尚未运行</span>
+            </div>
+            <div class="table-wrap staking-backtest-table current-backtest-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>范围 / 票数</th>
+                    <th>平买</th>
+                    <th>保守</th>
+                    <th>标准</th>
+                    <th>激进</th>
+                    <th>结论</th>
+                  </tr>
+                </thead>
+                <tbody id="currentBacktestRows">
+                  <tr>
+                    <td colspan="7"><span class="muted">等待运行当前回测</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+
+        <section id="fixedTripleObservationView" class="view">
+          <section class="panel staking-backtest-panel">
+            <div class="panel-title">
+              <div>
+                <h2>频码观察</h2>
+                <span id="fixedTripleObservationMeta" class="muted">筛选历史窗口内每天都稳定出现的固定频码</span>
+              </div>
+              <div class="panel-actions">
+                <button id="runFixedTripleObservationBtn" class="primary-btn small" type="button">运行统计</button>
+              </div>
+            </div>
+            <div class="subtle-note fixed-note">
+              这里不是每天各挑几组，而是在整个历史窗口里过滤固定频码：必须每天都达到最低出现次数，才进入接下来固定守号观察。
+            </div>
+            <div class="staking-backtest-form-grid">
+              <label>
+                <span>码数</span>
+                <select id="fixedTripleObservationPickCount">
+                  <option value="3" selected>3码</option>
+                  <option value="4">4码</option>
+                  <option value="5">5码</option>
+                  <option value="6">6码</option>
+                  <option value="7">7码</option>
+                  <option value="8">8码</option>
+                </select>
+              </label>
+              <label>
+                <span>统计天数</span>
+                <input id="fixedTripleObservationDays" type="number" min="1" max="120" step="1" value="31" />
+              </label>
+              <label>
+                <span>输出Top</span>
+                <input id="fixedTripleObservationTop" type="number" min="1" max="10" step="1" value="3" />
+              </label>
+              <label>
+                <span>最低每日出现</span>
+                <input id="fixedTripleObservationMinDailyHits" type="number" min="1" max="50" step="1" value="3" />
+              </label>
+              <label>
+                <span>后续观察天数</span>
+                <input id="fixedTripleObservationForwardDays" type="number" min="1" max="14" step="1" value="3" />
+              </label>
+              <label>
+                <span>开始日期时间</span>
+                <input id="fixedTripleObservationStartDateTime" type="datetime-local" />
+              </label>
+              <label>
+                <span>结束日期时间</span>
+                <input id="fixedTripleObservationEndDateTime" type="datetime-local" />
+              </label>
+              <label>
+                <span>时区</span>
+                <select id="fixedTripleObservationTimeZone">
+                  <option value="Asia/Shanghai" selected>北京时间</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </label>
+              <label>
+                <span>起始金额</span>
+                <input id="fixedTripleObservationBaseStake" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label>
+                <span>每档加金额</span>
+                <input id="fixedTripleObservationStepStake" type="number" min="0.01" step="0.01" value="1" />
+              </label>
+              <label>
+                <span>保守间隔</span>
+                <input id="fixedTripleObservationConservativeStep" type="number" min="1" step="1" value="30" />
+              </label>
+              <label>
+                <span>保守最高单注</span>
+                <input id="fixedTripleObservationConservativeMax" type="number" min="0.01" step="0.01" value="5" />
+              </label>
+            </div>
+          </section>
+
+          <section class="staking-backtest-summary-grid" id="fixedTripleObservationStats"></section>
+
+          <section class="panel staking-backtest-result-panel">
+            <div class="panel-title">
+              <h2>固定频码延续观察</h2>
+              <span id="fixedTripleObservationResultMeta" class="muted">尚未运行</span>
+            </div>
+            <div class="table-wrap staking-backtest-table fixed-triple-observation-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th>号码</th>
+                    <th>跨天频次</th>
+                    <th>历史平买</th>
+                    <th>历史保守</th>
+                    <th>后续观察</th>
+                    <th>后续保守</th>
+                    <th>结论</th>
+                  </tr>
+                </thead>
+                <tbody id="fixedTripleObservationRows">
+                  <tr>
+                    <td colspan="8"><span class="muted">等待运行频码观察</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel staking-backtest-result-panel">
+            <div class="panel-title">
+              <div>
+                <h2>固定频码遗漏查询</h2>
+                <span id="fixedTripleOmissionMeta" class="muted">输入已筛出的固定频码，查看今天命中和当前遗漏</span>
+              </div>
+              <div class="panel-actions">
+                <button id="runFixedTripleOmissionBtn" class="primary-btn small" type="button">查询</button>
+              </div>
+            </div>
+            <div class="staking-backtest-form-grid">
+              <label>
+                <span>固定频码</span>
+                <input id="fixedTripleOmissionNumbers" type="text" placeholder="例如 3-51-61 或 4-24-57-70" />
+              </label>
+              <label>
+                <span>开奖日日期</span>
+                <input id="fixedTripleOmissionDate" type="date" />
+              </label>
+            </div>
+            <section class="staking-backtest-summary-grid" id="fixedTripleOmissionStats"></section>
+            <div class="table-wrap staking-backtest-segments fixed-triple-omission-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>命中序号</th>
+                    <th>时间</th>
+                    <th>期号</th>
+                  </tr>
+                </thead>
+                <tbody id="fixedTripleOmissionRows">
+                  <tr>
+                    <td colspan="3"><span class="muted">等待查询固定频码</span></td>
                   </tr>
                 </tbody>
               </table>

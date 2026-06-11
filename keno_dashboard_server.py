@@ -22,6 +22,7 @@ import time
 import traceback
 import uuid
 from bisect import bisect_left
+from collections import Counter
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import combinations
@@ -443,7 +444,7 @@ PREDICTION_TRACKING_METHOD_BY_PANEL = {
     PREDICTION_PANEL_DEFAULT: PREDICTION_TRACKING_METHOD_VERSION,
     PREDICTION_PANEL_B: "strategy-ticket-b-v1",
     PREDICTION_PANEL_C: "strategy-ticket-c-v1",
-    PREDICTION_PANEL_D: "strategy-ticket-d-derived-four-v1",
+    PREDICTION_PANEL_D: "strategy-ticket-d-observe-23-v1",
     PREDICTION_PANEL_E: "strategy-ticket-e-dprofit-five-v1",
     PREDICTION_PANEL_M: "strategy-ticket-m-lowgroup-v1",
     PREDICTION_PANEL_F: "strategy-ticket-f-v2",
@@ -461,7 +462,6 @@ PREDICTION_PANEL_LABELS = {
 }
 PREDICTION_RETIRED_PANELS = {
     PREDICTION_PANEL_C,
-    PREDICTION_PANEL_D,
     PREDICTION_PANEL_E,
     PREDICTION_PANEL_F,
     PREDICTION_PANEL_G,
@@ -470,6 +470,7 @@ PREDICTION_ACTIVE_TRACKING_PANELS = (
     PREDICTION_PANEL_DEFAULT,
     PREDICTION_PANEL_B,
     PREDICTION_PANEL_M,
+    PREDICTION_PANEL_D,
 )
 PREDICTION_CURRENT_METHOD_FILTER_PANELS = {
     PREDICTION_PANEL_D,
@@ -518,6 +519,33 @@ PREDICTION_PANEL_M_SOURCE_LABELS = {
     "recent_hot": "近窗热号",
     "miss_pool": "遗漏池",
     "adjacent_run": "连号形态",
+}
+PREDICTION_PANEL_D_PICK_COUNTS = (2, 3)
+PREDICTION_PANEL_D_RULES = (
+    ("consensus", "共识"),
+    ("decompose", "拆解"),
+    ("reverse", "逆向"),
+    ("shape", "形态"),
+)
+PREDICTION_PANEL_D_RULE_PRIORITY_NEW = {
+    "consensus": 1.00,
+    "decompose": 0.94,
+    "reverse": 0.88,
+    "shape": 0.82,
+}
+PREDICTION_PANEL_D_POOL_SIZE_BY_PICK = {
+    2: 18,
+    3: 16,
+}
+FREQUENCY_OBSERVATION_MIN_PICK = 3
+FREQUENCY_OBSERVATION_MAX_PICK = 8
+FREQUENCY_OBSERVATION_MAX_CANDIDATES = 240000
+FREQUENCY_OBSERVATION_POOL_SIZE_BY_PICK = {
+    4: 18,
+    5: 16,
+    6: 14,
+    7: 13,
+    8: 12,
 }
 PREDICTION_PANEL_C_TOP_COUNT = 8
 PREDICTION_PANEL_C_CORE_PAIR_LIMIT = 6
@@ -698,6 +726,7 @@ PREDICTION_PREWARM_GAME_KEYS = (
 )
 PREDICTION_PREWARM_PANELS = (
     PREDICTION_PANEL_C,
+    PREDICTION_PANEL_D,
 )
 PREDICTION_PANEL_D_KILL_C_ONLY_GAME_KEYS = {
     "russia_rapido_8_20",
@@ -3654,6 +3683,1015 @@ def staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     }
 
 
+def staking_backtest_local_datetime(draw_time_ms: int, tz: ZoneInfo) -> datetime:
+    return datetime.fromtimestamp(max(0, draw_time_ms) / 1000, tz=UTC).astimezone(tz)
+
+
+def staking_backtest_local_date_key(draw_time_ms: int, tz: ZoneInfo) -> str:
+    if draw_time_ms <= 0:
+        return ""
+    return staking_backtest_local_datetime(draw_time_ms, tz).date().isoformat()
+
+
+def staking_backtest_ms_iso(draw_time_ms: int) -> str:
+    if draw_time_ms <= 0:
+        return ""
+    return datetime.fromtimestamp(draw_time_ms / 1000, tz=UTC).isoformat(timespec="seconds")
+
+
+def current_backtest_source_panel(value: Any) -> tuple[str, str]:
+    source = str(value or PREDICTION_PANEL_M).strip().lower()
+    if source in {"d", "panel_d", "prediction_d", "predictiond"}:
+        return PREDICTION_PANEL_D, "D计划"
+    return PREDICTION_PANEL_M, "C计划"
+
+
+def current_backtest_slot_selection(value: Any) -> tuple[set[str], str]:
+    slot = str(value or "p3_1").strip().lower()
+    labels = {
+        "p2_1": "2码1",
+        "p2_2": "2码2",
+        "p2_3": "2码3",
+        "p2_4": "2码4",
+        "p2_all": "全部2码",
+        "p3_1": "3码1",
+        "p3_2": "3码2",
+        "p3_3": "3码3",
+        "p3_4": "3码4",
+        "p3_all": "全部3码",
+        "all": "全部候选",
+    }
+    if slot == "p2_all":
+        return {"p2_1", "p2_2", "p2_3", "p2_4"}, labels[slot]
+    if slot == "p3_all":
+        return {"p3_1", "p3_2", "p3_3", "p3_4"}, labels[slot]
+    if slot == "all":
+        return set(), labels[slot]
+    if slot not in labels:
+        slot = "p3_1"
+    return {slot}, labels[slot]
+
+
+def load_current_backtest_tracking_records(
+    config: dict[str, Any],
+    time_filter: dict[str, Any],
+    *,
+    panel: str,
+    max_records: int,
+) -> list[dict[str, Any]]:
+    init_prediction_tracking_db()
+    panel = prediction_panel_from_value(panel)
+    params: list[Any] = [
+        str(config["key"]),
+        panel,
+        prediction_method_version_for_panel(panel),
+    ]
+    where = "game_key = ? AND panel = ? AND method_version = ? AND status IN ('won', 'lost')"
+    start_ms = parse_int(time_filter.get("startMs"), 0)
+    end_ms = parse_int(time_filter.get("endMs"), 0)
+    if start_ms > 0:
+        where += " AND target_draw_time_ms >= ?"
+        params.append(start_ms)
+    if end_ms > 0:
+        where += " AND target_draw_time_ms <= ?"
+        params.append(end_ms)
+    params.append(max(1, max_records))
+    order_direction = "DESC" if start_ms <= 0 and end_ms <= 0 else "ASC"
+    with prediction_tracking_db_connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT record_json
+            FROM prediction_records
+            WHERE {where}
+            ORDER BY target_draw_time_ms {order_direction}, created_at {order_direction}, id {order_direction}
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+    records = sorted(
+        prediction_tracking_records_from_rows(rows),
+        key=lambda record: (
+            parse_int(record.get("targetDrawTimeMs"), 0),
+            str(record.get("createdAt") or ""),
+            str(record.get("id") or ""),
+        ),
+    )
+    game_day_tz = telegram_game_day_timezone(config)
+    start_minute = time_filter.get("dailyStartMinute")
+    end_minute = time_filter.get("dailyEndMinute")
+    if start_minute is None and end_minute is None:
+        return records
+    return [
+            record
+            for record in records
+            if staking_backtest_minutes_in_range(
+            staking_backtest_row_local_minutes({"drawTimeMs": parse_int(record.get("targetDrawTimeMs"), 0)}, game_day_tz),
+            start_minute,
+            end_minute,
+        )
+    ]
+
+
+def current_backtest_group_entries(
+    records: list[dict[str, Any]],
+    selected_slots: set[str],
+    *,
+    select_all: bool,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for record in records:
+        target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+        if target_ms <= 0:
+            continue
+        grouped.setdefault(target_ms, []).append(record)
+
+    entries: list[dict[str, Any]] = []
+    slot_counts: dict[str, int] = {}
+    missing_targets = 0
+    for target_ms in sorted(grouped):
+        batch = grouped[target_ms]
+        slots = telegram_candidate_slots(batch)
+        selected: list[dict[str, Any]] = []
+        for item in slots:
+            key = str(item.get("key") or "")
+            record = item.get("record") if isinstance(item.get("record"), dict) else {}
+            if not select_all and key not in selected_slots:
+                continue
+            if str(record.get("status") or "") not in {"won", "lost"}:
+                continue
+            selected.append(
+                {
+                    "slotKey": key,
+                    "slotLabel": str(item.get("slotLabel") or key),
+                    "record": record,
+                }
+            )
+            slot_counts[key] = slot_counts.get(key, 0) + 1
+        if not selected:
+            missing_targets += 1
+            continue
+        entries.append({"targetDrawTimeMs": target_ms, "tickets": selected})
+    return entries, {
+        "targetDraws": len(grouped),
+        "selectedDraws": len(entries),
+        "missingTargets": missing_targets,
+        "slotCounts": slot_counts,
+    }
+
+
+def current_backtest_policy_simulation(
+    draw_entries: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    total_stake = 0.0
+    total_payout = 0.0
+    balance = 0.0
+    peak_balance = 0.0
+    peak_time_ms = 0
+    max_drawdown = 0.0
+    max_stake_used = 0.0
+    wins = 0
+    bets = 0
+    miss_by_slot: dict[str, int] = {}
+    longest_miss_by_slot: dict[str, int] = {}
+    next_stake_by_slot: dict[str, float] = {}
+    milestones = {50: 0, 100: 0, 150: 0, 200: 0}
+
+    for entry in draw_entries:
+        target_ms = parse_int(entry.get("targetDrawTimeMs"), 0)
+        for item in entry.get("tickets") or []:
+            if not isinstance(item, dict):
+                continue
+            record = item.get("record") if isinstance(item.get("record"), dict) else {}
+            slot_key = str(item.get("slotKey") or "")
+            if not slot_key:
+                continue
+            current_miss = miss_by_slot.get(slot_key, 0)
+            stake = staking_backtest_stake_for_miss(policy, current_miss)
+            odds = parse_float(record.get("odds"), 0)
+            if odds <= 1:
+                pick_count = parse_int(record.get("pickCount"), len(record.get("numbers") or []))
+                odds = parse_float(
+                    DEFAULT_MAIN_ODDS_BY_GAME.get(prediction_tracking_game_key(record), {}).get(pick_count),
+                    0,
+                )
+            won = str(record.get("status") or "") == "won"
+            payout = stake * odds if won else 0.0
+            total_stake += stake
+            total_payout += payout
+            balance += payout - stake
+            max_stake_used = max(max_stake_used, stake)
+            bets += 1
+            if won:
+                wins += 1
+                miss_by_slot[slot_key] = 0
+            else:
+                next_miss = current_miss + 1
+                miss_by_slot[slot_key] = next_miss
+                longest_miss_by_slot[slot_key] = max(longest_miss_by_slot.get(slot_key, 0), next_miss)
+
+        if balance > peak_balance:
+            peak_balance = balance
+            peak_time_ms = target_ms
+        max_drawdown = max(max_drawdown, peak_balance - balance)
+        for threshold in milestones:
+            if not milestones[threshold] and balance >= threshold:
+                milestones[threshold] = target_ms
+
+    for slot_key, miss_streak in miss_by_slot.items():
+        next_stake_by_slot[slot_key] = round(staking_backtest_stake_for_miss(policy, miss_streak), 4)
+
+    net_profit = total_payout - total_stake
+    rounds = len(draw_entries)
+    result = {
+        "key": str(policy.get("key") or ""),
+        "label": str(policy.get("label") or ""),
+        "kind": str(policy.get("kind") or ""),
+        "baseStake": round(parse_float(policy.get("baseStake"), 1), 4),
+        "stepMisses": parse_int(policy.get("stepMisses"), 0),
+        "stepStake": round(parse_float(policy.get("stepStake"), 0), 4),
+        "maxStakeLimit": round(parse_float(policy.get("maxStake"), 0), 4),
+        "rounds": rounds,
+        "bets": bets,
+        "wins": wins,
+        "losses": max(0, bets - wins),
+        "hitRate": wins / bets if bets else 0,
+        "totalStake": round(total_stake, 4),
+        "totalPayout": round(total_payout, 4),
+        "netProfit": round(net_profit, 4),
+        "roi": net_profit / total_stake if total_stake else 0,
+        "peakProfit": round(peak_balance, 4),
+        "peakTimeMs": peak_time_ms,
+        "peakTimeUtc": staking_backtest_ms_iso(peak_time_ms),
+        "maxDrawdown": round(max_drawdown, 4),
+        "maxStake": round(max_stake_used, 4),
+        "longestMissStreak": max(longest_miss_by_slot.values(), default=0),
+        "currentMissStreak": max(miss_by_slot.values(), default=0),
+        "nextStake": round(sum(next_stake_by_slot.values()), 4),
+        "nextStakeBySlot": next_stake_by_slot,
+        "milestones": {
+            str(threshold): {
+                "threshold": threshold,
+                "timeMs": hit_ms,
+                "timeUtc": staking_backtest_ms_iso(hit_ms),
+            }
+            for threshold, hit_ms in milestones.items()
+        },
+    }
+    result["profitPerRound"] = net_profit / rounds if rounds else 0
+    return result
+
+
+def current_backtest_verdict(day: dict[str, Any]) -> dict[str, Any]:
+    policies = day.get("policies") if isinstance(day.get("policies"), dict) else {}
+    conservative = policies.get("conservative") if isinstance(policies.get("conservative"), dict) else {}
+    flat = policies.get("flat") if isinstance(policies.get("flat"), dict) else {}
+    standard = policies.get("standard") if isinstance(policies.get("standard"), dict) else {}
+    rounds = parse_int(day.get("rounds"), 0)
+    conservative_net = parse_float(conservative.get("netProfit"), 0)
+    flat_net = parse_float(flat.get("netProfit"), 0)
+    standard_net = parse_float(standard.get("netProfit"), 0)
+    peak = parse_float(conservative.get("peakProfit"), 0)
+    if rounds < 50:
+        return {"key": "low_sample", "label": "样本不足", "tone": "warn", "reasons": ["当天有效推荐少于50期"]}
+    if flat_net > 0 and conservative_net > 0:
+        return {"key": "good", "label": "跟踪优先", "tone": "good", "reasons": ["平买和保守都为正"]}
+    if conservative_net > 0 and standard_net > 0:
+        return {"key": "watch", "label": "只观察", "tone": "warn", "reasons": ["保守和标准为正，平买未确认"]}
+    if conservative_net > 0 or peak >= 100:
+        return {"key": "watch", "label": "只观察", "tone": "warn", "reasons": ["有正收益或日内峰值，但稳定性不足"]}
+    return {"key": "no_follow", "label": "不跟", "tone": "bad", "reasons": ["真实逐期推荐当天未跑出正收益"]}
+
+
+def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    config = game_from_query(query)
+    ensure_prediction_tracking_supported(config)
+    time_filter = staking_backtest_time_filter_from_query(query)
+    max_records = staking_backtest_query_int(query, "maxRecords", 100000, min_value=100, max_value=300000)
+    source_panel, source_label = current_backtest_source_panel(query.get("source", [PREDICTION_PANEL_M])[0])
+    selected_slots, selection_label = current_backtest_slot_selection(query.get("slot", ["p3_1"])[0])
+    records = load_current_backtest_tracking_records(config, time_filter, panel=source_panel, max_records=max_records)
+    entries, coverage = current_backtest_group_entries(records, selected_slots, select_all=not selected_slots)
+    game_day_tz = telegram_game_day_timezone(config)
+    policies = staking_backtest_policy_profiles(query)
+
+    day_entries: dict[str, list[dict[str, Any]]] = {}
+    for entry in entries:
+        day_key = staking_backtest_local_date_key(parse_int(entry.get("targetDrawTimeMs"), 0), game_day_tz)
+        if not day_key:
+            continue
+        day_entries.setdefault(day_key, []).append(entry)
+
+    days: list[dict[str, Any]] = []
+    summary_policy_lists: dict[str, list[dict[str, Any]]] = {str(policy.get("key") or ""): [] for policy in policies}
+    for day_key in sorted(day_entries):
+        rows = sorted(day_entries[day_key], key=lambda item: parse_int(item.get("targetDrawTimeMs"), 0))
+        policy_results = {
+            str(policy["key"]): current_backtest_policy_simulation(rows, policy)
+            for policy in policies
+        }
+        for key, item in policy_results.items():
+            summary_policy_lists.setdefault(key, []).append(item)
+        ticket_count = sum(len(entry.get("tickets") or []) for entry in rows)
+        day = {
+            "date": day_key,
+            "rounds": len(rows),
+            "bets": ticket_count,
+            "startTimeMs": parse_int(rows[0].get("targetDrawTimeMs"), 0) if rows else 0,
+            "endTimeMs": parse_int(rows[-1].get("targetDrawTimeMs"), 0) if rows else 0,
+            "startTimeUtc": staking_backtest_ms_iso(parse_int(rows[0].get("targetDrawTimeMs"), 0)) if rows else "",
+            "endTimeUtc": staking_backtest_ms_iso(parse_int(rows[-1].get("targetDrawTimeMs"), 0)) if rows else "",
+            "policies": policy_results,
+        }
+        day["verdict"] = current_backtest_verdict(day)
+        days.append(day)
+
+    summary_policies: dict[str, dict[str, Any]] = {}
+    for policy in policies:
+        key = str(policy.get("key") or "")
+        items = summary_policy_lists.get(key) or []
+        total_stake = sum(parse_float(item.get("totalStake"), 0) for item in items)
+        total_payout = sum(parse_float(item.get("totalPayout"), 0) for item in items)
+        net_profit = total_payout - total_stake
+        bets = sum(parse_int(item.get("bets"), 0) for item in items)
+        wins = sum(parse_int(item.get("wins"), 0) for item in items)
+        best_day = max(items, key=lambda item: parse_float(item.get("netProfit"), 0), default={})
+        peak_day = max(items, key=lambda item: parse_float(item.get("peakProfit"), 0), default={})
+        summary_policies[key] = {
+            "key": key,
+            "label": str(policy.get("label") or key),
+            "days": len(items),
+            "rounds": sum(parse_int(item.get("rounds"), 0) for item in items),
+            "bets": bets,
+            "wins": wins,
+            "losses": max(0, bets - wins),
+            "hitRate": wins / bets if bets else 0,
+            "totalStake": round(total_stake, 4),
+            "totalPayout": round(total_payout, 4),
+            "netProfit": round(net_profit, 4),
+            "roi": net_profit / total_stake if total_stake else 0,
+            "peakProfit": round(max((parse_float(item.get("peakProfit"), 0) for item in items), default=0), 4),
+            "maxDrawdown": round(max((parse_float(item.get("maxDrawdown"), 0) for item in items), default=0), 4),
+            "bestDayProfit": round(parse_float(best_day.get("netProfit"), 0), 4),
+            "peakDayProfit": round(parse_float(peak_day.get("peakProfit"), 0), 4),
+        }
+
+    coverage_start = parse_int(entries[0].get("targetDrawTimeMs"), 0) if entries else 0
+    coverage_end = parse_int(entries[-1].get("targetDrawTimeMs"), 0) if entries else 0
+    warnings: list[str] = []
+    if not records:
+        warnings.append(f"当前没有 {source_label} 已结算追踪记录；只能从追踪库存在的日期开始回放。")
+    elif len(entries) < 300:
+        warnings.append("真实逐期推荐样本少于300期，只能观察，不能定自动投注参数。")
+    if coverage.get("missingTargets"):
+        warnings.append(f"有 {coverage['missingTargets']} 个目标开奖没有匹配到所选槽位。")
+
+    return {
+        "ok": True,
+        "generatedAt": utc_now_iso(),
+        "game": game_public_config(config),
+        "method": f"真实逐期推荐回测：每期开奖使用当时追踪库里已经生成并结算的 {source_label} 候选，不固定当前号码。",
+        "selection": {
+            "source": source_panel,
+            "sourceLabel": source_label,
+            "slot": str(query.get("slot", ["p3_1"])[0] or "p3_1"),
+            "label": selection_label,
+            "selectedSlots": sorted(selected_slots),
+        },
+        "timeFilter": {
+            "timeZone": time_filter["timeZone"],
+            "gameDayTimeZone": str(game_day_tz.key),
+            "startDateTime": time_filter["startDateTime"],
+            "endDateTime": time_filter["endDateTime"],
+            "startDrawTimeMs": time_filter["startMs"],
+            "endDrawTimeMs": time_filter["endMs"],
+            "dailyStart": time_filter["dailyStart"],
+            "dailyEnd": time_filter["dailyEnd"],
+            "dailyStartMinute": time_filter["dailyStartMinute"],
+            "dailyEndMinute": time_filter["dailyEndMinute"],
+        },
+        "coverage": {
+            **coverage,
+            "records": len(records),
+            "days": len(days),
+            "startTimeMs": coverage_start,
+            "endTimeMs": coverage_end,
+            "startTimeUtc": staking_backtest_ms_iso(coverage_start),
+            "endTimeUtc": staking_backtest_ms_iso(coverage_end),
+        },
+        "policies": policies,
+        "summary": {
+            "days": len(days),
+            "rounds": sum(parse_int(day.get("rounds"), 0) for day in days),
+            "bets": sum(parse_int(day.get("bets"), 0) for day in days),
+            "positiveConservativeDays": sum(
+                1
+                for day in days
+                if parse_float(((day.get("policies") or {}).get("conservative") or {}).get("netProfit"), 0) > 0
+            ),
+            "policies": summary_policies,
+        },
+        "days": list(reversed(days)),
+        "warnings": warnings,
+    }
+
+
+def fixed_triple_day_rows(
+    rows: list[dict[str, Any]],
+    tz: ZoneInfo,
+    *,
+    start_minute: int | None = None,
+    end_minute: int | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        draw_ms = parse_int(row.get("drawTimeMs"), 0)
+        if draw_ms <= 0:
+            continue
+        if not staking_backtest_minutes_in_range(
+            staking_backtest_row_local_minutes(row, tz),
+            start_minute,
+            end_minute,
+        ):
+            continue
+        day_key = staking_backtest_local_date_key(draw_ms, tz)
+        if not day_key:
+            continue
+        grouped.setdefault(day_key, []).append(row)
+    for key in grouped:
+        grouped[key].sort(key=lambda item: parse_int(item.get("drawTimeMs"), 0))
+    return grouped
+
+
+def fixed_triple_forward_rows(
+    rows_by_day: dict[str, list[dict[str, Any]]],
+    day_key: str,
+    forward_days: int,
+) -> list[dict[str, Any]]:
+    days = [key for key in sorted(rows_by_day) if key > day_key]
+    selected_days = days[: max(0, forward_days)]
+    result: list[dict[str, Any]] = []
+    for key in selected_days:
+        result.extend(rows_by_day.get(key) or [])
+    return sorted(result, key=lambda item: parse_int(item.get("drawTimeMs"), 0))
+
+
+def fixed_triple_day_reset_policy_simulation(
+    rows_by_day: dict[str, list[dict[str, Any]]],
+    day_keys: list[str],
+    numbers: tuple[int, ...],
+    odds: float,
+    policy: dict[str, Any],
+) -> dict[str, Any]:
+    day_results = [
+        staking_backtest_policy_simulation(rows_by_day.get(day_key) or [], numbers, odds, policy)
+        for day_key in day_keys
+        if rows_by_day.get(day_key)
+    ]
+    total_stake = sum(parse_float(item.get("totalStake"), 0) for item in day_results)
+    total_payout = sum(parse_float(item.get("totalPayout"), 0) for item in day_results)
+    net_profit = total_payout - total_stake
+    rounds = sum(parse_int(item.get("rounds"), 0) for item in day_results)
+    wins = sum(parse_int(item.get("wins"), 0) for item in day_results)
+    best_day = max(day_results, key=lambda item: parse_float(item.get("netProfit"), 0), default={})
+    worst_day = min(day_results, key=lambda item: parse_float(item.get("netProfit"), 0), default={})
+    return {
+        "key": str(policy.get("key") or ""),
+        "label": str(policy.get("label") or ""),
+        "kind": str(policy.get("kind") or ""),
+        "days": len(day_results),
+        "positiveDays": sum(1 for item in day_results if parse_float(item.get("netProfit"), 0) > 0),
+        "rounds": rounds,
+        "wins": wins,
+        "losses": max(0, rounds - wins),
+        "hitRate": wins / rounds if rounds else 0,
+        "totalStake": round(total_stake, 4),
+        "totalPayout": round(total_payout, 4),
+        "netProfit": round(net_profit, 4),
+        "roi": net_profit / total_stake if total_stake else 0,
+        "maxStake": round(max((parse_float(item.get("maxStake"), 0) for item in day_results), default=0), 4),
+        "maxDrawdown": round(max((parse_float(item.get("maxDrawdown"), 0) for item in day_results), default=0), 4),
+        "longestMissStreak": max((parse_int(item.get("longestMissStreak"), 0) for item in day_results), default=0),
+        "bestDayProfit": round(parse_float(best_day.get("netProfit"), 0), 4),
+        "worstDayProfit": round(parse_float(worst_day.get("netProfit"), 0), 4),
+    }
+
+
+def frequency_observation_join_candidates(
+    previous: dict[tuple[int, ...], int],
+    pick_count: int,
+) -> set[tuple[int, ...]]:
+    previous_keys = sorted(previous)
+    previous_set = set(previous_keys)
+    candidates: set[tuple[int, ...]] = set()
+    for left_index, left in enumerate(previous_keys):
+        for right in previous_keys[left_index + 1 :]:
+            if left[:-1] != right[:-1]:
+                if right[:-1] > left[:-1]:
+                    break
+                continue
+            combo = tuple(sorted(set(left) | set(right)))
+            if len(combo) != pick_count:
+                continue
+            if all(tuple(subset) in previous_set for subset in combinations(combo, pick_count - 1)):
+                candidates.add(combo)
+    return candidates
+
+
+def frequency_observation_day_counts(
+    day_rows: list[dict[str, Any]],
+    pick_count: int,
+    min_daily_hits: int,
+    total_numbers: int,
+    pool_numbers: set[int] | None = None,
+) -> tuple[Counter[tuple[int, ...]], bool]:
+    if pick_count < 1 or not day_rows:
+        return Counter(), False
+    min_daily_hits = max(1, min_daily_hits)
+    one_counter: Counter[tuple[int, ...]] = Counter()
+    draw_sets: list[set[int]] = []
+    for row in day_rows:
+        draw_numbers = {
+            parse_int(number, 0)
+            for number in row.get("numbers") or []
+            if 1 <= parse_int(number, 0) <= total_numbers
+        }
+        if not draw_numbers:
+            continue
+        draw_sets.append(draw_numbers)
+        for number in draw_numbers:
+            one_counter[(number,)] += 1
+    frequent: dict[tuple[int, ...], int] = {
+        combo: count
+        for combo, count in one_counter.items()
+        if count >= min_daily_hits
+    }
+    if pick_count == 1:
+        return Counter(frequent), False
+    capped = False
+    frequent_one_numbers = {combo[0] for combo in frequent}
+    if pick_count <= 3:
+        counter: Counter[tuple[int, ...]] = Counter()
+        for draw_numbers in draw_sets:
+            eligible = sorted(number for number in draw_numbers if number in frequent_one_numbers)
+            if len(eligible) < pick_count:
+                continue
+            for combo in combinations(eligible, pick_count):
+                counter[combo] += 1
+        return Counter(
+            {
+                combo: count
+                for combo, count in counter.items()
+                if count >= min_daily_hits
+            }
+        ), False
+
+    if pool_numbers is None:
+        pool_size = FREQUENCY_OBSERVATION_POOL_SIZE_BY_PICK.get(pick_count, 12)
+        pool_numbers = {
+            combo[0]
+            for combo, _count in sorted(
+                frequent.items(),
+                key=lambda item: (-item[1], item[0]),
+            )[:pool_size]
+        }
+    counter: Counter[tuple[int, ...]] = Counter()
+    for draw_numbers in draw_sets:
+        eligible = sorted(number for number in draw_numbers if number in pool_numbers)
+        if len(eligible) < pick_count:
+            continue
+        for combo in combinations(eligible, pick_count):
+            counter[combo] += 1
+    return Counter(
+        {
+            combo: count
+            for combo, count in counter.items()
+            if count >= min_daily_hits
+        }
+    ), True
+
+    previous = frequent
+    for level in range(2, pick_count + 1):
+        candidates = frequency_observation_join_candidates(previous, level)
+        if not candidates:
+            return Counter(), capped
+        if len(candidates) > FREQUENCY_OBSERVATION_MAX_CANDIDATES:
+            capped = True
+            candidates = set(
+                sorted(
+                    candidates,
+                    key=lambda combo: (
+                        -sum(previous.get(tuple(subset), 0) for subset in combinations(combo, level - 1)),
+                        combo,
+                    ),
+                )[:FREQUENCY_OBSERVATION_MAX_CANDIDATES]
+            )
+        counter: Counter[tuple[int, ...]] = Counter()
+        for draw_numbers in draw_sets:
+            eligible = sorted(number for number in draw_numbers if number in frequent_one_numbers)
+            if len(eligible) < level:
+                continue
+            for combo in combinations(eligible, level):
+                if combo in candidates:
+                    counter[combo] += 1
+        previous = {
+            combo: count
+            for combo, count in counter.items()
+            if count >= min_daily_hits
+        }
+        if not previous:
+            return Counter(), capped
+    return Counter(previous), capped
+
+
+def fixed_triple_daily_counts(
+    rows_by_day: dict[str, list[dict[str, Any]]],
+    day_keys: list[str],
+    pick_count: int,
+    min_daily_hits: int,
+    total_numbers: int,
+) -> tuple[dict[str, Counter[tuple[int, ...]]], set[tuple[int, ...]], dict[str, Any]]:
+    counters: dict[str, Counter[tuple[int, ...]]] = {}
+    all_combos: set[tuple[int, ...]] = set()
+    capped_days: list[str] = []
+    global_pool_numbers: set[int] | None = None
+    pool_size = FREQUENCY_OBSERVATION_POOL_SIZE_BY_PICK.get(pick_count, 0)
+    if pick_count >= 4 and pool_size > 0:
+        pool_counter: Counter[int] = Counter()
+        for day_key in day_keys:
+            for row in rows_by_day.get(day_key) or []:
+                for number in {
+                    parse_int(value, 0)
+                    for value in row.get("numbers") or []
+                    if 1 <= parse_int(value, 0) <= total_numbers
+                }:
+                    pool_counter[number] += 1
+        global_pool_numbers = {
+            number
+            for number, _count in sorted(pool_counter.items(), key=lambda item: (-item[1], item[0]))[:pool_size]
+        }
+    for day_key in day_keys:
+        counter, capped = frequency_observation_day_counts(
+            rows_by_day.get(day_key) or [],
+            pick_count,
+            min_daily_hits,
+            total_numbers,
+            pool_numbers=global_pool_numbers,
+        )
+        counters[day_key] = counter
+        all_combos.update(counter.keys())
+        if capped:
+            capped_days.append(day_key)
+    return counters, all_combos, {
+        "cappedDays": capped_days,
+        "candidateCap": FREQUENCY_OBSERVATION_MAX_CANDIDATES,
+        "poolSize": FREQUENCY_OBSERVATION_POOL_SIZE_BY_PICK.get(pick_count, 0),
+        "poolNumbers": sorted(global_pool_numbers or []),
+    }
+
+
+def fixed_triple_observation_verdict(
+    item: dict[str, Any],
+    *,
+    forward_has_rows: bool,
+) -> dict[str, Any]:
+    history_conservative = item.get("historyConservative") if isinstance(item.get("historyConservative"), dict) else {}
+    forward_conservative = item.get("forwardConservative") if isinstance(item.get("forwardConservative"), dict) else {}
+    min_hits = parse_int(item.get("minDailyHits"), 0)
+    history_net = parse_float(history_conservative.get("netProfit"), 0)
+    history_positive_days = parse_int(history_conservative.get("positiveDays"), 0)
+    source_days = parse_int(item.get("sourceDays"), 0)
+    if source_days <= 0:
+        return {"key": "empty", "label": "无样本", "tone": "warn", "reasons": ["历史窗口没有有效开奖日"]}
+    if min_hits <= 0:
+        return {"key": "no_follow", "label": "剔除", "tone": "bad", "reasons": ["没有做到每天命中"]}
+    if history_positive_days < max(1, source_days // 2):
+        return {"key": "watch", "label": "只观察", "tone": "warn", "reasons": ["每天有出现，但保守档正收益天数不足"]}
+    if not forward_has_rows:
+        return {"key": "pending", "label": "待观察", "tone": "warn", "reasons": ["历史窗口合格，后续开奖还未形成观察样本"]}
+    forward_net = parse_float(forward_conservative.get("netProfit"), 0)
+    if history_net > 0 and forward_net > 0:
+        return {"key": "good", "label": "继续强", "tone": "good", "reasons": ["历史稳定且后续保守档为正"]}
+    if history_net > 0:
+        return {"key": "watch", "label": "只观察", "tone": "warn", "reasons": ["历史稳定，后续仍需确认"]}
+    return {"key": "no_follow", "label": "不跟", "tone": "bad", "reasons": ["固定守号历史资金结果不够好"]}
+
+
+def fixed_triple_observation_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    config = game_from_query(query)
+    ensure_analysis_supported(config)
+    pick_count = staking_backtest_query_int(
+        query,
+        "pickCount",
+        3,
+        min_value=FREQUENCY_OBSERVATION_MIN_PICK,
+        max_value=min(FREQUENCY_OBSERVATION_MAX_PICK, int(config.get("drawnNumbers") or FREQUENCY_OBSERVATION_MAX_PICK)),
+    )
+    if int(config.get("drawnNumbers") or 0) < pick_count:
+        raise ValueError(f"当前彩种不支持{pick_count}码频次观察")
+    top_n = staking_backtest_query_int(query, "top", 3, min_value=1, max_value=20)
+    days_limit = staking_backtest_query_int(query, "days", 31, min_value=1, max_value=120)
+    forward_days = staking_backtest_query_int(query, "forwardDays", 3, min_value=1, max_value=14)
+    min_daily_hits = staking_backtest_query_int(query, "minDailyHits", 3, min_value=1, max_value=50)
+    time_filter = staking_backtest_time_filter_from_query(query)
+    game_day_tz = telegram_game_day_timezone(config)
+    policies = staking_backtest_policy_profiles(query)
+    policy_by_key = {str(policy.get("key") or ""): policy for policy in policies}
+    flat_policy = policy_by_key.get("flat") or policies[0]
+    conservative_policy = policy_by_key.get("conservative") or policies[0]
+
+    history_path = game_history_path(config)
+    with DATA_LOCK:
+        all_rows = load_history_rows(history_path, config)
+    rows = sorted(valid_draw_rows(all_rows, config), key=lambda row: parse_int(row.get("drawTimeMs"), 0))
+    date_scoped_rows = staking_backtest_filter_absolute_rows(
+        rows,
+        start_ms=parse_int(time_filter.get("startMs"), 0),
+        end_ms=parse_int(time_filter.get("endMs"), 0),
+    )
+    all_rows_by_day = fixed_triple_day_rows(
+        rows,
+        game_day_tz,
+        start_minute=time_filter.get("dailyStartMinute"),
+        end_minute=time_filter.get("dailyEndMinute"),
+    )
+    scoped_rows_by_day = fixed_triple_day_rows(
+        date_scoped_rows,
+        game_day_tz,
+        start_minute=time_filter.get("dailyStartMinute"),
+        end_minute=time_filter.get("dailyEndMinute"),
+    )
+    selected_day_keys = sorted(scoped_rows_by_day)[-days_limit:]
+    if not selected_day_keys:
+        raise ValueError("历史窗口没有可统计的有效开奖日")
+    odds = parse_float(DEFAULT_MAIN_ODDS_BY_GAME.get(str(config["key"]), {}).get(pick_count), 0)
+    if odds <= 1:
+        raise ValueError(f"当前彩种没有可用{pick_count}码赔率")
+
+    daily_counts, all_combos, frequency_meta = fixed_triple_daily_counts(
+        scoped_rows_by_day,
+        selected_day_keys,
+        pick_count,
+        min_daily_hits,
+        int(config["totalNumbers"]),
+    )
+    source_draws = sum(len(scoped_rows_by_day.get(day_key) or []) for day_key in selected_day_keys)
+    filtered_items: list[dict[str, Any]] = []
+    for combo in all_combos:
+        daily_hits = [parse_int(daily_counts.get(day_key, {}).get(combo), 0) for day_key in selected_day_keys]
+        if len(daily_hits) != len(selected_day_keys):
+            continue
+        min_hits = min(daily_hits) if daily_hits else 0
+        if min_hits < min_daily_hits:
+            continue
+        total_hits = sum(daily_hits)
+        average_hits = total_hits / len(daily_hits) if daily_hits else 0
+        filtered_items.append(
+            {
+                "numbers": combo,
+                "dailyHits": daily_hits,
+                "totalHits": total_hits,
+                "averageDailyHits": average_hits,
+                "minDailyHits": min_hits,
+                "maxDailyHits": max(daily_hits) if daily_hits else 0,
+                "sourceDays": len(selected_day_keys),
+                "sourceDraws": source_draws,
+            }
+        )
+
+    filtered_items.sort(
+        key=lambda item: (
+            parse_float(item.get("averageDailyHits"), 0),
+            parse_int(item.get("minDailyHits"), 0),
+            parse_int(item.get("totalHits"), 0),
+            tuple(-number for number in item.get("numbers") or ()),
+        ),
+        reverse=True,
+    )
+    selected = filtered_items[:top_n]
+    latest_day = selected_day_keys[-1]
+    forward_day_keys = [key for key in sorted(all_rows_by_day) if key > latest_day][:forward_days]
+    forward_rows = [row for day_key in forward_day_keys for row in (all_rows_by_day.get(day_key) or [])]
+    items: list[dict[str, Any]] = []
+    for rank, item in enumerate(selected, start=1):
+        numbers = tuple(item["numbers"])
+        history_flat = fixed_triple_day_reset_policy_simulation(
+            scoped_rows_by_day,
+            selected_day_keys,
+            numbers,
+            odds,
+            flat_policy,
+        )
+        history_conservative = fixed_triple_day_reset_policy_simulation(
+            scoped_rows_by_day,
+            selected_day_keys,
+            numbers,
+            odds,
+            conservative_policy,
+        )
+        forward_flat = fixed_triple_day_reset_policy_simulation(
+            all_rows_by_day,
+            forward_day_keys,
+            numbers,
+            odds,
+            flat_policy,
+        ) if forward_day_keys else {}
+        forward_conservative = fixed_triple_day_reset_policy_simulation(
+            all_rows_by_day,
+            forward_day_keys,
+            numbers,
+            odds,
+            conservative_policy,
+        ) if forward_day_keys else {}
+        output_item = {
+            "rank": rank,
+            "pickCount": pick_count,
+            "numbers": list(numbers),
+            "odds": round(odds, 4),
+            "sourceStartDay": selected_day_keys[0],
+            "sourceEndDay": selected_day_keys[-1],
+            "sourceDays": item["sourceDays"],
+            "sourceDraws": item["sourceDraws"],
+            "dailyHits": item["dailyHits"],
+            "totalHits": item["totalHits"],
+            "averageDailyHits": item["averageDailyHits"],
+            "minDailyHits": item["minDailyHits"],
+            "maxDailyHits": item["maxDailyHits"],
+            "historyFlat": history_flat,
+            "historyConservative": history_conservative,
+            "forwardDays": len(forward_day_keys),
+            "forwardRequestedDays": forward_days,
+            "forwardStartDay": forward_day_keys[0] if forward_day_keys else "",
+            "forwardEndDay": forward_day_keys[-1] if forward_day_keys else "",
+            "forwardDraws": len(forward_rows),
+            "forwardHits": sum(1 for row in forward_rows if ticket_hit(row, numbers)),
+            "forwardFlat": forward_flat,
+            "forwardConservative": forward_conservative,
+        }
+        output_item["forwardHitRate"] = (
+            parse_int(output_item.get("forwardHits"), 0) / len(forward_rows) if forward_rows else 0
+        )
+        output_item["verdict"] = fixed_triple_observation_verdict(output_item, forward_has_rows=bool(forward_day_keys))
+        items.append(output_item)
+
+    return {
+        "ok": True,
+        "generatedAt": utc_now_iso(),
+        "game": game_public_config(config),
+        "method": f"固定{pick_count}码跨天稳定观察：3码全量统计，4-8码使用每日高频号码池剪枝统计；只保留每天都达到最低出现次数的固定组合，再用于后续固定守号观察。",
+        "timeFilter": {
+            "timeZone": time_filter["timeZone"],
+            "gameDayTimeZone": str(game_day_tz.key),
+            "startDateTime": time_filter["startDateTime"],
+            "endDateTime": time_filter["endDateTime"],
+            "dailyStart": time_filter["dailyStart"],
+            "dailyEnd": time_filter["dailyEnd"],
+        },
+        "settings": {
+            "pickCount": pick_count,
+            "top": top_n,
+            "days": days_limit,
+            "actualDays": len(selected_day_keys),
+            "forwardDays": forward_days,
+            "minDailyHits": min_daily_hits,
+        },
+        "summary": {
+            "days": len(selected_day_keys),
+            "items": len(items),
+            "filteredCombos": len(filtered_items),
+            "allCombos": len(all_combos),
+            "sourceStartDay": selected_day_keys[0],
+            "sourceEndDay": selected_day_keys[-1],
+            "forwardDays": len(forward_day_keys),
+            "forwardStartDay": forward_day_keys[0] if forward_day_keys else "",
+            "forwardEndDay": forward_day_keys[-1] if forward_day_keys else "",
+            "historyRows": len(rows),
+            "dateFilteredRows": len(date_scoped_rows),
+            "sourceDraws": source_draws,
+            "cappedDays": frequency_meta.get("cappedDays") or [],
+            "candidateCap": parse_int(frequency_meta.get("candidateCap"), 0),
+            "poolSize": parse_int(frequency_meta.get("poolSize"), 0),
+            "poolNumbers": frequency_meta.get("poolNumbers") or [],
+            "profitableHistoryConservative": sum(
+                1 for item in items if parse_float((item.get("historyConservative") or {}).get("netProfit"), 0) > 0
+            ),
+            "profitableForwardConservative": sum(
+                1 for item in items if parse_float((item.get("forwardConservative") or {}).get("netProfit"), 0) > 0
+            ),
+        },
+        "items": items,
+    }
+
+
+def fixed_triple_query_numbers(query: dict[str, list[str]], config: dict[str, Any]) -> tuple[int, ...]:
+    raw = query.get("numbers", [""])[0]
+    numbers = sorted(parse_bet_numbers(raw, int(config["totalNumbers"])))
+    requested_pick = parse_int(query.get("pickCount", ["0"])[0], 0)
+    if requested_pick > 0 and len(numbers) != requested_pick:
+        raise ValueError(f"遗漏查询需要输入正好{requested_pick}个号码")
+    if len(numbers) < FREQUENCY_OBSERVATION_MIN_PICK or len(numbers) > FREQUENCY_OBSERVATION_MAX_PICK:
+        raise ValueError("遗漏查询需要输入3-8个号码，例如 3-51-61")
+    return tuple(numbers)
+
+
+def fixed_triple_omission_payload(query: dict[str, list[str]]) -> dict[str, Any]:
+    config = game_from_query(query)
+    ensure_analysis_supported(config)
+    numbers = fixed_triple_query_numbers(query, config)
+    display_tz = staking_backtest_timezone(query)
+    game_day_tz = telegram_game_day_timezone(config)
+    date_text = str(query.get("date", [""])[0] or "").strip()
+    if not date_text:
+        date_text = datetime.now(tz=game_day_tz).date().isoformat()
+
+    history_path = game_history_path(config)
+    with DATA_LOCK:
+        all_rows = load_history_rows(history_path, config)
+    rows = sorted(valid_draw_rows(all_rows, config), key=lambda row: parse_int(row.get("drawTimeMs"), 0))
+    rows_by_day = fixed_triple_day_rows(rows, game_day_tz)
+    day_rows = rows_by_day.get(date_text) or []
+    hit_positions: list[int] = []
+    hit_rows: list[dict[str, Any]] = []
+    for index, row in enumerate(day_rows, start=1):
+        if ticket_hit(row, numbers):
+            hit_positions.append(index)
+            hit_rows.append(row)
+
+    current_miss, max_miss, last_miss, last_hit_draw = miss_stats_from_hits(len(day_rows), hit_positions)
+    last_hit_row = day_rows[last_hit_draw - 1] if last_hit_draw else None
+    pick_count = len(numbers)
+    odds = parse_float(DEFAULT_MAIN_ODDS_BY_GAME.get(str(config["key"]), {}).get(pick_count), 0)
+    policies = staking_backtest_policy_profiles(query)
+    policy_by_key = {str(policy.get("key") or ""): policy for policy in policies}
+    flat_policy = policy_by_key.get("flat") or policies[0]
+    conservative_policy = policy_by_key.get("conservative") or policies[0]
+    flat = staking_backtest_policy_simulation(day_rows, numbers, odds, flat_policy) if day_rows and odds > 1 else {}
+    conservative = (
+        staking_backtest_policy_simulation(day_rows, numbers, odds, conservative_policy)
+        if day_rows and odds > 1
+        else {}
+    )
+    latest_row = day_rows[-1] if day_rows else {}
+    first_row = day_rows[0] if day_rows else {}
+    return {
+        "ok": True,
+        "generatedAt": utc_now_iso(),
+        "game": game_public_config(config),
+        "method": f"固定{pick_count}码遗漏查询：按指定日期检查该{pick_count}码当天命中、当前遗漏和固定追投结果。",
+        "timeZone": str(display_tz.key),
+        "gameDayTimeZone": str(game_day_tz.key),
+        "date": date_text,
+        "pickCount": pick_count,
+        "numbers": list(numbers),
+        "ticketLabel": "-".join(str(number) for number in numbers),
+        "odds": round(odds, 4),
+        "draws": len(day_rows),
+        "hits": len(hit_rows),
+        "hitRate": len(hit_rows) / len(day_rows) if day_rows else 0,
+        "currentMiss": current_miss,
+        "maxMiss": max_miss,
+        "lastMiss": last_miss,
+        "lastHitDraw": last_hit_draw,
+        "firstDrawTimeUtc": str(first_row.get("drawTimeUtc") or ""),
+        "latestDrawTimeUtc": str(latest_row.get("drawTimeUtc") or ""),
+        "lastHitTimeUtc": str(last_hit_row.get("drawTimeUtc") if last_hit_row else ""),
+        "lastHitDrawEventId": str(last_hit_row.get("drawEventId") if last_hit_row else ""),
+        "recentHitTimes": [
+            {
+                "drawIndex": hit_positions[index],
+                "drawTimeUtc": str(row.get("drawTimeUtc") or ""),
+                "drawEventId": str(row.get("drawEventId") or ""),
+            }
+            for index, row in list(enumerate(hit_rows))[-12:]
+        ],
+        "flat": flat,
+        "conservative": conservative,
+        "verdict": fixed_triple_omission_verdict(len(day_rows), len(hit_rows), current_miss, conservative),
+    }
+
+
+def fixed_triple_omission_verdict(
+    draws: int,
+    hits: int,
+    current_miss: int,
+    conservative: dict[str, Any],
+) -> dict[str, Any]:
+    if draws <= 0:
+        return {"key": "empty", "label": "无开奖", "tone": "warn", "reasons": ["当天还没有有效开奖样本"]}
+    conservative_net = parse_float(conservative.get("netProfit"), 0)
+    next_stake = parse_float(conservative.get("nextStake"), 0)
+    if hits <= 0:
+        return {"key": "watch", "label": "等首中", "tone": "warn", "reasons": [f"今天尚未命中，当前遗漏 {current_miss} 期"]}
+    if conservative_net > 0:
+        return {"key": "good", "label": "今天可看", "tone": "good", "reasons": ["今天保守档已为正"]}
+    return {
+        "key": "watch",
+        "label": "只观察",
+        "tone": "warn",
+        "reasons": [f"今天已命中 {hits} 次，但保守档仍未转正；下一注 {next_stake:g}"],
+    }
+
+
 def prediction_panel_m_add_candidate(
     candidates: dict[tuple[int, ...], dict[str, Any]],
     numbers: Iterable[Any],
@@ -3956,6 +4994,433 @@ def prediction_panel_m_low_group_tickets(
                 item["stakingSimulation"] = prediction_ticket_staking_simulation(rows, item, config)
         result.extend(selected)
     return result
+
+
+def prediction_panel_d_add_candidate(
+    candidates: dict[tuple[str, int, tuple[int, ...]], dict[str, Any]],
+    numbers: Iterable[Any],
+    pick_count: int,
+    total_numbers: int,
+    rule_key: str,
+    *,
+    source_panels: Iterable[str] | None = None,
+    source_labels: Iterable[str] | None = None,
+    source_numbers: Iterable[Any] | None = None,
+    heuristic_score: float = 0,
+) -> None:
+    key = prediction_panel_m_candidate_key(numbers, pick_count, total_numbers)
+    if not key:
+        return
+    item_key = (rule_key, pick_count, key)
+    item = candidates.setdefault(
+        item_key,
+        {
+            "numbers": key,
+            "ruleKey": rule_key,
+            "pickCount": pick_count,
+            "sourcePanels": set(),
+            "sourceLabels": [],
+            "sourceNumbers": set(),
+            "heuristicScores": [],
+        },
+    )
+    for panel in source_panels or []:
+        panel_key = prediction_panel_from_value(panel)
+        if panel_key:
+            item["sourcePanels"].add(panel_key)
+    for label in source_labels or []:
+        text = str(label or "").strip()
+        if text and text not in item["sourceLabels"]:
+            item["sourceLabels"].append(text)
+    for number in source_numbers or key:
+        parsed = parse_int(number, 0)
+        if 1 <= parsed <= total_numbers:
+            item["sourceNumbers"].add(parsed)
+    item["heuristicScores"].append(float(heuristic_score))
+
+
+def prediction_panel_d_ticket_sources(
+    tickets_by_panel: list[tuple[str, list[dict[str, Any]]]],
+    total_numbers: int,
+) -> tuple[dict[int, set[str]], dict[int, int], dict[int, list[str]]]:
+    panels_by_number: dict[int, set[str]] = {}
+    counts_by_number: dict[int, int] = {}
+    labels_by_number: dict[int, list[str]] = {}
+    for panel, tickets in tickets_by_panel:
+        panel_key = prediction_panel_from_value(panel)
+        for ticket in tickets:
+            if not isinstance(ticket, dict) or str(ticket.get("mode") or "main") != "main":
+                continue
+            label = str(ticket.get("ticketLabel") or "-".join(str(number) for number in ticket.get("numbers") or []))
+            for number in ticket.get("numbers") or []:
+                parsed = parse_int(number, 0)
+                if not 1 <= parsed <= total_numbers:
+                    continue
+                panels_by_number.setdefault(parsed, set()).add(panel_key)
+                counts_by_number[parsed] = counts_by_number.get(parsed, 0) + 1
+                bucket = labels_by_number.setdefault(parsed, [])
+                if label and label not in bucket:
+                    bucket.append(label)
+    return panels_by_number, counts_by_number, labels_by_number
+
+
+def prediction_panel_d_observation_tickets(
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+    a_tickets: list[dict[str, Any]],
+    b_tickets: list[dict[str, Any]],
+    m_tickets: list[dict[str, Any]],
+    frequency: dict[int, dict[str, Any]],
+    recent_counts: dict[int, int],
+    recent_window: int,
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+    *,
+    stats_index: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    game_key = str(config["key"])
+    total_numbers = int(config["totalNumbers"])
+    draw_count = len(rows)
+    number_range = list(range(1, total_numbers + 1))
+    scored = scored_numbers(
+        number_range,
+        PREDICTION_NUMBER_WEIGHTS[0],
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_count,
+    )
+    score_values = [parse_float(item.get("score"), 0) for item in scored]
+    max_score = max(score_values, default=1) or 1
+    score_by_number = {int(item["number"]): parse_float(item.get("score"), 0) / max_score for item in scored}
+    miss_by_number = {
+        number: parse_int((frequency.get(number) or {}).get("currentMiss"), 0)
+        for number in number_range
+    }
+    hit_rate_by_number = {
+        number: parse_float((frequency.get(number) or {}).get("hitRate"), 0)
+        for number in number_range
+    }
+    recent_rate_by_number = {
+        number: (parse_int(recent_counts.get(number), 0) / recent_window if recent_window else 0)
+        for number in number_range
+    }
+    source_tickets = [
+        (PREDICTION_PANEL_DEFAULT, a_tickets),
+        (PREDICTION_PANEL_B, b_tickets),
+        (PREDICTION_PANEL_M, m_tickets),
+    ]
+    panels_by_number, source_counts_by_number, labels_by_number = prediction_panel_d_ticket_sources(
+        source_tickets,
+        total_numbers,
+    )
+    candidates: dict[tuple[str, int, tuple[int, ...]], dict[str, Any]] = {}
+
+    def combo_score(numbers: Iterable[int]) -> float:
+        values = [score_by_number.get(int(number), 0.0) for number in numbers]
+        recent_values = [recent_rate_by_number.get(int(number), 0.0) for number in numbers]
+        miss_values = [miss_by_number.get(int(number), 0) for number in numbers]
+        source_values = [len(panels_by_number.get(int(number), set())) / 3 for number in numbers]
+        return (
+            0.40 * (sum(values) / max(len(values), 1))
+            + 0.24 * (sum(recent_values) / max(len(recent_values), 1))
+            + 0.18 * (sum(source_values) / max(len(source_values), 1))
+            + 0.18 * normalize_score(sum(miss_values) / max(len(miss_values), 1), list(miss_by_number.values()))
+        )
+
+    def source_meta(numbers: Iterable[int]) -> tuple[list[str], list[str]]:
+        panels: set[str] = set()
+        labels: list[str] = []
+        for number in numbers:
+            panels.update(panels_by_number.get(int(number), set()))
+            for label in labels_by_number.get(int(number), [])[:3]:
+                if label not in labels:
+                    labels.append(label)
+        return sorted(panels), labels[:6]
+
+    consensus_pool = sorted(
+        number_range,
+        key=lambda number: (
+            -len(panels_by_number.get(number, set())),
+            -source_counts_by_number.get(number, 0),
+            -score_by_number.get(number, 0),
+            number,
+        ),
+    )
+    hot_pool = sorted(
+        number_range,
+        key=lambda number: (
+            -recent_rate_by_number.get(number, 0),
+            -score_by_number.get(number, 0),
+            number,
+        ),
+    )
+    reverse_pool = sorted(
+        number_range,
+        key=lambda number: (
+            -miss_by_number.get(number, 0),
+            -hit_rate_by_number.get(number, 0),
+            -score_by_number.get(number, 0),
+            number,
+        ),
+    )
+
+    for pick_count in PREDICTION_PANEL_D_PICK_COUNTS:
+        if not DEFAULT_MAIN_ODDS_BY_GAME.get(game_key, {}).get(pick_count):
+            continue
+        pool_size = PREDICTION_PANEL_D_POOL_SIZE_BY_PICK.get(pick_count, 16)
+
+        for combo in combinations(consensus_pool[:pool_size], pick_count):
+            panels, labels = source_meta(combo)
+            prediction_panel_d_add_candidate(
+                candidates,
+                combo,
+                pick_count,
+                total_numbers,
+                "consensus",
+                source_panels=panels,
+                source_labels=labels or [f"ABC共识池{pick_count}码"],
+                source_numbers=consensus_pool[:pool_size],
+                heuristic_score=combo_score(combo),
+            )
+
+        c_like_tickets = [
+            ticket
+            for ticket in m_tickets
+            if isinstance(ticket, dict) and str(ticket.get("mode") or "main") == "main"
+        ]
+        if not c_like_tickets:
+            c_like_tickets = [
+                ticket
+                for ticket in [*a_tickets, *b_tickets]
+                if isinstance(ticket, dict) and str(ticket.get("mode") or "main") == "main"
+            ]
+        for ticket in c_like_tickets:
+            source_numbers = [
+                parse_int(number, 0)
+                for number in ticket.get("numbers") or []
+                if 1 <= parse_int(number, 0) <= total_numbers
+            ]
+            if not source_numbers:
+                continue
+            source_label = str(ticket.get("ticketLabel") or "-".join(str(number) for number in source_numbers))
+            if len(source_numbers) >= pick_count:
+                for combo in combinations(sorted(set(source_numbers)), pick_count):
+                    prediction_panel_d_add_candidate(
+                        candidates,
+                        combo,
+                        pick_count,
+                        total_numbers,
+                        "decompose",
+                        source_panels=[str(ticket.get("panel") or PREDICTION_PANEL_M)],
+                        source_labels=[source_label],
+                        source_numbers=source_numbers,
+                        heuristic_score=combo_score(combo) + 0.08,
+                    )
+            else:
+                extension_pool = [number for number in [*hot_pool, *reverse_pool] if number not in set(source_numbers)]
+                for extension in extension_pool[: min(12, len(extension_pool))]:
+                    combo = tuple(sorted({*source_numbers, extension}))
+                    if len(combo) == pick_count:
+                        prediction_panel_d_add_candidate(
+                            candidates,
+                            combo,
+                            pick_count,
+                            total_numbers,
+                            "decompose",
+                            source_panels=[str(ticket.get("panel") or PREDICTION_PANEL_M)],
+                            source_labels=[source_label],
+                            source_numbers=[*source_numbers, extension],
+                            heuristic_score=combo_score(combo),
+                        )
+
+        for combo in combinations(reverse_pool[:pool_size], pick_count):
+            panels, labels = source_meta(combo)
+            prediction_panel_d_add_candidate(
+                candidates,
+                combo,
+                pick_count,
+                total_numbers,
+                "reverse",
+                source_panels=panels,
+                source_labels=labels or [f"稳定遗漏池{pick_count}码"],
+                source_numbers=reverse_pool[:pool_size],
+                heuristic_score=combo_score(combo) + 0.05,
+            )
+
+        for start in range(1, total_numbers - pick_count + 2):
+            combo = tuple(range(start, start + pick_count))
+            panels, labels = source_meta(combo)
+            prediction_panel_d_add_candidate(
+                candidates,
+                combo,
+                pick_count,
+                total_numbers,
+                "shape",
+                source_panels=panels,
+                source_labels=labels or [f"{pick_count}连形态"],
+                source_numbers=combo,
+                heuristic_score=combo_score(combo) + 0.04,
+            )
+        if pick_count == 3:
+            for anchor in consensus_pool[: min(12, len(consensus_pool))]:
+                for distance in (10, 20):
+                    combo = tuple(sorted({anchor, anchor + distance, anchor - distance}))
+                    if len(combo) == 3 and all(1 <= number <= total_numbers for number in combo):
+                        panels, labels = source_meta(combo)
+                        prediction_panel_d_add_candidate(
+                            candidates,
+                            combo,
+                            pick_count,
+                            total_numbers,
+                            "shape",
+                            source_panels=panels,
+                            source_labels=labels or [f"对称间隔{distance}"],
+                            source_numbers=combo,
+                            heuristic_score=combo_score(combo),
+                        )
+
+    raw_items = list(candidates.values())
+    if not raw_items:
+        return []
+
+    evaluated: list[dict[str, Any]] = []
+    for raw_item in raw_items:
+        pick_count = parse_int(raw_item.get("pickCount"), len(raw_item.get("numbers") or []))
+        odds = parse_float(DEFAULT_MAIN_ODDS_BY_GAME.get(game_key, {}).get(pick_count), 0)
+        if odds <= 1:
+            continue
+        numbers = tuple(int(number) for number in raw_item.get("numbers") or [])
+        theoretical_hit_rate = hit_probability_for(config, pick_count)
+        fair_odds = 1 / theoretical_hit_rate if theoretical_hit_rate > 0 else 0
+        break_even_hit_rate = 1 / odds if odds > 0 else 0
+        stats = ticket_stats_from_draw_sets(
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            numbers,
+            None,
+            stats_index=stats_index,
+        )
+        rule_key = str(raw_item.get("ruleKey") or "consensus")
+        heuristic_scores = [parse_float(value, 0) for value in raw_item.get("heuristicScores") or []]
+        heuristic_score = sum(heuristic_scores) / max(len(heuristic_scores), 1)
+        source_panels = sorted(raw_item.get("sourcePanels") or [])
+        source_bonus = min(0.18, 0.06 * len(source_panels))
+        recent_ratio = (
+            parse_float(stats.get("recentHitRate"), 0) / theoretical_hit_rate
+            if theoretical_hit_rate > 0
+            else 0
+        )
+        full_ratio = (
+            parse_float(stats.get("hitRate"), 0) / theoretical_hit_rate
+            if theoretical_hit_rate > 0
+            else 0
+        )
+        miss_score = normalize_score(parse_int(stats.get("currentMiss"), 0), [*miss_by_number.values(), 1])
+        rule_priority = PREDICTION_PANEL_D_RULE_PRIORITY_NEW.get(rule_key, 0.75)
+        score = (
+            0.30 * rule_priority
+            + 0.20 * min(1.5, recent_ratio) / 1.5
+            + 0.16 * min(1.5, full_ratio) / 1.5
+            + 0.16 * heuristic_score
+            + 0.10 * miss_score
+            + 0.08 * source_bonus
+        )
+        label = dict(PREDICTION_PANEL_D_RULES).get(rule_key, rule_key)
+        item = {
+            "numbers": list(numbers),
+            "bonusNumber": None,
+            "mode": "main",
+            "pickCount": pick_count,
+            "panel": PREDICTION_PANEL_D,
+            "label": f"D计划 {label}{pick_count}码观察",
+            "sourcePanel": "abc_observation",
+            "sourcePanels": source_panels or [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_M],
+            "sourceCoreTicketLabels": list(raw_item.get("sourceLabels") or [])[:8],
+            "structureType": f"d_{rule_key}_p{pick_count}",
+            "structureLabel": f"{label}规则 {pick_count}码",
+            "derivedRule": rule_key,
+            "auditSourceLabel": label,
+            "sourcePoolNumbers": sorted(raw_item.get("sourceNumbers") or []),
+            "sourcePoolCount": len(raw_item.get("sourceNumbers") or []),
+            "coreNumbers": list(numbers),
+            "companionNumbers": [],
+            "heuristicScore": heuristic_score,
+            **stats,
+            "theoreticalHitRate": theoretical_hit_rate,
+            "fairOdds": fair_odds,
+            "odds": float(odds),
+            "breakEvenHitRate": break_even_hit_rate,
+            "evAtOdds": theoretical_hit_rate * float(odds) - 1,
+            "chasePeriods": PREDICTION_TICKET_CHASE_PERIODS,
+            "missAllProbability": (1 - theoretical_hit_rate) ** PREDICTION_TICKET_CHASE_PERIODS,
+            "sampleWarning": draw_count < 500 or parse_int(stats.get("recentWindow"), 0) < 200,
+            "ticketLabel": "-".join(str(number) for number in numbers),
+            "score": score,
+            "auditScore": score,
+            "followDecision": "观察：新D计划先跑完整开奖日，不直接投注",
+        }
+        evaluated.append(item)
+
+    selected: list[dict[str, Any]] = []
+    selected_numbers: set[tuple[int, ...]] = set()
+    for pick_count in PREDICTION_PANEL_D_PICK_COUNTS:
+        pick_items = [item for item in evaluated if parse_int(item.get("pickCount"), 0) == pick_count]
+        for rule_key, _rule_label in PREDICTION_PANEL_D_RULES:
+            rule_items = [
+                item
+                for item in pick_items
+                if str(item.get("derivedRule") or "") == rule_key
+            ]
+            rule_items.sort(
+                key=lambda item: (
+                    -parse_float(item.get("score"), 0),
+                    -parse_float(item.get("recentHitRate"), 0),
+                    parse_int(item.get("maxMiss"), 0),
+                    item.get("numbers") or [],
+                )
+            )
+            for item in rule_items:
+                key = tuple(int(number) for number in item.get("numbers") or [])
+                if key in selected_numbers:
+                    continue
+                selected.append(item)
+                selected_numbers.add(key)
+                break
+        if sum(1 for item in selected if parse_int(item.get("pickCount"), 0) == pick_count) < len(PREDICTION_PANEL_D_RULES):
+            pick_items.sort(
+                key=lambda item: (
+                    -parse_float(item.get("score"), 0),
+                    -parse_float(item.get("recentHitRate"), 0),
+                    item.get("numbers") or [],
+                )
+            )
+            for item in pick_items:
+                key = tuple(int(number) for number in item.get("numbers") or [])
+                if key in selected_numbers:
+                    continue
+                selected.append(item)
+                selected_numbers.add(key)
+                if sum(1 for candidate in selected if parse_int(candidate.get("pickCount"), 0) == pick_count) >= len(PREDICTION_PANEL_D_RULES):
+                    break
+
+    selected.sort(
+        key=lambda item: (
+            parse_int(item.get("pickCount"), 0),
+            next(
+                (index for index, (rule_key, _label) in enumerate(PREDICTION_PANEL_D_RULES) if rule_key == str(item.get("derivedRule") or "")),
+                99,
+            ),
+            -parse_float(item.get("score"), 0),
+        )
+    )
+    return selected
 
 
 def prediction_kill_numbers_from_tickets(tickets: list[dict[str, Any]]) -> list[int]:
@@ -5656,8 +7121,11 @@ def prediction_payload(
     }
     needs_c_tickets = panel in {
         PREDICTION_PANEL_C,
-        PREDICTION_PANEL_D,
         PREDICTION_PANEL_E,
+    }
+    needs_m_tickets = panel in {
+        PREDICTION_PANEL_M,
+        PREDICTION_PANEL_D,
     }
     e_supported = game_key in PREDICTION_PANEL_E_GAME_KEYS
     excluded_numbers = prediction_kill_numbers_from_tickets(base_strategy_tickets) if needs_b_tickets else []
@@ -5693,6 +7161,25 @@ def prediction_payload(
             recent_bonus_values,
             stats_index=stats_index,
         )
+    m_strategy_tickets = (
+        prediction_panel_m_low_group_tickets(
+            rows,
+            config,
+            base_strategy_tickets,
+            b_strategy_tickets,
+            frequency,
+            recent_counts,
+            recent_window,
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            stats_index=stats_index,
+            include_staking_simulation=panel == PREDICTION_PANEL_M,
+        )
+        if needs_m_tickets
+        else []
+    )
     d_source_tickets: list[dict[str, Any]] = []
     e_source_tickets: list[dict[str, Any]] = []
     if panel == PREDICTION_PANEL_D:
@@ -5701,7 +7188,23 @@ def prediction_payload(
         excluded_numbers = []
     elif panel in {PREDICTION_PANEL_E, PREDICTION_PANEL_F, PREDICTION_PANEL_G}:
         excluded_numbers = []
-    if panel in {PREDICTION_PANEL_D, PREDICTION_PANEL_E}:
+    if panel == PREDICTION_PANEL_D:
+        d_source_tickets = prediction_panel_d_observation_tickets(
+            rows,
+            config,
+            base_strategy_tickets,
+            b_strategy_tickets,
+            m_strategy_tickets,
+            frequency,
+            recent_counts,
+            recent_window,
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            stats_index=stats_index,
+        )
+    elif panel == PREDICTION_PANEL_E:
         d_source_tickets = prediction_panel_d_derived_four_tickets(
             rows,
             config,
@@ -5743,21 +7246,7 @@ def prediction_payload(
         )
         strategy_tickets = e_source_tickets
     elif panel == PREDICTION_PANEL_M:
-        strategy_tickets = prediction_panel_m_low_group_tickets(
-            rows,
-            config,
-            base_strategy_tickets,
-            b_strategy_tickets,
-            frequency,
-            recent_counts,
-            recent_window,
-            draw_sets_oldest,
-            bonus_values_oldest,
-            recent_draw_sets,
-            recent_bonus_values,
-            stats_index=stats_index,
-            include_staking_simulation=True,
-        )
+        strategy_tickets = m_strategy_tickets
     elif panel == PREDICTION_PANEL_F:
         source_tickets_by_panel = {
             PREDICTION_PANEL_DEFAULT: base_strategy_tickets,
@@ -5839,11 +7328,9 @@ def prediction_payload(
     if panel == PREDICTION_PANEL_C:
         method = "旧C计划：用A/B计划主号候选形成核心对，再按临码、±10、固定间隔、5-10窗口、同尾和历史共现派生4码结构票"
     if panel == PREDICTION_PANEL_D:
-        disabled_d_rules = PREDICTION_PANEL_D_DISABLED_STRUCTURE_TYPES_BY_GAME.get(game_key, set())
         method = (
-            "D计划：A/B 2码锚点与 C 四码结构派生的四码实验池；"
-            f"已按追踪复盘剔除 {len(disabled_d_rules)} 个低命中规则；"
-            "按规则来源分组追踪，继续保留强规则、剔除弱规则"
+            "D计划：观察型2码/3码实验池；每期固定输出共识、拆解、逆向、形态四类规则，"
+            "各1组2码和1组3码。D只用于完整开奖日观察，不直接替代C计划。"
         )
     if panel == PREDICTION_PANEL_E:
         allowed_e_rules = prediction_panel_e_source_structure_types_for_game(game_key)
@@ -5880,8 +7367,8 @@ def prediction_payload(
         source_panel = "ab"
         source_panels = [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B]
     elif panel == PREDICTION_PANEL_D:
-        source_panel = "abc_derived_four"
-        source_panels = [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_C]
+        source_panel = "abc_observation"
+        source_panels = [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_M]
     elif panel == PREDICTION_PANEL_E:
         source_panel = "d_profit_overlap_five"
         source_panels = [PREDICTION_PANEL_D]
@@ -5905,7 +7392,7 @@ def prediction_payload(
         source_tickets = {
             PREDICTION_PANEL_DEFAULT: prediction_source_ticket_summaries(base_strategy_tickets),
             PREDICTION_PANEL_B: prediction_source_ticket_summaries(b_strategy_tickets),
-            PREDICTION_PANEL_C: prediction_source_ticket_summaries(c_strategy_tickets),
+            PREDICTION_PANEL_M: prediction_source_ticket_summaries(m_strategy_tickets),
         }
     elif panel == PREDICTION_PANEL_E and e_supported:
         source_tickets = {
@@ -5937,9 +7424,7 @@ def prediction_payload(
         "sourcePanels": source_panels,
         "sourceTickets": source_tickets,
         "excludedNumbers": excluded_numbers,
-        "disabledStructureTypes": sorted(PREDICTION_PANEL_D_DISABLED_STRUCTURE_TYPES_BY_GAME.get(game_key, set()))
-        if panel == PREDICTION_PANEL_D
-        else [],
+        "disabledStructureTypes": [],
         "sourceStructureTypes": sorted(prediction_panel_e_source_structure_types_for_game(game_key))
         if panel == PREDICTION_PANEL_E
         else [],
@@ -6795,7 +8280,7 @@ def prediction_context_tickets(
             recent_bonus_values,
             stats_index=stats_index,
         )
-        if include_c or include_d
+        if include_c
         else []
     )
     c_kill_numbers = prediction_kill_numbers_from_tickets(c_tickets)
@@ -6814,12 +8299,12 @@ def prediction_context_tickets(
         stats_index=stats_index,
     )
     d_tickets = (
-        prediction_panel_d_derived_four_tickets(
+        prediction_panel_d_observation_tickets(
             rows,
             config,
             a_tickets,
             b_tickets,
-            c_tickets,
+            m_tickets,
             frequency,
             recent_counts,
             recent_window,
@@ -12161,6 +13646,7 @@ def prediction_tracking_panel_summaries_for_config(config: dict[str, Any]) -> di
             PREDICTION_PANEL_DEFAULT,
             PREDICTION_PANEL_B,
             PREDICTION_PANEL_M,
+            PREDICTION_PANEL_D,
         ]
     }
 
@@ -12208,20 +13694,25 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                 prediction_a = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_DEFAULT]})
                 prediction_b = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_B]})
                 prediction_m = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_M]})
+                prediction_d = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_D]})
                 tracking_a = prediction_a.get("predictionTracking") or {}
                 tracking_b = prediction_b.get("predictionTracking") or {}
                 tracking_m = prediction_m.get("predictionTracking") or {}
+                tracking_d = prediction_d.get("predictionTracking") or {}
                 panel_summaries = prediction_tracking_panel_summaries_for_config(game_config)
                 tracking = {
                     "settledNow": parse_int(tracking_a.get("settledNow"), 0)
                     + parse_int(tracking_b.get("settledNow"), 0)
-                    + parse_int(tracking_m.get("settledNow"), 0),
+                    + parse_int(tracking_m.get("settledNow"), 0)
+                    + parse_int(tracking_d.get("settledNow"), 0),
                     "createdNow": parse_int(tracking_a.get("createdNow"), 0)
                     + parse_int(tracking_b.get("createdNow"), 0)
-                    + parse_int(tracking_m.get("createdNow"), 0),
+                    + parse_int(tracking_m.get("createdNow"), 0)
+                    + parse_int(tracking_d.get("createdNow"), 0),
                     "summaryA": panel_summaries.get(PREDICTION_PANEL_DEFAULT) or {},
                     "summaryB": panel_summaries.get(PREDICTION_PANEL_B) or {},
                     "summaryM": panel_summaries.get(PREDICTION_PANEL_M) or {},
+                    "summaryD": panel_summaries.get(PREDICTION_PANEL_D) or {},
                 }
                 PREDICTION_AUTO_HISTORY_MARKERS[key] = marker
             else:
@@ -14193,6 +15684,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self.send_error_json(500, str(exc))
             return
+        if parsed.path == "/api/current-staking-backtest":
+            try:
+                self.send_json(current_staking_backtest_payload(parse_qs(parsed.query)))
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+            except Exception as exc:
+                self.send_error_json(500, str(exc))
+            return
+        if parsed.path in {"/api/fixed-triple-observation", "/api/frequency-observation"}:
+            try:
+                self.send_json(fixed_triple_observation_payload(parse_qs(parsed.query)))
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+            except Exception as exc:
+                self.send_error_json(500, str(exc))
+            return
+        if parsed.path == "/api/fixed-triple-omission":
+            try:
+                self.send_json(fixed_triple_omission_payload(parse_qs(parsed.query)))
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+            except Exception as exc:
+                self.send_error_json(500, str(exc))
+            return
         if parsed.path == "/api/prediction-tracking":
             try:
                 self.send_json(prediction_tracking_payload(parse_qs(parsed.query)))
@@ -14202,20 +15717,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.send_error_json(500, str(exc))
             return
         if parsed.path == "/api/adjacent-derived-hits":
-            try:
-                self.send_json(adjacent_derived_hits_payload(parse_qs(parsed.query)))
-            except ValueError as exc:
-                self.send_error_json(400, str(exc))
-            except Exception as exc:
-                self.send_error_json(500, str(exc))
+            self.send_error_json(410, "派生中奖查询已删除")
             return
         if parsed.path == "/api/adjacent-derived-stats":
-            try:
-                self.send_json(adjacent_derived_stats_payload(parse_qs(parsed.query)))
-            except ValueError as exc:
-                self.send_error_json(400, str(exc))
-            except Exception as exc:
-                self.send_error_json(500, str(exc))
+            self.send_error_json(410, "派生统计已删除")
             return
         if parsed.path == "/api/prediction-auto":
             try:

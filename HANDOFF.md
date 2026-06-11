@@ -17,7 +17,7 @@ Do not use old audit notes as the entry point. The current work should stay focu
 
 - Workspace: `F:\我的开发\CPGAME`
 - Backend URL: `http://127.0.0.1:8787`
-- Current backend process last observed: `python PID 9636`
+- Current backend process last observed: `python PID 92852`
 - Frontend static files are served by the backend.
 
 If backend code changes, restart the active Python backend process. Frontend-only edits usually do not require a backend restart.
@@ -25,6 +25,73 @@ If backend code changes, restart the active Python backend process. Frontend-onl
 ## Latest Telegram / C Plan Push Fix
 
 On 2026-06-10, Telegram C计划 push cumulative stats were corrected.
+
+Follow-up on 2026-06-10 night:
+
+- The former dashboard `倍投回测` view was renamed to `固定回测`.
+  - This view still calls `/api/staking-backtest`.
+  - Its meaning is now explicit: current C计划 tickets or manual tickets are fixed, then replayed against historical draws.
+  - It does not represent the true historical C计划 recommendations for each draw.
+- Added `当前回测` view and `/api/current-staking-backtest`.
+  - This uses settled `prediction_tracking` records for the real C计划 (`panel=m`) recommendations saved before each target draw.
+  - Candidate slots reuse Telegram ordering: `p3_1` = `3码1`, `p3_2` = `3码2`, with combined slot options available.
+  - Daily simulations now reset at the lottery operating-day boundary, not at UTC+8 midnight. For Poland this uses `Europe/Warsaw`, so the displayed UTC+8 window starts around `12:34` and ends after midnight.
+  - It shows flat / conservative / standard / aggressive results, with each staking profile cell showing its own intraday peak profit and peak time.
+  - The separate `保守最高摸到` table column and summary card were removed on 2026-06-10 because the same peak information is already visible inside each staking profile cell.
+  - Important limitation: it can only replay dates that exist in the tracking database; it does not fabricate older historical recommendations.
+- Added `3码观察` view and `/api/fixed-triple-observation`.
+  - It now finds stable fixed 3-number combinations across the whole historical window, not separate Top 3 triples for each day.
+  - Default settings: last 31 local days, output Top 3, require each candidate to appear at least 3 times on every selected day.
+  - The statistics window now accepts up to 120 local days; actual days are limited by available local history.
+  - Stable triple observation also uses the lottery operating-day boundary instead of natural UTC+8 days.
+  - Ranking uses average daily hits, worst-day hits, and total hits, then checks flat/conservative daily-reset fixed staking over the historical window.
+  - Forward observation starts after the selected historical window; when no later draws exist, candidates show `待观察`.
+- Added fixed 3-number omission lookup to the same `3码观察` page and `/api/fixed-triple-omission`.
+  - Input a fixed triple such as `3-51-61`; default date is today in the selected timezone.
+  - Omission lookup also uses the lottery operating-day date; the page labels this as `开奖日日期`.
+  - It returns today's draws, hits, hit rate, current miss, max miss, last hit time, recent hit rows, and flat/conservative same-day fixed staking results.
+- Verification performed:
+  - `python -m py_compile .\keno_dashboard_server.py` passed.
+  - `node --check .\web\app.js` passed.
+  - Backend restarted: current PID `24228`.
+  - `/api/current-staking-backtest?game=poland_keno_20_70&slot=p3_1` returned 3 days / 436 real C计划 draws.
+  - After correcting the day boundary, Poland `p3_1` current backtest for `2026-06-10` starts at `2026-06-10T04:34:00Z` (`12:34 UTC+8`), no longer at UTC+8 midnight.
+  - `/api/fixed-triple-observation?game=poland_keno_20_70` uses default 31 operating days / Top 3 / min daily hits 3 and returned stable fixed-triple candidates under the corrected day boundary.
+  - `/api/fixed-triple-omission?game=poland_keno_20_70&numbers=3-51-61` now counts today's Poland operating day from first draw; latest test returned 167 draws, 5 hits, current miss 19, max miss 65, conservative profit +71.
+
+Follow-up on 2026-06-11:
+
+- Reintroduced `D计划` as an active observation plan, replacing the old four-code derived D implementation in the live prediction path.
+  - D method version is now `strategy-ticket-d-observe-23-v1`, so old D records do not mix with new D tracking.
+  - D is now in active tracking with A/B/C(M); E/F/G remain retired.
+  - Each D generation outputs exactly 8 tickets: 4 two-code tickets and 4 three-code tickets.
+  - The four D rule families are `共识`, `拆解`, `逆向`, and `形态`; each family contributes one 2码 ticket and one 3码 ticket.
+  - D uses the active A/B/C chain, where user-facing C is backend panel `m`; it does not use the retired old C four-code derived chain.
+  - Prediction auto now generates D alongside A/B/C(M), so D can accumulate real forward tracking samples.
+- Added a `D计划` tab to the dashboard prediction navigation.
+- Updated `当前回测`:
+  - Added `计划来源` selector with `C计划` and `D计划`.
+  - Slot options now support up to `2码1-4` and `3码1-4`, plus `全部2码`, `全部3码`, and `全部候选`.
+  - Default remains C计划, so existing C observation is unchanged.
+- Renamed `3码观察` to `频码观察`.
+  - Added `码数` selector for 3-8码.
+  - `/api/frequency-observation` was added as the new endpoint; `/api/fixed-triple-observation` remains as a compatibility alias.
+  - 3码 is counted exhaustively.
+  - 4-8码 uses a global high-frequency number pool for the selected historical window to keep runtime bounded. The response includes `poolSize`, `poolNumbers`, and `cappedDays` so this pruning is visible.
+  - The fixed omission lookup now accepts 3-8 numbers, matching the selected frequency-code size.
+- Removed the user-facing adjacent derived statistics and derived hit lookup:
+  - The dashboard no longer renders the `临码派生统计` block.
+  - Frontend adjacent-derived fetch functions now no-op.
+  - `/api/adjacent-derived-stats` and `/api/adjacent-derived-hits` return HTTP 410 and do not run the old calculations.
+- Verification performed:
+  - `python -m py_compile .\keno_dashboard_server.py` passed.
+  - `node --check .\web\app.js` passed.
+  - Backend restarted: current PID `92852`.
+  - `/api/predictions?game=poland_keno_20_70&panel=d` returned 8 D tickets: 4 two-code and 4 three-code.
+  - `/api/frequency-observation?game=poland_keno_20_70&pickCount=4&days=3&top=3&minDailyHits=1` returned 3 fixed 4-code candidates quickly.
+  - `/api/current-staking-backtest?game=poland_keno_20_70&source=d&slot=p3_all` returned selection `D计划 / 全部3码`.
+  - Both adjacent-derived endpoints returned HTTP 410.
+  - Playwright UI smoke passed: D tab rendered 8 cards, current backtest switched to D, 4-code frequency observation rendered, and page overflow was 0.
 
 Current Telegram staking and cumulative rules:
 
