@@ -136,6 +136,8 @@ PREDICTION_AUTO_STATUS: dict[str, Any] = {
 }
 PREDICTION_AUTO_HISTORY_MARKERS: dict[str, tuple[int, int, str, str]] = {}
 PREDICTION_TRACKING_AUTO_SYNC_LAST_ATTEMPT: dict[str, float] = {}
+PREDICTION_BACKGROUND_SYNC_IN_FLIGHT: set[str] = set()
+PREDICTION_BACKGROUND_SYNC_LAST_ATTEMPT: dict[str, float] = {}
 PREDICTION_VOID_REASON_MISSING_TARGET = "目标期开奖缺失，且后续期次已到达，追踪作废"
 PREDICTION_VOID_REASON_STALE_SOURCE = "上一期开奖结果未同步，计划基准不连续，追踪作废"
 PREDICTION_VOID_REASON_PAST_TARGET = "预测创建晚于目标期开奖，追踪作废"
@@ -8052,6 +8054,9 @@ def predictions_payload(
     target_context = prediction_tracking_target_context(payload, config, now_ms=now_value)
     if not target_context["ready"]:
         mark_prediction_payload_waiting_for_sync(payload, target_context)
+        reason = str(target_context.get("reason") or "")
+        if now_ms is None and reason in {"history_not_synced_to_previous_draw", "target_is_not_next_open_draw_after_latest_history"}:
+            payload["predictionBackgroundSync"] = schedule_prediction_background_sync(config, reason)
     else:
         payload["predictions"]["trackingReady"] = True
         payload["predictions"]["syncStatus"] = prediction_tracking_target_context_public(target_context)
@@ -12142,6 +12147,90 @@ def maybe_auto_sync_prediction_tracking(
         }
     )
     return refreshed_rows, result
+
+
+def prediction_background_sync_worker(game_key: str) -> None:
+    try:
+        refresh_history(
+            {
+                "game": game_key,
+                "mode": "incremental",
+                "pageSize": 100,
+                "maxPages": 2,
+                "sleep": 0.05,
+                "timeout": 5,
+                "retries": 0,
+                "retrySleep": 0.5,
+                "skipSupplement": False,
+            }
+        )
+    finally:
+        with PREDICTION_TRACKING_AUTO_SYNC_LOCK:
+            PREDICTION_BACKGROUND_SYNC_IN_FLIGHT.discard(game_key)
+
+
+def schedule_prediction_background_sync(
+    config: dict[str, Any],
+    reason: str,
+) -> dict[str, Any]:
+    game_key = str(config.get("key") or "")
+    auto_config = load_prediction_auto_config()
+    if game_key not in prediction_auto_enabled_games(auto_config):
+        return {
+            "scheduled": False,
+            "skipped": True,
+            "reason": "auto_tracking_game_disabled",
+            "game": game_key,
+        }
+    with PREDICTION_AUTO_LOCK:
+        auto_status = dict(PREDICTION_AUTO_STATUS)
+    auto_last_run = str(auto_status.get("lastRunAt") or "")
+    auto_last_completed = str(auto_status.get("lastCompletedAt") or "")
+    auto_cycle_running = bool(
+        auto_status.get("running")
+        and auto_last_run
+        and (not auto_last_completed or auto_last_run > auto_last_completed)
+    )
+    if auto_cycle_running:
+        return {
+            "scheduled": False,
+            "skipped": True,
+            "reason": "auto_worker_running",
+            "game": game_key,
+        }
+    now = time.monotonic()
+    cooldown_seconds = PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS
+    with PREDICTION_TRACKING_AUTO_SYNC_LOCK:
+        if game_key in PREDICTION_BACKGROUND_SYNC_IN_FLIGHT:
+            return {
+                "scheduled": False,
+                "inFlight": True,
+                "reason": "already_running",
+                "game": game_key,
+            }
+        last_attempt = PREDICTION_BACKGROUND_SYNC_LAST_ATTEMPT.get(game_key, 0.0)
+        if now - last_attempt < cooldown_seconds:
+            return {
+                "scheduled": False,
+                "skipped": True,
+                "reason": "cooldown",
+                "game": game_key,
+                "retryAfterSeconds": round(cooldown_seconds - (now - last_attempt), 1),
+            }
+        PREDICTION_BACKGROUND_SYNC_LAST_ATTEMPT[game_key] = now
+        PREDICTION_BACKGROUND_SYNC_IN_FLIGHT.add(game_key)
+    worker = threading.Thread(
+        target=prediction_background_sync_worker,
+        args=(game_key,),
+        daemon=True,
+    )
+    worker.start()
+    return {
+        "scheduled": True,
+        "reason": reason,
+        "game": game_key,
+        "cooldownSeconds": cooldown_seconds,
+    }
 
 
 def touch_prediction_tracking_for_payload(
