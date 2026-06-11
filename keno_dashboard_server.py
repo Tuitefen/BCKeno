@@ -1855,11 +1855,39 @@ def refresh_official_history_only(
             )
             cache_dashboard_rows = [official_row_to_dashboard_row(row, config) for row in recent_rows]
             cache_rows = select_supplement_rows(cache_dashboard_rows, existing_rows)
-        if cache_rows:
+        next_cached_ms = parse_int(cache_meta.get("nextCachedDrawTimeMs"), 0) if cache_meta else 0
+        now_ms = int(time.time() * 1000)
+        interval_ms = prediction_draw_interval_ms(config)
+        tolerance_ms = prediction_tracking_freshness_tolerance_ms(config)
+        expected_next_ms, _expected_offset = next_operating_draw_after_ms(before_latest_ms, config)
+        cache_skip_reason = ""
+        cache_rows_are_continuous = bool(cache_rows and before_latest_ms > 0 and interval_ms > 0)
+        cache_cursor_ms = before_latest_ms
+        for cache_row in sorted(cache_rows, key=lambda item: parse_int(item.get("drawTimeMs"), 0)):
+            cache_row_ms = parse_int(cache_row.get("drawTimeMs"), 0)
+            expected_cache_row_ms, _cache_row_offset = next_operating_draw_after_ms(cache_cursor_ms, config)
+            if cache_row_ms <= 0 or expected_cache_row_ms <= 0 or abs(cache_row_ms - expected_cache_row_ms) > tolerance_ms:
+                cache_rows_are_continuous = False
+                cache_skip_reason = "cached_due_rows_not_continuous_with_local_history"
+                break
+            cache_cursor_ms = cache_row_ms
+        if cache_rows and cache_rows_are_continuous:
+            next_after_cache_ms, _next_after_cache_offset = next_operating_draw_after_ms(cache_cursor_ms, config)
+            if next_after_cache_ms > 0 and next_after_cache_ms + prediction_draw_sync_grace_ms(config) <= now_ms:
+                cache_rows_are_continuous = False
+                cache_skip_reason = "cached_due_rows_still_leave_history_overdue"
+        cache_wait_is_next_draw = (
+            next_cached_ms > now_ms
+            and before_latest_ms > 0
+            and interval_ms > 0
+            and expected_next_ms > 0
+            and abs(next_cached_ms - expected_next_ms) <= tolerance_ms
+        )
+        if cache_rows and cache_rows_are_continuous:
             supplement_rows = cache_rows
             supplement_meta = dict(cache_meta)
             supplement_meta["newRows"] = len(cache_rows)
-        elif cache_meta and parse_int(cache_meta.get("nextCachedDrawTimeMs"), 0) > int(time.time() * 1000):
+        elif cache_meta and not cache_rows and cache_wait_is_next_draw:
             supplement_meta = dict(cache_meta)
             supplement_meta["newRows"] = 0
             supplement_meta["status"] = "waiting_for_cached_draw"
@@ -1886,6 +1914,10 @@ def refresh_official_history_only(
             if cache_meta:
                 supplement_meta = dict(supplement_meta)
                 supplement_meta["cacheCheck"] = cache_meta
+                if cache_rows and not cache_rows_are_continuous:
+                    supplement_meta["cacheSkippedReason"] = cache_skip_reason or "cached_due_rows_not_continuous_with_local_history"
+                elif next_cached_ms > now_ms and before_latest_ms > 0 and interval_ms > 0:
+                    supplement_meta["cacheSkippedReason"] = "cached_next_not_continuous_with_local_history"
     except Exception as exc:
         supplement_rows = []
         supplement_meta = {
