@@ -23,6 +23,7 @@ backups/
 data/telegram_bot_config.local.json
 data/telegram_bot_state.local.json
 data/prediction_tracking.sqlite3
+data/lotodate_draw_ids.json
 aapanel/
 
 ScreenShot_*.png

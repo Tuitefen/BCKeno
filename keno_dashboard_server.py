@@ -328,7 +328,7 @@ PREDICTION_HORIZONS = 5
 PREDICTION_TRACKING_LEAD_SECONDS = 90
 PREDICTION_TRACKING_AUTO_SYNC_COOLDOWN_SECONDS = 45
 PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS = 5
-PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS = 15
+PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS = 5
 PREDICTION_AUTO_MULTI_GAME_CATCHUP_SECONDS = 60
 PREDICTION_AUTO_CATCHUP_MAX_SECONDS = 300
 PREDICTION_DRAW_SYNC_GRACE_SECONDS = 10
@@ -1830,6 +1830,97 @@ def fetch_official_supplement(
         recent[0]["drawTimeUtc"] if recent else meta.get("newestOfficialUtc", "")
     )
     return dashboard_rows, meta
+
+
+def refresh_official_history_only(
+    config: dict[str, Any],
+    *,
+    timeout: float = 6,
+) -> dict[str, Any]:
+    path = game_history_path(config)
+    with DATA_LOCK:
+        existing_rows = load_history_rows(path, config)
+    before_count = len(existing_rows)
+    before_latest_ms = max((parse_int(row.get("drawTimeMs"), 0) for row in existing_rows), default=0)
+    try:
+        cache_rows: list[dict[str, Any]] = []
+        cache_meta: dict[str, Any] = {}
+        if str(config.get("officialSupplement") or "") == "lotodate":
+            recent_rows, cache_meta = fetch_official_supplements.fetch_lotodate_cached_due_rows(
+                str(config.get("supplementUrl") or ""),
+                newest_existing_ms=before_latest_ms,
+                expected_count=int(config["drawnNumbers"]),
+                total_numbers=int(config["totalNumbers"]),
+                timeout=min(timeout, 2),
+            )
+            cache_dashboard_rows = [official_row_to_dashboard_row(row, config) for row in recent_rows]
+            cache_rows = select_supplement_rows(cache_dashboard_rows, existing_rows)
+        if cache_rows:
+            supplement_rows = cache_rows
+            supplement_meta = dict(cache_meta)
+            supplement_meta["newRows"] = len(cache_rows)
+        elif cache_meta and parse_int(cache_meta.get("nextCachedDrawTimeMs"), 0) > int(time.time() * 1000):
+            supplement_meta = dict(cache_meta)
+            supplement_meta["newRows"] = 0
+            supplement_meta["status"] = "waiting_for_cached_draw"
+            return {
+                "ok": True,
+                "game": game_public_config(config),
+                "mode": "official_only",
+                "newRows": 0,
+                "bcNewRows": 0,
+                "etiposNewRows": 0,
+                "writtenRows": before_count,
+                "historyFileChanged": False,
+                "settledPredictions": 0,
+                "previousNewestUtc": draw_time_utc_from_ms(before_latest_ms),
+                "newestLocalUtc": draw_time_utc_from_ms(before_latest_ms),
+                "meta": supplement_meta,
+                "etiposMeta": supplement_meta,
+                "predictionPrewarm": {"scheduled": False, "reason": "waiting_for_cached_draw", "game": config["key"]},
+                "historyFile": file_info(path),
+                "generatedAt": utc_now_iso(),
+            }
+        else:
+            supplement_rows, supplement_meta = fetch_official_supplement(config, existing_rows, timeout=timeout)
+            if cache_meta:
+                supplement_meta = dict(supplement_meta)
+                supplement_meta["cacheCheck"] = cache_meta
+    except Exception as exc:
+        supplement_rows = []
+        supplement_meta = {
+            "source": config.get("officialSupplement", ""),
+            "status": "error",
+            "error": str(exc),
+            "newRows": 0,
+        }
+    with DATA_LOCK:
+        rows = merge_history_rows(existing_rows, supplement_rows)
+        history_file_changed = dashboard_rows_changed(existing_rows, rows, config)
+        if history_file_changed:
+            write_dashboard_rows(path, rows, config)
+        after_latest_ms = max((parse_int(row.get("drawTimeMs"), 0) for row in rows), default=0)
+    settled_predictions = settle_prediction_tracking_store(rows, config) if history_file_changed else 0
+    prediction_prewarm = {"scheduled": False, "reason": "official_fast_sync", "game": config["key"]}
+    new_rows = max(0, len(rows) - before_count)
+    return {
+        "ok": True,
+        "game": game_public_config(config),
+        "mode": "official_only",
+        "newRows": new_rows,
+        "bcNewRows": 0,
+        "etiposNewRows": parse_int(supplement_meta.get("newRows"), 0),
+        "writtenRows": len(rows),
+        "historyFileChanged": history_file_changed,
+        "settledPredictions": settled_predictions,
+        "previousNewestUtc": draw_time_utc_from_ms(before_latest_ms),
+        "newestLocalUtc": draw_time_utc_from_ms(after_latest_ms),
+        "meta": supplement_meta,
+        "etiposMeta": supplement_meta,
+        "predictionPrewarm": prediction_prewarm,
+        "historyFile": file_info(path),
+        "generatedAt": utc_now_iso(),
+    }
 
 
 def fetch_rows_page(
@@ -12124,19 +12215,7 @@ def maybe_auto_sync_prediction_tracking(
             }
         PREDICTION_TRACKING_AUTO_SYNC_LAST_ATTEMPT[config["key"]] = now
 
-    result = refresh_history(
-        {
-            "game": config["key"],
-            "mode": "incremental",
-            "pageSize": 100,
-            "maxPages": 2,
-            "sleep": 0.05,
-            "timeout": 5,
-            "retries": 1,
-            "retrySleep": 0.5,
-            "skipSupplement": False,
-        }
-    )
+    result = refresh_official_history_only(config, timeout=5)
     with DATA_LOCK:
         refreshed_rows = load_history_rows(game_history_path(config), config)
     result = dict(result)
@@ -14036,18 +14115,9 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
             game_config = LOTTERY_GAMES[key]
             refresh_result: dict[str, Any] | None = None
             if config.get("sync", True):
-                refresh_result = refresh_history(
-                    {
-                        "game": key,
-                        "mode": "incremental",
-                        "pageSize": parse_int(config.get("pageSize"), 100),
-                        "maxPages": parse_int(config.get("maxPages"), 2),
-                        "sleep": parse_float(config.get("sleep"), 0.05),
-                        "timeout": parse_float(config.get("timeout"), 6),
-                        "retries": parse_int(config.get("retries"), 0),
-                        "retrySleep": parse_float(config.get("retrySleep"), 0.5),
-                        "skipSupplement": bool(config.get("skipSupplement", False)),
-                    }
+                refresh_result = refresh_official_history_only(
+                    game_config,
+                    timeout=parse_float(config.get("timeout"), 6),
                 )
             new_rows = parse_int((refresh_result or {}).get("newRows"), 0)
             settled_from_refresh = parse_int((refresh_result or {}).get("settledPredictions"), 0)

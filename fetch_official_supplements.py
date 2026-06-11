@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 import time
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode, urlsplit, urlunsplit
@@ -22,6 +24,8 @@ UTC = timezone.utc
 
 RO_TZ = ZoneInfo("Europe/Bucharest")
 IT_TZ = ZoneInfo("Europe/Rome")
+DATA_ROOT = Path(os.environ.get("BCKENO_DATA_DIR", Path(__file__).resolve().parent / "data")).resolve()
+LOTODATE_DRAW_CACHE = DATA_ROOT / "lotodate_draw_ids.json"
 
 DEFAULT_HEADERS = {
     "User-Agent": (
@@ -83,6 +87,31 @@ def url_origin(url: str) -> str:
 def lotodate_check_draw_url(page_url: str, draw_id: str) -> str:
     base = f"{url_origin(page_url)}/en/Extrageri"
     return f"{base}?{urlencode({'handler': 'CheckDraw', 'drawId': draw_id})}"
+
+
+def load_lotodate_draw_cache() -> dict[str, dict[str, str]]:
+    try:
+        with LOTODATE_DRAW_CACHE.open("r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def write_lotodate_draw_cache(cache: dict[str, dict[str, str]]) -> None:
+    try:
+        DATA_ROOT.mkdir(parents=True, exist_ok=True)
+        temp_path = LOTODATE_DRAW_CACHE.with_suffix(".json.tmp")
+        with temp_path.open("w", encoding="utf-8") as fh:
+            json.dump(cache, fh, ensure_ascii=False, indent=2, sort_keys=True)
+            fh.write("\n")
+        temp_path.replace(LOTODATE_DRAW_CACHE)
+    except OSError:
+        pass
+
+
+def lotodate_cache_key(page_url: str) -> str:
+    return urlsplit(page_url).path.strip("/") or page_url
 
 
 def validate_numbers(
@@ -251,6 +280,104 @@ def merge_official_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return sorted(by_time.values(), key=lambda item: item["drawTimeMs"], reverse=True)
 
 
+def update_lotodate_draw_cache(page_url: str, upcoming_rows: list[dict[str, Any]]) -> None:
+    if not upcoming_rows:
+        return
+    cache = load_lotodate_draw_cache()
+    key = lotodate_cache_key(page_url)
+    game_cache = cache.get(key) if isinstance(cache.get(key), dict) else {}
+    cutoff_ms = int(time.time() * 1000) - 24 * 60 * 60 * 1000
+    cleaned: dict[str, str] = {}
+    for draw_time_utc, draw_id in game_cache.items():
+        try:
+            draw_ms = int(datetime.fromisoformat(draw_time_utc).timestamp() * 1000)
+        except ValueError:
+            continue
+        if draw_ms >= cutoff_ms and str(draw_id):
+            cleaned[draw_time_utc] = str(draw_id)
+    for row in upcoming_rows:
+        draw_time_utc = str(row.get("drawTimeUtc") or "")
+        draw_id = str(row.get("drawId") or "")
+        if draw_time_utc and draw_id:
+            cleaned[draw_time_utc] = draw_id
+    cache[key] = cleaned
+    write_lotodate_draw_cache(cache)
+
+
+def cached_lotodate_upcoming_rows(page_url: str) -> list[dict[str, Any]]:
+    cache = load_lotodate_draw_cache()
+    game_cache = cache.get(lotodate_cache_key(page_url)) if isinstance(cache, dict) else {}
+    if not isinstance(game_cache, dict):
+        return []
+    rows: list[dict[str, Any]] = []
+    for draw_time_utc, draw_id in game_cache.items():
+        try:
+            draw_time = datetime.fromisoformat(str(draw_time_utc))
+        except ValueError:
+            continue
+        rows.append(
+            {
+                "drawId": str(draw_id),
+                "drawTime": draw_time,
+                "drawTimeMs": int(draw_time.astimezone(UTC).timestamp() * 1000),
+                "drawTimeUtc": draw_time.astimezone(UTC).isoformat(timespec="seconds"),
+            }
+        )
+    return sorted(rows, key=lambda item: item["drawTimeMs"], reverse=True)
+
+
+def fetch_lotodate_cached_due_rows(
+    page_url: str,
+    *,
+    newest_existing_ms: int,
+    expected_count: int,
+    total_numbers: int,
+    timeout: float,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    now_ms = int(time.time() * 1000)
+    checked = 0
+    cleared = 0
+    next_cached_ms = 0
+    next_cached_utc = ""
+    for upcoming in sorted(cached_lotodate_upcoming_rows(page_url), key=lambda item: int(item.get("drawTimeMs") or 0)):
+        draw_time_ms = int(upcoming.get("drawTimeMs") or 0)
+        if draw_time_ms <= newest_existing_ms:
+            continue
+        if draw_time_ms > now_ms:
+            if not next_cached_ms or draw_time_ms < next_cached_ms:
+                next_cached_ms = draw_time_ms
+                next_cached_utc = str(upcoming.get("drawTimeUtc") or "")
+            continue
+        checked += 1
+        try:
+            row = fetch_lotodate_check_draw_row(
+                page_url,
+                upcoming,
+                expected_count=expected_count,
+                total_numbers=total_numbers,
+                timeout=timeout,
+            )
+        except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, ValueError):
+            row = None
+        if row:
+            rows.append(row)
+            cleared += 1
+    return merge_official_rows(rows), {
+        "source": "lotodate",
+        "url": page_url,
+        "checkedRows": len(rows),
+        "newRows": 0,
+        "status": "ok",
+        "newestOfficialUtc": rows[0]["drawTimeUtc"] if rows else "",
+        "checkDrawChecked": checked,
+        "checkDrawCleared": cleared,
+        "nextCachedDrawTimeMs": next_cached_ms,
+        "nextCachedDrawTimeUtc": next_cached_utc,
+        "cacheOnly": True,
+    }
+
+
 def parse_polonia_rows(
     page_html: str,
     *,
@@ -405,11 +532,18 @@ def fetch_recent_official(
                 expected_count=expected_count,
                 total_numbers=total_numbers,
             )
+            upcoming_rows = parse_lotodate_upcoming_rows(page_html)
+            update_lotodate_draw_cache(url, upcoming_rows)
             newest_static_ms = int(rows[0]["drawTimeMs"]) if rows else 0
             now_ms = int(time.time() * 1000)
             checked_upcoming = 0
             cleared_upcoming = 0
-            for upcoming in parse_lotodate_upcoming_rows(page_html):
+            upcoming_by_time = {
+                int(item.get("drawTimeMs") or 0): item
+                for item in [*upcoming_rows, *cached_lotodate_upcoming_rows(url)]
+                if int(item.get("drawTimeMs") or 0) > 0
+            }
+            for upcoming in sorted(upcoming_by_time.values(), key=lambda item: int(item.get("drawTimeMs") or 0)):
                 draw_time_ms = int(upcoming.get("drawTimeMs") or 0)
                 if draw_time_ms <= 0 or draw_time_ms > now_ms:
                     continue

@@ -2138,7 +2138,7 @@ async function loadPrediction(options = {}) {
     if (state.predictionPanel === panel) {
       renderPredictionPage();
     }
-    loadPredictionTracking({ silent: true, panel, autoSync: false });
+    loadPredictionTracking({ silent: true, panel });
   } catch (error) {
     showToast(`加载预测失败：${error.message}`, true);
   } finally {
@@ -2159,7 +2159,7 @@ async function loadPredictionTracking(options = {}) {
       page: String(slot.predictionTrackingPage || 1),
       pageSize: "20",
     });
-    if (options.autoSync !== true) {
+    if (options.autoSync === false) {
       params.set("autoSync", "0");
     }
     const response = await fetch(`/api/prediction-tracking?${params.toString()}`);
@@ -2264,7 +2264,7 @@ function isPredictionMainViewActive() {
   return !state.activeModal && ["prediction", "predictionB", "predictionM", "predictionD"].includes(state.activeView);
 }
 
-function startPredictionAutoPolling(delayMs = 12000) {
+function startPredictionAutoPolling(delayMs = 5000) {
   if (!els.predictionAutoStatus) return;
   if (state.predictionAutoPollTimer) {
     window.clearTimeout(state.predictionAutoPollTimer);
