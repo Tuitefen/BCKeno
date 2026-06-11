@@ -8144,7 +8144,11 @@ def predictions_payload(
         if prediction_auto_sync is not None:
             payload["predictionAutoSync"] = prediction_auto_sync
         if touch_tracking:
-            payload["predictionTracking"] = touch_prediction_tracking_for_payload(payload, config)
+            payload["predictionTracking"] = touch_prediction_tracking_for_payload(
+                payload,
+                config,
+                allow_auto_sync=allow_auto_sync,
+            )
         return payload
 
     data_integrity = history_data_integrity(all_rows, config)
@@ -8191,7 +8195,12 @@ def predictions_payload(
         with PREDICTION_CACHE_LOCK:
             lru_cache_set(PREDICTION_CACHE, cache_key, payload, PREDICTION_CACHE_MAX_ITEMS)
     if touch_tracking:
-        payload["predictionTracking"] = touch_prediction_tracking_for_payload(payload, config, rows)
+        payload["predictionTracking"] = touch_prediction_tracking_for_payload(
+            payload,
+            config,
+            rows,
+            allow_auto_sync=allow_auto_sync,
+        )
     return payload
 
 
@@ -14230,6 +14239,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "trackingTotalD": parse_int(tracking_summary_d.get("total"), 0),
                     "skippedPrediction": skipped_prediction,
                     "waitingForDraw": waiting_for_draw,
+                    "refreshResult": refresh_result,
                     "trackingWait": tracking_wait if waiting_for_draw else None,
                     "historyWait": history_wait if history_wait.get("waiting") else None,
                     "telegram": telegram_result,

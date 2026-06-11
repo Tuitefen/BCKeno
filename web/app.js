@@ -2112,7 +2112,11 @@ async function loadPrediction(options = {}) {
     renderPredictionLoading();
   }
   try {
-    const params = new URLSearchParams({ game: currentGameKey(), panel, autoSync: "0" });
+    const params = new URLSearchParams({
+      game: currentGameKey(),
+      panel,
+      autoSync: options.retrySync ? "1" : "0",
+    });
     const url = `/api/predictions?${params.toString()}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -2291,6 +2295,11 @@ async function updatePredictionAuto(action) {
     if (completedAt) state.predictionAutoLastCompletedAt = completedAt;
     renderPredictionAutoStatus();
     if (action === "runOnce") {
+      clearResponseCache();
+      for (const slot of Object.values(state.predictionPanels)) {
+        slot.prediction = null;
+      }
+      await loadPrediction({ force: true, preserve: false, panel: state.predictionPanel, retrySync: true });
       await loadPredictionTracking({ silent: true, panel: state.predictionPanel });
     }
     showToast(
