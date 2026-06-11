@@ -23,7 +23,7 @@ import traceback
 import uuid
 from bisect import bisect_left
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import combinations
 from pathlib import Path
@@ -36,6 +36,9 @@ from zoneinfo import ZoneInfo
 import fetch_bc_keno_history
 import fetch_official_supplements
 import keno_triple_omission
+
+
+UTC = timezone.utc
 
 
 class RequestBodyTooLarge(ValueError):
