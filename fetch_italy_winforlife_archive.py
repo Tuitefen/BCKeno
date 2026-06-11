@@ -18,7 +18,7 @@ import re
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlencode
@@ -43,6 +43,7 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
 )
+UTC = timezone.utc
 
 ITALIAN_MONTHS = {
     "gennaio": 1,

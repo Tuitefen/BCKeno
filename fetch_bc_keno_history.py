@@ -25,7 +25,7 @@ import os
 import subprocess
 import sys
 import time
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -51,6 +51,9 @@ DEFAULT_OUTPUT = DATA_ROOT / "bc_spain_l_express_20_70_history.csv"
 MAX_NUMBER_COLUMNS = 20
 NUMBER_COLUMNS = [f"n{i}" for i in range(1, MAX_NUMBER_COLUMNS + 1)]
 CANCELLED_STATUS_CODES = {"60"}
+
+
+UTC = timezone.utc
 
 
 def draw_time_iso(draw_time_ms: str | int | None) -> str:

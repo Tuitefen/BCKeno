@@ -6,13 +6,16 @@ from __future__ import annotations
 import html
 import json
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
 
 import fetch_bc_keno_history
+
+
+UTC = timezone.utc
 
 
 RO_TZ = ZoneInfo("Europe/Bucharest")
