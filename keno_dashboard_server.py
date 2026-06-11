@@ -12804,6 +12804,13 @@ def telegram_result_message(game_config: dict[str, Any], records: list[dict[str,
         stake = parse_float(summary.get("currentStake"), telegram_record_stake_amount(record, config))
         profit = parse_float(summary.get("currentProfit"), telegram_record_profit_amount(record, config))
         matched_numbers = summary.get("currentMatchedNumbers") or result.get("matchedNumbers") or []
+        summary_numbers = summary.get("numbers") or telegram_record_numbers_text(record)
+        summary_periods = parse_int(summary.get("periods"), 0)
+        summary_wins = parse_int(summary.get("wins"), 0)
+        summary_stake = parse_float(summary.get("stake"), 0)
+        summary_payout = parse_float(summary.get("payout"), 0)
+        summary_profit = parse_float(summary.get("profit"), 0)
+        summary_roi = parse_float(summary.get("roi"), 0)
         result_lines.append(
             "\n".join(
                 [
@@ -12820,16 +12827,16 @@ def telegram_result_message(game_config: dict[str, Any], records: list[dict[str,
         summary_lines.append(
             "\n".join(
                 [
-                    f"候选{index}  {telegram_html_text(item['slotLabel'])}  {telegram_html_code(summary.get('numbers') or telegram_record_numbers_text(record))}",
+                    f"候选{index}  {telegram_html_text(item['slotLabel'])}  {telegram_html_code(summary_numbers)}",
                     (
-                        f"{telegram_html_code(f'{parse_int(summary.get('periods'), 0)}期')}  "
-                        f"命中 {telegram_html_code(parse_int(summary.get('wins'), 0))}  "
-                        f"累投 {telegram_html_code(f'{parse_float(summary.get('stake'), 0):g}')}  "
-                        f"中奖 {telegram_html_code(f'{parse_float(summary.get('payout'), 0):g}')}"
+                        f"{telegram_html_code(f'{summary_periods}期')}  "
+                        f"命中 {telegram_html_code(str(summary_wins))}  "
+                        f"累投 {telegram_html_code(f'{summary_stake:g}')}  "
+                        f"中奖 {telegram_html_code(f'{summary_payout:g}')}"
                     ),
                     (
-                        f"利润 {telegram_html_code(telegram_signed_amount(parse_float(summary.get('profit'), 0)))}  "
-                        f"ROI {telegram_html_code(f'{parse_float(summary.get('roi'), 0) * 100:+.2f}%')}"
+                        f"利润 {telegram_html_code(telegram_signed_amount(summary_profit))}  "
+                        f"ROI {telegram_html_code(f'{summary_roi * 100:+.2f}%')}"
                     ),
                 ]
             )
