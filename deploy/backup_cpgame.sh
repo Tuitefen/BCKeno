@@ -1,9 +1,11 @@
 #!/bin/bash
 set -e
 
+APP_DIR=$(cd "$(dirname "$0")/.." && pwd)
 DATE=$(date +%F)
-BACKUP_ROOT=/www/backup/cpgame/$DATE
-DATA_DIR=/www/cpgame-runtime/data
+RUNTIME_DIR="${APP_DIR}/cpgame-runtime"
+DATA_DIR="${BCKENO_DATA_DIR:-${RUNTIME_DIR}/data}"
+BACKUP_ROOT="${BCKENO_BACKUP_DIR:-${RUNTIME_DIR}/backups}/$DATE"
 
 mkdir -p "$BACKUP_ROOT"
 
@@ -18,4 +20,4 @@ cp "$DATA_DIR"/prediction_auto_config.json "$BACKUP_ROOT"/
 cp "$DATA_DIR"/telegram_bot_config.local.json "$BACKUP_ROOT"/
 cp "$DATA_DIR"/telegram_bot_state.local.json "$BACKUP_ROOT"/
 
-find /www/backup/cpgame -maxdepth 1 -type d -mtime +14 -exec rm -rf {} \;
+find "${BCKENO_BACKUP_DIR:-${RUNTIME_DIR}/backups}" -maxdepth 1 -type d -mtime +14 -exec rm -rf {} \;

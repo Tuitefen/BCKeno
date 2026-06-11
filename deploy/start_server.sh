@@ -1,15 +1,20 @@
 #!/bin/bash
 set -e
 
-export BCKENO_DATA_DIR=/www/cpgame-runtime/data
-export BCKENO_LOG_DIR=/www/cpgame-runtime/logs
-export BCKENO_BACKUP_DIR=/www/cpgame-runtime/backups
+APP_DIR=$(cd "$(dirname "$0")/.." && pwd)
+RUNTIME_DIR="${APP_DIR}/cpgame-runtime"
+
+export BCKENO_DATA_DIR="${BCKENO_DATA_DIR:-${RUNTIME_DIR}/data}"
+export BCKENO_LOG_DIR="${BCKENO_LOG_DIR:-${RUNTIME_DIR}/logs}"
+export BCKENO_BACKUP_DIR="${BCKENO_BACKUP_DIR:-${RUNTIME_DIR}/backups}"
 export TZ=Asia/Shanghai
 
-cd /www/wwwroot/cpgame
+mkdir -p "$BCKENO_DATA_DIR" "$BCKENO_LOG_DIR" "$BCKENO_BACKUP_DIR"
 
-if [ -x /www/wwwroot/cpgame/.venv/bin/python ]; then
-  exec /www/wwwroot/cpgame/.venv/bin/python /www/wwwroot/cpgame/keno_dashboard_server.py
+cd "$APP_DIR"
+
+if [ -x "$APP_DIR/.venv/bin/python" ]; then
+  exec "$APP_DIR/.venv/bin/python" "$APP_DIR/keno_dashboard_server.py"
 fi
 
-exec python3 /www/wwwroot/cpgame/keno_dashboard_server.py
+exec python3 "$APP_DIR/keno_dashboard_server.py"

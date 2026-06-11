@@ -61,9 +61,9 @@ Recommended server layout:
 
 ```text
 /www/wwwroot/cpgame/       code cloned from GitHub
-/www/cpgame-runtime/data/  runtime data, SQLite, CSV, local Telegram config
-/www/cpgame-runtime/logs/
-/www/cpgame-runtime/backups/
+/www/wwwroot/cpgame/cpgame-runtime/data/  runtime data, SQLite, CSV, local Telegram config
+/www/wwwroot/cpgame/cpgame-runtime/logs/
+/www/wwwroot/cpgame/cpgame-runtime/backups/
 ```
 
 Clone code:
@@ -81,15 +81,15 @@ chmod +x deploy/backup_cpgame.sh
 Create runtime directories:
 
 ```bash
-mkdir -p /www/cpgame-runtime/data
-mkdir -p /www/cpgame-runtime/logs
-mkdir -p /www/cpgame-runtime/backups
+mkdir -p /www/wwwroot/cpgame/cpgame-runtime/data
+mkdir -p /www/wwwroot/cpgame/cpgame-runtime/logs
+mkdir -p /www/wwwroot/cpgame/cpgame-runtime/backups
 ```
 
 Upload local runtime data manually to:
 
 ```text
-/www/cpgame-runtime/data/
+/www/wwwroot/cpgame/cpgame-runtime/data/
 ```
 
 Do not commit or upload runtime secrets to GitHub:
@@ -106,9 +106,15 @@ aaPanel Supervisor:
 Name: cpgame
 Run dir: /www/wwwroot/cpgame
 Start command: /www/wwwroot/cpgame/deploy/start_server.sh
-User: www
+User: root
 Autostart: enabled
 Autorestart: enabled
+```
+
+The deploy script automatically reads runtime data from:
+
+```text
+/www/wwwroot/cpgame/cpgame-runtime/data/
 ```
 
 Nginx reverse proxy target:
