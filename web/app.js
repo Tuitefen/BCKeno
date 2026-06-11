@@ -12,6 +12,7 @@ const state = {
   adjacentHits: null,
   predictionAuto: null,
   predictionAutoPollTimer: null,
+  predictionSyncRetryTimer: null,
   predictionAutoLastCompletedAt: "",
   telegram: null,
   predictionTrackingRefreshInFlight: false,
@@ -1006,6 +1007,23 @@ function cacheSet(key, payload) {
 
 function clearResponseCache() {
   state.responseCache.clear();
+}
+
+function stopPredictionSyncRetry() {
+  if (state.predictionSyncRetryTimer) {
+    window.clearTimeout(state.predictionSyncRetryTimer);
+    state.predictionSyncRetryTimer = null;
+  }
+}
+
+function schedulePredictionSyncRetry(panel) {
+  stopPredictionSyncRetry();
+  state.predictionSyncRetryTimer = window.setTimeout(() => {
+    state.predictionSyncRetryTimer = null;
+    if (state.activeView.startsWith("prediction") && state.predictionPanel === panel) {
+      loadPrediction({ force: true, preserve: true, panel, retrySync: true });
+    }
+  }, 5000);
 }
 
 function relativeTime(value) {
@@ -2095,24 +2113,6 @@ async function loadPrediction(options = {}) {
   try {
     const params = new URLSearchParams({ game: currentGameKey(), panel });
     const url = `/api/predictions?${params.toString()}`;
-    const cached = options.force ? null : cacheGet(url);
-    if (cached) {
-      if (!payloadMatchesCurrentGame(cached)) return;
-      updatePredictionPanelState(
-        {
-          prediction: cached,
-          predictionTracking: isPaginatedPredictionTrackingPayload(cached.predictionTracking)
-            ? cached.predictionTracking
-            : slot.predictionTracking,
-        },
-        panel,
-      );
-      if (state.predictionPanel === panel) {
-        renderPredictionPage();
-      }
-      loadPredictionTracking({ silent: true, panel });
-      return;
-    }
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
@@ -2129,11 +2129,15 @@ async function loadPrediction(options = {}) {
     if (isPaginatedPredictionTrackingPayload(data.predictionTracking) && state.predictionPanel === panel) {
       renderPredictionTracking();
     }
-    cacheSet(url, data);
+    if (data?.predictions?.trackingReady === false) {
+      schedulePredictionSyncRetry(panel);
+    } else if (state.predictionPanel === panel) {
+      stopPredictionSyncRetry();
+    }
     if (state.predictionPanel === panel) {
       renderPredictionPage();
     }
-    loadPredictionTracking({ silent: true, panel });
+    loadPredictionTracking({ silent: true, panel, autoSync: true });
   } catch (error) {
     showToast(`加载预测失败：${error.message}`, true);
   } finally {

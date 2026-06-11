@@ -137,6 +137,7 @@ PREDICTION_AUTO_STATUS: dict[str, Any] = {
 PREDICTION_AUTO_HISTORY_MARKERS: dict[str, tuple[int, int, str, str]] = {}
 PREDICTION_TRACKING_AUTO_SYNC_LAST_ATTEMPT: dict[str, float] = {}
 PREDICTION_VOID_REASON_MISSING_TARGET = "目标期开奖缺失，且后续期次已到达，追踪作废"
+PREDICTION_VOID_REASON_STALE_SOURCE = "上一期开奖结果未同步，计划基准不连续，追踪作废"
 PREDICTION_VOID_REASON_PAST_TARGET = "预测创建晚于目标期开奖，追踪作废"
 PREDICTION_VOID_REASON_SUPERSEDED = "同期开奖已有更新预测批次，较早批次作废"
 LEGACY_VOID_REASONS = {
@@ -322,9 +323,10 @@ LOTTERY_GAMES["italy_win_for_life_10_20"]["predictionConditionKeys"] = LOTTERY_G
     "italy_win_for_life_10_20"
 ]["runConditionKeys"]
 PREDICTION_HORIZONS = 5
-PREDICTION_TRACKING_LEAD_SECONDS = 45
+PREDICTION_TRACKING_LEAD_SECONDS = 90
 PREDICTION_TRACKING_AUTO_SYNC_COOLDOWN_SECONDS = 45
-PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS = 20
+PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS = 5
+PREDICTION_DRAW_SYNC_GRACE_SECONDS = 10
 PREDICTION_RECENT_WINDOW = 240
 PREDICTION_NUMBER_WEIGHTS = [
     {"miss": 0.50, "momentum": 0.32, "history": 0.18},
@@ -1498,6 +1500,29 @@ def is_inside_operating_hours(draw_time_ms: int, config: dict[str, Any]) -> bool
     return minute_of_day >= start or minute_of_day <= end
 
 
+def prediction_draw_interval_ms(config: dict[str, Any]) -> int:
+    return int(float(config.get("drawIntervalMinutes") or 0) * 60000)
+
+
+def prediction_draw_sync_grace_ms(config: dict[str, Any]) -> int:
+    interval_ms = prediction_draw_interval_ms(config)
+    if interval_ms <= 0:
+        return PREDICTION_DRAW_SYNC_GRACE_SECONDS * 1000
+    return max(5000, min(PREDICTION_DRAW_SYNC_GRACE_SECONDS * 1000, interval_ms // 6))
+
+
+def next_operating_draw_after_ms(newest_ms: int, config: dict[str, Any]) -> tuple[int, int]:
+    interval_ms = prediction_draw_interval_ms(config)
+    if newest_ms <= 0 or interval_ms <= 0:
+        return 0, 0
+    max_offset = max(2, int(math.ceil((36 * 60 * 60000) / interval_ms)))
+    for offset in range(1, max_offset + 1):
+        draw_time_ms = newest_ms + offset * interval_ms
+        if is_inside_operating_hours(draw_time_ms, config):
+            return draw_time_ms, offset
+    return newest_ms + interval_ms, 1
+
+
 def future_prediction_draw_times(
     newest_ms: int,
     config: dict[str, Any],
@@ -1505,12 +1530,12 @@ def future_prediction_draw_times(
     count: int = PREDICTION_HORIZONS,
     now_ms: int | None = None,
 ) -> list[dict[str, Any]]:
-    interval_ms = int(float(config["drawIntervalMinutes"]) * 60000)
+    interval_ms = prediction_draw_interval_ms(config)
     if newest_ms <= 0 or interval_ms <= 0 or count <= 0:
         return []
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
     minimum_target_ms = now_ms + PREDICTION_TRACKING_LEAD_SECONDS * 1000
-    first_offset = max(1, math.floor((minimum_target_ms - newest_ms) / interval_ms) + 1)
+    first_offset = max(1, math.ceil((minimum_target_ms - newest_ms) / interval_ms))
     draw_times: list[dict[str, Any]] = []
     offset = first_offset
     max_offset = first_offset + max(count * 12, count + 1440)
@@ -1532,7 +1557,7 @@ def future_prediction_draw_times(
 
 
 def prediction_schedule_cache_bucket(config: dict[str, Any]) -> int:
-    interval_ms = int(float(config["drawIntervalMinutes"]) * 60000)
+    interval_ms = prediction_draw_interval_ms(config)
     if interval_ms <= 0:
         return 0
     return int((int(time.time() * 1000) + PREDICTION_TRACKING_LEAD_SECONDS * 1000) // interval_ms)
@@ -1551,7 +1576,7 @@ def prediction_target_cache_ms(
 
 def prediction_prewarm_now_values(config: dict[str, Any], now_ms: int | None = None) -> tuple[int, ...]:
     now_value = now_ms if now_ms is not None else int(time.time() * 1000)
-    interval_ms = int(float(config.get("drawIntervalMinutes") or 0) * 60000)
+    interval_ms = prediction_draw_interval_ms(config)
     if interval_ms <= 0:
         return (now_value,)
     return (now_value, now_value + interval_ms)
@@ -1788,8 +1813,10 @@ def select_supplement_rows(
 def fetch_official_supplement(
     config: dict[str, Any],
     existing_rows: list[dict[str, Any]],
+    *,
+    timeout: float = 30,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    recent, meta = fetch_official_supplements.fetch_recent_official(config)
+    recent, meta = fetch_official_supplements.fetch_recent_official(config, timeout=timeout)
     dashboard_recent = [official_row_to_dashboard_row(row, config) for row in recent]
     dashboard_rows = select_supplement_rows(dashboard_recent, existing_rows)
     meta = dict(meta)
@@ -7944,6 +7971,7 @@ def predictions_payload(
     *,
     touch_tracking: bool = True,
     now_ms: int | None = None,
+    allow_auto_sync: bool = False,
 ) -> dict[str, Any]:
     config = game_from_query(query)
     ensure_predictions_supported(config)
@@ -7960,15 +7988,36 @@ def predictions_payload(
         except FileNotFoundError:
             history_identity = (0, 0)
         all_rows = load_history_rows(history_path, config)
+    prediction_auto_sync: dict[str, Any] | None = None
+    if allow_auto_sync and now_ms is None:
+        try:
+            all_rows, prediction_auto_sync = maybe_auto_sync_prediction_tracking(config, all_rows)
+            with DATA_LOCK:
+                try:
+                    stat = history_path.stat()
+                    history_identity = (stat.st_mtime_ns, stat.st_size)
+                except FileNotFoundError:
+                    history_identity = (0, 0)
+                all_rows = load_history_rows(history_path, config)
+        except Exception as exc:
+            prediction_auto_sync = {"ok": False, "error": str(exc), "errorType": type(exc).__name__}
     target_cache_ms = prediction_target_cache_ms(all_rows, config, now_value)
     cache_key = (config["key"], *history_identity, row_limit, target_cache_ms, panel)
 
     with PREDICTION_CACHE_LOCK:
         cached = lru_cache_get(PREDICTION_CACHE, cache_key)
-    if cached is not None:
+    cached_predictions = cached.get("predictions") if isinstance(cached, dict) else {}
+    cached_ready = (
+        cached_predictions.get("trackingReady")
+        if isinstance(cached_predictions, dict)
+        else None
+    )
+    if cached is not None and cached_ready is not False:
         payload = dict(cached)
         payload["cacheHit"] = True
         payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
+        if prediction_auto_sync is not None:
+            payload["predictionAutoSync"] = prediction_auto_sync
         if touch_tracking:
             payload["predictionTracking"] = touch_prediction_tracking_for_payload(payload, config)
         return payload
@@ -7993,6 +8042,7 @@ def predictions_payload(
         "newestDraw": newest,
         "newestTimelineDraw": latest_timeline,
         "oldestDraw": oldest,
+        "predictionAutoSync": prediction_auto_sync,
         "predictions": prediction_payload(
             rows,
             config,
@@ -8001,9 +8051,17 @@ def predictions_payload(
             now_ms=now_value,
         ),
     }
+    target_context = prediction_tracking_target_context(payload, config, now_ms=now_value)
+    if not target_context["ready"]:
+        mark_prediction_payload_waiting_for_sync(payload, target_context)
+    else:
+        payload["predictions"]["trackingReady"] = True
+        payload["predictions"]["syncStatus"] = prediction_tracking_target_context_public(target_context)
+        payload["predictionTarget"] = prediction_tracking_target_context_public(target_context)
     payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
-    with PREDICTION_CACHE_LOCK:
-        lru_cache_set(PREDICTION_CACHE, cache_key, payload, PREDICTION_CACHE_MAX_ITEMS)
+    if target_context["ready"]:
+        with PREDICTION_CACHE_LOCK:
+            lru_cache_set(PREDICTION_CACHE, cache_key, payload, PREDICTION_CACHE_MAX_ITEMS)
     if touch_tracking:
         payload["predictionTracking"] = touch_prediction_tracking_for_payload(payload, config, rows)
     return payload
@@ -10584,16 +10642,34 @@ def prediction_tracking_batch_key(record: dict[str, Any]) -> tuple[str, str, int
     )
 
 
-def prediction_tracking_records_from_payload(
+def prediction_tracking_freshness_tolerance_ms(config: dict[str, Any]) -> int:
+    interval_ms = prediction_draw_interval_ms(config)
+    if interval_ms <= 0:
+        return 1000
+    return max(1000, min(interval_ms // 20, 5000))
+
+
+def prediction_tracking_record_source_ready(record: dict[str, Any], config: dict[str, Any]) -> bool:
+    target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+    based_ms = parse_int(record.get("basedOnDrawTimeMs"), 0)
+    expected_target_ms, expected_offset = next_operating_draw_after_ms(based_ms, config)
+    if target_ms <= 0 or based_ms <= 0 or expected_target_ms <= 0:
+        return False
+    offset = parse_int(record.get("targetDrawOffset"), 0)
+    tolerance_ms = prediction_tracking_freshness_tolerance_ms(config)
+    if offset and expected_offset and offset != expected_offset:
+        return False
+    return abs(target_ms - expected_target_ms) <= tolerance_ms
+
+
+def prediction_tracking_target_context(
     payload: dict[str, Any],
     config: dict[str, Any],
-) -> list[dict[str, Any]]:
+    now_ms: int | None = None,
+) -> dict[str, Any]:
     predictions = payload.get("predictions") if isinstance(payload.get("predictions"), dict) else {}
-    panel = prediction_panel_from_value(predictions.get("panel") or payload.get("panel"))
-    method_version = prediction_method_version_for_panel(panel)
-    tickets = predictions.get("strategyTickets") if isinstance(predictions.get("strategyTickets"), list) else []
     forecasts = predictions.get("forecasts") if isinstance(predictions.get("forecasts"), list) else []
-    target = forecasts[0] if forecasts else {}
+    target = forecasts[0] if forecasts and isinstance(forecasts[0], dict) else {}
     newest = (
         payload.get("newestTimelineDraw")
         if isinstance(payload.get("newestTimelineDraw"), dict)
@@ -10603,6 +10679,125 @@ def prediction_tracking_records_from_payload(
     )
     target_ms = parse_int(target.get("drawTimeMs"), 0)
     based_ms = parse_int(newest.get("drawTimeMs"), 0)
+    interval_ms = prediction_draw_interval_ms(config)
+    tolerance_ms = prediction_tracking_freshness_tolerance_ms(config)
+    draw_offset = parse_int(target.get("drawOffset"), 0)
+    expected_target_ms, expected_offset = next_operating_draw_after_ms(based_ms, config)
+    now_value = now_ms if now_ms is not None else int(time.time() * 1000)
+    minimum_target_ms = now_value + PREDICTION_TRACKING_LEAD_SECONDS * 1000
+    expected_target_overdue = (
+        expected_target_ms > 0
+        and expected_target_ms + prediction_draw_sync_grace_ms(config) <= now_value
+    )
+    ready = (
+        target_ms > 0
+        and based_ms > 0
+        and interval_ms > 0
+        and expected_target_ms > 0
+        and not expected_target_overdue
+        and (draw_offset == 0 or draw_offset == expected_offset)
+        and abs(target_ms - expected_target_ms) <= tolerance_ms
+        and target_ms >= minimum_target_ms
+    )
+    reason = ""
+    if target_ms <= 0:
+        reason = "missing_target_draw"
+    elif based_ms <= 0:
+        reason = "missing_base_draw"
+    elif interval_ms <= 0:
+        reason = "missing_draw_interval"
+    elif expected_target_ms <= 0:
+        reason = "missing_expected_target_draw"
+    elif expected_target_overdue:
+        reason = "history_not_synced_to_previous_draw"
+    elif expected_target_ms < minimum_target_ms:
+        reason = "next_draw_inside_betting_cutoff"
+    elif draw_offset and expected_offset and draw_offset != expected_offset:
+        reason = "history_not_synced_to_previous_draw"
+    elif abs(target_ms - expected_target_ms) > tolerance_ms:
+        reason = "target_is_not_next_open_draw_after_latest_history"
+    elif target_ms < minimum_target_ms:
+        reason = "target_inside_betting_cutoff"
+    return {
+        "ready": ready,
+        "reason": reason,
+        "targetDrawTimeMs": target_ms,
+        "targetDrawTimeUtc": draw_time_utc_from_ms(target_ms),
+        "basedOnDrawTimeMs": based_ms,
+        "basedOnDrawTimeUtc": draw_time_utc_from_ms(based_ms),
+        "expectedTargetDrawTimeMs": expected_target_ms,
+        "expectedTargetDrawTimeUtc": draw_time_utc_from_ms(expected_target_ms),
+        "drawOffset": draw_offset,
+        "expectedDrawOffset": expected_offset,
+        "intervalMs": interval_ms,
+        "toleranceMs": tolerance_ms,
+        "leadSeconds": PREDICTION_TRACKING_LEAD_SECONDS,
+        "minimumTargetDrawTimeMs": minimum_target_ms,
+        "minimumTargetDrawTimeUtc": draw_time_utc_from_ms(minimum_target_ms),
+        "secondsUntilExpectedTarget": round((expected_target_ms - now_value) / 1000, 3)
+        if expected_target_ms
+        else None,
+        "expectedTargetOverdue": expected_target_overdue,
+        "target": target,
+        "newest": newest,
+    }
+
+
+def prediction_tracking_target_context_public(context: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in context.items()
+        if key not in {"target", "newest"}
+    }
+
+
+def mark_prediction_payload_waiting_for_sync(payload: dict[str, Any], context: dict[str, Any]) -> None:
+    predictions = payload.get("predictions") if isinstance(payload.get("predictions"), dict) else {}
+    sync_status = prediction_tracking_target_context_public(context)
+    reason = str(sync_status.get("reason") or "")
+    if reason in {"next_draw_inside_betting_cutoff", "target_inside_betting_cutoff"}:
+        message = "下一期已接近封盘，跳过本期，等待该期开奖结果同步后再生成下一期计划"
+    else:
+        message = "等待上一期开奖结果同步，暂不生成可下注候选"
+    sync_status["message"] = message
+    predictions["trackingReady"] = False
+    predictions["syncStatus"] = sync_status
+    predictions["strategyTickets"] = []
+    predictions["forecasts"] = []
+    predictions["timeWindowUtc"] = {"start": "", "end": ""}
+    predictions["method"] = f"等待开奖同步：{message}"
+    payload["predictionTarget"] = sync_status
+
+
+def prediction_tracking_pending_batch_blocks(
+    record: dict[str, Any],
+    pending_records: list[dict[str, Any]],
+) -> bool:
+    key = prediction_tracking_batch_key(record)
+    based_ms = parse_int(record.get("basedOnDrawTimeMs"), 0)
+    for existing in pending_records:
+        if prediction_tracking_batch_key(existing) != key:
+            continue
+        if parse_int(existing.get("basedOnDrawTimeMs"), 0) >= based_ms:
+            return True
+    return False
+
+
+def prediction_tracking_records_from_payload(
+    payload: dict[str, Any],
+    config: dict[str, Any],
+) -> list[dict[str, Any]]:
+    predictions = payload.get("predictions") if isinstance(payload.get("predictions"), dict) else {}
+    panel = prediction_panel_from_value(predictions.get("panel") or payload.get("panel"))
+    method_version = prediction_method_version_for_panel(panel)
+    tickets = predictions.get("strategyTickets") if isinstance(predictions.get("strategyTickets"), list) else []
+    target_context = prediction_tracking_target_context(payload, config)
+    if not target_context["ready"]:
+        return []
+    target = target_context["target"] if isinstance(target_context.get("target"), dict) else {}
+    newest = target_context["newest"] if isinstance(target_context.get("newest"), dict) else {}
+    target_ms = parse_int(target_context.get("targetDrawTimeMs"), 0)
+    based_ms = parse_int(target_context.get("basedOnDrawTimeMs"), 0)
     if target_ms <= 0 or based_ms <= 0 or not tickets:
         return []
 
@@ -10701,14 +10896,14 @@ def add_prediction_tracking_snapshot(
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
     existing_ids = {str(record.get("id") or "") for record in records}
-    existing_pending_batches = {
-        prediction_tracking_batch_key(record)
-        for record in records
-        if str(record.get("status") or "pending") == "pending"
-    }
+    pending_records = [record for record in records if str(record.get("status") or "pending") == "pending"]
+    existing_pending_batches = {prediction_tracking_batch_key(record) for record in pending_records}
     created: list[dict[str, Any]] = []
     for record in prediction_tracking_records_from_payload(payload, config):
-        if prediction_tracking_batch_key(record) in existing_pending_batches:
+        if prediction_tracking_batch_key(record) in existing_pending_batches and prediction_tracking_pending_batch_blocks(
+            record,
+            pending_records,
+        ):
             continue
         if record["id"] in existing_ids:
             continue
@@ -10729,15 +10924,16 @@ def add_prediction_tracking_snapshot_lightweight(
         [str(record.get("id") or "") for record in candidate_records]
     )
     existing_ids = {str(record.get("id") or "") for record in existing_records}
-    existing_pending_batches = {
-        prediction_tracking_batch_key(record)
-        for record in load_pending_prediction_tracking_for_batch_keys(
-            {prediction_tracking_batch_key(record) for record in candidate_records}
-        )
-    }
+    pending_records = load_pending_prediction_tracking_for_batch_keys(
+        {prediction_tracking_batch_key(record) for record in candidate_records}
+    )
+    existing_pending_batches = {prediction_tracking_batch_key(record) for record in pending_records}
     created: list[dict[str, Any]] = []
     for record in candidate_records:
-        if prediction_tracking_batch_key(record) in existing_pending_batches:
+        if prediction_tracking_batch_key(record) in existing_pending_batches and prediction_tracking_pending_batch_blocks(
+            record,
+            pending_records,
+        ):
             continue
         if str(record.get("id") or "") in existing_ids:
             continue
@@ -10872,6 +11068,17 @@ def settle_prediction_tracking(
             continue
         target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
         created_ms = parse_datetime_ms(record.get("createdAt"))
+        if not prediction_tracking_record_source_ready(record, config):
+            result = void_prediction_tracking_result(record, PREDICTION_VOID_REASON_STALE_SOURCE)
+            record["status"] = "void"
+            record["settledAt"] = result["settledAt"]
+            record["payout"] = result["payout"]
+            record["profit"] = result["profit"]
+            record["result"] = result
+            if changed_records is not None:
+                changed_records.append(record)
+            settled += 1
+            continue
         if target_ms > 0 and created_ms > 0 and created_ms >= target_ms:
             result = void_prediction_tracking_result(record, PREDICTION_VOID_REASON_PAST_TARGET)
             record["status"] = "void"
@@ -11819,8 +12026,7 @@ def prediction_tracking_auto_sync_status(
         default=0,
     )
     now_ms = int(time.time() * 1000)
-    interval_ms = int(float(config.get("drawIntervalMinutes") or 0) * 60000)
-    grace_ms = max(15000, min(interval_ms // 2 if interval_ms > 0 else 15000, 60000))
+    grace_ms = prediction_draw_sync_grace_ms(config)
     overdue_targets: list[int] = []
     overdue_records = 0
     if records:
@@ -11849,6 +12055,27 @@ def prediction_tracking_auto_sync_status(
     }
 
 
+def prediction_history_waiting_for_latest_draw(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+    latest_ms = max((parse_int(row.get("drawTimeMs"), 0) for row in rows), default=0)
+    interval_ms = prediction_draw_interval_ms(config)
+    if latest_ms <= 0 or interval_ms <= 0:
+        return {"waiting": False, "reason": "missing_history_or_interval"}
+    now_ms = int(time.time() * 1000)
+    grace_ms = prediction_draw_sync_grace_ms(config)
+    next_expected_ms, expected_offset = next_operating_draw_after_ms(latest_ms, config)
+    waiting = next_expected_ms > 0 and next_expected_ms + grace_ms <= now_ms
+    return {
+        "waiting": waiting,
+        "reason": "history_latest_draw_overdue" if waiting else "",
+        "latestDrawTimeMs": latest_ms,
+        "latestDrawTimeUtc": draw_time_utc_from_ms(latest_ms),
+        "nextExpectedDrawTimeMs": next_expected_ms,
+        "nextExpectedDrawTimeUtc": draw_time_utc_from_ms(next_expected_ms),
+        "nextExpectedDrawOffset": expected_offset,
+        "graceSeconds": round(grace_ms / 1000, 3),
+    }
+
+
 def prediction_tracking_needs_auto_sync(
     records: list[dict[str, Any]],
     rows: list[dict[str, Any]],
@@ -11864,8 +12091,17 @@ def maybe_auto_sync_prediction_tracking(
     with PREDICTION_TRACKING_LOCK:
         records = load_prediction_tracking_for_game(config["key"])
     auto_sync_status = prediction_tracking_auto_sync_status(records, rows, config)
-    if not auto_sync_status["needsSync"]:
+    history_wait = prediction_history_waiting_for_latest_draw(rows, config)
+    needs_sync = bool(auto_sync_status["needsSync"] or history_wait.get("waiting"))
+    if not needs_sync:
         return rows, None
+    trigger_status = {
+        **auto_sync_status,
+        "needsSync": True,
+        "reason": auto_sync_status["reason"] or history_wait.get("reason") or "history_latest_draw_overdue",
+        "trackingWait": auto_sync_status if auto_sync_status["needsSync"] else None,
+        "historyWait": history_wait if history_wait.get("waiting") else None,
+    }
 
     now = time.monotonic()
     with PREDICTION_TRACKING_AUTO_SYNC_LOCK:
@@ -11874,10 +12110,10 @@ def maybe_auto_sync_prediction_tracking(
         if now - last_attempt < cooldown_seconds:
             retry_after = max(0.0, cooldown_seconds - (now - last_attempt))
             return rows, {
-                **auto_sync_status,
+                **trigger_status,
                 "skipped": True,
                 "reason": "cooldown",
-                "triggerReason": auto_sync_status["reason"],
+                "triggerReason": trigger_status["reason"],
                 "cooldownSeconds": cooldown_seconds,
                 "retryAfterSeconds": round(retry_after, 1),
             }
@@ -11890,8 +12126,8 @@ def maybe_auto_sync_prediction_tracking(
             "pageSize": 100,
             "maxPages": 2,
             "sleep": 0.05,
-            "timeout": 6,
-            "retries": 0,
+            "timeout": 5,
+            "retries": 1,
             "retrySleep": 0.5,
             "skipSupplement": False,
         }
@@ -11902,9 +12138,9 @@ def maybe_auto_sync_prediction_tracking(
     result.update(
         {
             "skipped": False,
-            "reason": auto_sync_status["reason"],
+            "reason": trigger_status["reason"],
             "cooldownSeconds": cooldown_seconds,
-            "trigger": auto_sync_status,
+            "trigger": trigger_status,
         }
     )
     return refreshed_rows, result
@@ -12885,6 +13121,11 @@ def telegram_send_latest_plan(game_config: dict[str, Any], config: dict[str, Any
         panel=PREDICTION_PANEL_M,
         limit=20,
     )
+    pending = [
+        record
+        for record in pending
+        if prediction_tracking_record_source_ready(record, game_config)
+    ]
     if not pending:
         return {"sent": False, "reason": "no_pending"}
     latest_target = max(parse_int(record.get("targetDrawTimeMs"), 0) for record in pending)
@@ -13539,13 +13780,14 @@ def telegram_request(payload: dict[str, Any]) -> dict[str, Any]:
 def default_prediction_auto_config() -> dict[str, Any]:
     return {
         "enabled": False,
-        "pollSeconds": 60,
+        "pollSeconds": 30,
+        "catchupPollSeconds": 5,
         "sync": True,
         "maxPages": 2,
         "pageSize": 100,
         "sleep": 0.05,
-        "timeout": 6,
-        "retries": 0,
+        "timeout": 5,
+        "retries": 1,
         "retrySleep": 0.5,
         "skipSupplement": False,
         "games": {
@@ -13572,7 +13814,8 @@ def load_prediction_auto_config() -> dict[str, Any]:
     for key, game_config in LOTTERY_GAMES.items():
         if not supports_predictions(game_config):
             config["games"].setdefault(key, {})["enabled"] = False
-    config["pollSeconds"] = max(30, min(parse_int(config.get("pollSeconds"), 60), 3600))
+    config["pollSeconds"] = max(15, min(parse_int(config.get("pollSeconds"), 30), 3600))
+    config["catchupPollSeconds"] = max(5, min(parse_int(config.get("catchupPollSeconds"), 5), 60))
     config["maxPages"] = max(1, min(parse_int(config.get("maxPages"), 2), 20))
     config["pageSize"] = max(10, min(parse_int(config.get("pageSize"), 100), 100))
     config["sleep"] = max(0, min(parse_float(config.get("sleep"), 0.05), 5))
@@ -13691,7 +13934,11 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
             with PREDICTION_TRACKING_LOCK:
                 tracking_records = load_prediction_tracking_for_game(key)
             tracking_wait = prediction_tracking_auto_sync_status(tracking_records, tracking_rows, game_config)
-            waiting_for_draw = bool(config.get("sync", True) and tracking_wait.get("needsSync"))
+            history_wait = prediction_history_waiting_for_latest_draw(tracking_rows, game_config)
+            waiting_for_draw = bool(
+                config.get("sync", True)
+                and (tracking_wait.get("needsSync") or history_wait.get("waiting"))
+            )
             should_generate_prediction = (
                 not config.get("sync", True)
                 or previous_marker is None
@@ -13738,6 +13985,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
             tracking_summary_a = tracking.get("summaryA") or {}
             tracking_summary_b = tracking.get("summaryB") or {}
             tracking_summary_m = tracking.get("summaryM") or {}
+            tracking_summary_d = tracking.get("summaryD") or {}
             telegram_result = telegram_notify_game(game_config)
             results.append(
                 {
@@ -13748,13 +13996,16 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "createdPredictions": parse_int(tracking.get("createdNow"), 0),
                     "trackingTotal": parse_int(tracking_summary_a.get("total"), 0)
                     + parse_int(tracking_summary_b.get("total"), 0)
-                    + parse_int(tracking_summary_m.get("total"), 0),
+                    + parse_int(tracking_summary_m.get("total"), 0)
+                    + parse_int(tracking_summary_d.get("total"), 0),
                     "trackingTotalA": parse_int(tracking_summary_a.get("total"), 0),
                     "trackingTotalB": parse_int(tracking_summary_b.get("total"), 0),
                     "trackingTotalM": parse_int(tracking_summary_m.get("total"), 0),
+                    "trackingTotalD": parse_int(tracking_summary_d.get("total"), 0),
                     "skippedPrediction": skipped_prediction,
                     "waitingForDraw": waiting_for_draw,
                     "trackingWait": tracking_wait if waiting_for_draw else None,
+                    "historyWait": history_wait if history_wait.get("waiting") else None,
                     "telegram": telegram_result,
                     "generatedAt": utc_now_iso(),
                 }
@@ -13785,7 +14036,10 @@ def prediction_auto_worker() -> None:
             message="自动追踪运行中",
         )
         results, errors = run_prediction_auto_once(config)
-        poll_seconds = parse_int(config.get("pollSeconds"), 60)
+        normal_poll_seconds = parse_int(config.get("pollSeconds"), 60)
+        catchup_poll_seconds = parse_int(config.get("catchupPollSeconds"), 10)
+        has_waiting_draw = any(bool(item.get("waitingForDraw")) for item in results if isinstance(item, dict))
+        poll_seconds = catchup_poll_seconds if has_waiting_draw else normal_poll_seconds
         next_run_ts = time.time() + poll_seconds
         completed_at = utc_now_iso()
         set_prediction_auto_status(
@@ -13795,9 +14049,14 @@ def prediction_auto_worker() -> None:
             lastRunAt=started_at,
             lastCompletedAt=completed_at,
             nextRunAt=datetime.fromtimestamp(next_run_ts, tz=UTC).isoformat(timespec="seconds"),
-            message=f"自动追踪完成：{len(results)} 个彩种，{len(errors)} 个错误",
+            message=(
+                f"自动追踪完成：{len(results)} 个彩种，{len(errors)} 个错误；"
+                f"{'等待开奖同步，短轮询' if has_waiting_draw else '常规轮询'} {poll_seconds} 秒"
+            ),
             results=results,
             errors=errors,
+            waitingForDraw=has_waiting_draw,
+            pollSeconds=poll_seconds,
         )
         if PREDICTION_AUTO_STOP.wait(poll_seconds):
             break
@@ -15355,7 +15614,7 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
                 etipos_meta = {"source": config.get("officialSupplement", ""), "status": "skipped", "newRows": 0}
             else:
                 try:
-                    etipos_rows, etipos_meta = fetch_official_supplement(config, rows)
+                    etipos_rows, etipos_meta = fetch_official_supplement(config, rows, timeout=timeout)
                 except Exception as exc:
                     etipos_rows = []
                     etipos_meta = {"source": config.get("officialSupplement", ""), "error": str(exc), "newRows": 0}
@@ -15491,7 +15750,7 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
                 etipos_meta = {"source": config.get("officialSupplement", ""), "status": "skipped", "newRows": 0}
             else:
                 try:
-                    etipos_rows, etipos_meta = fetch_official_supplement(config, merged_before_etipos)
+                    etipos_rows, etipos_meta = fetch_official_supplement(config, merged_before_etipos, timeout=timeout)
                 except Exception as exc:
                     etipos_rows = []
                     etipos_meta = {"source": config.get("officialSupplement", ""), "error": str(exc), "newRows": 0}
@@ -15680,7 +15939,13 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/predictions":
             try:
-                self.send_json(predictions_payload(parse_qs(parsed.query)))
+                query = parse_qs(parsed.query)
+                self.send_json(
+                    predictions_payload(
+                        query,
+                        allow_auto_sync=query_bool(query, "autoSync", True),
+                    )
+                )
             except ValueError as exc:
                 self.send_error_json(400, str(exc))
             except Exception as exc:
