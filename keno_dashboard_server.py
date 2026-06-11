@@ -328,7 +328,9 @@ PREDICTION_HORIZONS = 5
 PREDICTION_TRACKING_LEAD_SECONDS = 90
 PREDICTION_TRACKING_AUTO_SYNC_COOLDOWN_SECONDS = 45
 PREDICTION_TRACKING_OVERDUE_AUTO_SYNC_COOLDOWN_SECONDS = 5
-PREDICTION_AUTO_CATCHUP_MIN_SECONDS = 60
+PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS = 15
+PREDICTION_AUTO_MULTI_GAME_CATCHUP_SECONDS = 60
+PREDICTION_AUTO_CATCHUP_MAX_SECONDS = 300
 PREDICTION_DRAW_SYNC_GRACE_SECONDS = 10
 PREDICTION_RECENT_WINDOW = 240
 PREDICTION_NUMBER_WEIGHTS = [
@@ -13868,7 +13870,7 @@ def default_prediction_auto_config() -> dict[str, Any]:
     return {
         "enabled": False,
         "pollSeconds": 30,
-        "catchupPollSeconds": PREDICTION_AUTO_CATCHUP_MIN_SECONDS,
+        "catchupPollSeconds": PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS,
         "sync": True,
         "maxPages": 2,
         "pageSize": 100,
@@ -13907,10 +13909,10 @@ def load_prediction_auto_config() -> dict[str, Any]:
             config["games"].setdefault(key, {})["enabled"] = False
     config["pollSeconds"] = max(15, min(parse_int(config.get("pollSeconds"), 30), 3600))
     config["catchupPollSeconds"] = max(
-        PREDICTION_AUTO_CATCHUP_MIN_SECONDS,
+        PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS,
         min(
-            parse_int(config.get("catchupPollSeconds"), PREDICTION_AUTO_CATCHUP_MIN_SECONDS),
-            300,
+            parse_int(config.get("catchupPollSeconds"), PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS),
+            PREDICTION_AUTO_CATCHUP_MAX_SECONDS,
         ),
     )
     config["maxPages"] = max(1, min(parse_int(config.get("maxPages"), 2), 20))
@@ -13941,12 +13943,16 @@ def prediction_auto_status_payload() -> dict[str, Any]:
     with PREDICTION_AUTO_LOCK:
         status = dict(PREDICTION_AUTO_STATUS)
         thread_alive = PREDICTION_AUTO_THREAD is not None and PREDICTION_AUTO_THREAD.is_alive()
+    effective_poll_seconds = prediction_auto_effective_poll_seconds(config)
+    effective_catchup_seconds = prediction_auto_effective_catchup_seconds(config)
     status.update(
         {
             "ok": True,
             "enabled": bool(config.get("enabled")),
             "running": thread_alive,
             "config": config,
+            "effectivePollSeconds": effective_poll_seconds,
+            "effectiveCatchupPollSeconds": effective_catchup_seconds,
             "configFile": file_info(DEFAULT_PREDICTION_AUTO_CONFIG),
         }
     )
@@ -13963,6 +13969,27 @@ def prediction_auto_enabled_games(config: dict[str, Any]) -> list[str]:
         and isinstance(game_config, dict)
         and game_config.get("enabled")
     ]
+
+
+def prediction_auto_effective_catchup_seconds(config: dict[str, Any]) -> int:
+    enabled_count = len(prediction_auto_enabled_games(config))
+    configured = parse_int(
+        config.get("catchupPollSeconds"),
+        PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS,
+    )
+    if enabled_count <= 1:
+        return PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS
+    return max(
+        PREDICTION_AUTO_MULTI_GAME_CATCHUP_SECONDS,
+        min(configured, PREDICTION_AUTO_CATCHUP_MAX_SECONDS),
+    )
+
+
+def prediction_auto_effective_poll_seconds(config: dict[str, Any]) -> int:
+    configured = parse_int(config.get("pollSeconds"), 30)
+    if len(prediction_auto_enabled_games(config)) <= 1:
+        return min(configured, PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS)
+    return configured
 
 
 def prediction_auto_history_marker(config: dict[str, Any]) -> tuple[int, int, str, str]:
@@ -14134,16 +14161,15 @@ def prediction_auto_worker() -> None:
         )
         loop_started = time.monotonic()
         results, errors = run_prediction_auto_once(config)
-        normal_poll_seconds = parse_int(config.get("pollSeconds"), 60)
-        catchup_poll_seconds = parse_int(config.get("catchupPollSeconds"), 10)
+        normal_poll_seconds = prediction_auto_effective_poll_seconds(config)
         has_waiting_draw = any(bool(item.get("waitingForDraw")) for item in results if isinstance(item, dict))
         elapsed_seconds = time.monotonic() - loop_started
         if has_waiting_draw:
-            poll_seconds = max(catchup_poll_seconds, PREDICTION_AUTO_CATCHUP_MIN_SECONDS)
+            poll_seconds = prediction_auto_effective_catchup_seconds(config)
         else:
             poll_seconds = normal_poll_seconds
         if elapsed_seconds >= poll_seconds:
-            poll_seconds = PREDICTION_AUTO_CATCHUP_MIN_SECONDS
+            poll_seconds = prediction_auto_effective_catchup_seconds(config)
         next_run_ts = time.time() + poll_seconds
         completed_at = utc_now_iso()
         set_prediction_auto_status(

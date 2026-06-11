@@ -6,8 +6,10 @@ from __future__ import annotations
 import html
 import json
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import urlencode, urlsplit, urlunsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
@@ -64,6 +66,23 @@ def read_url(
     with urlopen(request, timeout=timeout) as response:
         charset = response.headers.get_content_charset() or "utf-8"
         return response.read().decode(charset, errors="replace")
+
+
+def cache_busted_url(url: str) -> str:
+    parts = urlsplit(url)
+    separator = "&" if parts.query else ""
+    query = f"{parts.query}{separator}{urlencode({'_': int(time.time() * 1000)})}"
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, query, parts.fragment))
+
+
+def url_origin(url: str) -> str:
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+
+
+def lotodate_check_draw_url(page_url: str, draw_id: str) -> str:
+    base = f"{url_origin(page_url)}/en/Extrageri"
+    return f"{base}?{urlencode({'handler': 'CheckDraw', 'drawId': draw_id})}"
 
 
 def validate_numbers(
@@ -154,6 +173,82 @@ def parse_lotodate_rows(
             )
         )
     return sorted(rows, key=lambda item: item["drawTimeMs"], reverse=True)
+
+
+def parse_lotodate_upcoming_rows(page_html: str) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    row_pattern = re.compile(
+        r"<tr\b(?P<attrs>[^>]*)>(?P<body>.*?)</tr>",
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    for match in row_pattern.finditer(page_html):
+        attrs = match.group("attrs")
+        if "upcoming-draw" not in attrs:
+            continue
+        draw_id_match = re.search(r'data-draw-id="(?P<id>[^"]+)"', attrs, flags=re.IGNORECASE)
+        time_match = re.search(r'data-draw-time="(?P<dt>[^"]+)"', attrs, flags=re.IGNORECASE)
+        if not draw_id_match or not time_match:
+            continue
+        dt_text = time_match.group("dt").replace("Z", "+00:00")
+        draw_time = datetime.fromisoformat(dt_text)
+        rows.append(
+            {
+                "drawId": draw_id_match.group("id"),
+                "drawTime": draw_time,
+                "drawTimeMs": int(draw_time.astimezone(UTC).timestamp() * 1000),
+                "drawTimeUtc": draw_time.astimezone(UTC).isoformat(timespec="seconds"),
+            }
+        )
+    return sorted(rows, key=lambda item: item["drawTimeMs"], reverse=True)
+
+
+def fetch_lotodate_check_draw_row(
+    page_url: str,
+    upcoming: dict[str, Any],
+    *,
+    expected_count: int,
+    total_numbers: int,
+    timeout: float,
+) -> dict[str, Any] | None:
+    draw_id = str(upcoming.get("drawId") or "")
+    draw_time = upcoming.get("drawTime")
+    if not draw_id or not isinstance(draw_time, datetime):
+        return None
+    raw = read_url(
+        cache_busted_url(lotodate_check_draw_url(page_url, draw_id)),
+        timeout=timeout,
+        headers={
+            "Accept": "application/json,text/plain,*/*",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Referer": page_url,
+        },
+    )
+    payload = json.loads(raw)
+    if str(payload.get("status") or "") != "cleared":
+        return None
+    result = payload.get("result") or []
+    if not isinstance(result, list):
+        return None
+    numbers = [int(value) for value in result]
+    return row_from_datetime(
+        source="lotodate",
+        draw_time=draw_time,
+        numbers=numbers,
+        expected_count=expected_count,
+        total_numbers=total_numbers,
+        draw_event_id=f"lotodate-{draw_id}",
+    )
+
+
+def merge_official_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_time: dict[int, dict[str, Any]] = {}
+    for row in rows:
+        draw_time_ms = int(row.get("drawTimeMs") or 0)
+        if draw_time_ms <= 0:
+            continue
+        by_time[draw_time_ms] = row
+    return sorted(by_time.values(), key=lambda item: item["drawTimeMs"], reverse=True)
 
 
 def parse_polonia_rows(
@@ -300,12 +395,41 @@ def fetch_recent_official(
 
     try:
         if source == "lotodate":
-            page_html = read_url(url, timeout=timeout)
+            page_html = read_url(
+                cache_busted_url(url),
+                timeout=timeout,
+                headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+            )
             rows = parse_lotodate_rows(
                 page_html,
                 expected_count=expected_count,
                 total_numbers=total_numbers,
             )
+            newest_static_ms = int(rows[0]["drawTimeMs"]) if rows else 0
+            now_ms = int(time.time() * 1000)
+            checked_upcoming = 0
+            cleared_upcoming = 0
+            for upcoming in parse_lotodate_upcoming_rows(page_html):
+                draw_time_ms = int(upcoming.get("drawTimeMs") or 0)
+                if draw_time_ms <= 0 or draw_time_ms > now_ms:
+                    continue
+                if newest_static_ms and draw_time_ms <= newest_static_ms:
+                    continue
+                checked_upcoming += 1
+                try:
+                    row = fetch_lotodate_check_draw_row(
+                        url,
+                        upcoming,
+                        expected_count=expected_count,
+                        total_numbers=total_numbers,
+                        timeout=timeout,
+                    )
+                except (HTTPError, URLError, TimeoutError, json.JSONDecodeError, ValueError):
+                    row = None
+                if row:
+                    rows.append(row)
+                    cleared_upcoming += 1
+            rows = merge_official_rows(rows)
         elif source == "polonia-loto":
             # Legacy fallback. Active Poland config uses LotoDate.
             page_html = read_url(
@@ -352,7 +476,7 @@ def fetch_recent_official(
             "error": str(exc),
         }
 
-    return rows, {
+    meta = {
         "source": source,
         "url": url or (YESPLAY_API_URL if source == "yesplay" else ""),
         "checkedRows": len(rows),
@@ -360,3 +484,7 @@ def fetch_recent_official(
         "status": "ok",
         "newestOfficialUtc": rows[0]["drawTimeUtc"] if rows else "",
     }
+    if source == "lotodate":
+        meta["checkDrawChecked"] = locals().get("checked_upcoming", 0)
+        meta["checkDrawCleared"] = locals().get("cleared_upcoming", 0)
+    return rows, meta
