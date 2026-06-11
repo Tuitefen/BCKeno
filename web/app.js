@@ -2111,7 +2111,7 @@ async function loadPrediction(options = {}) {
     renderPredictionLoading();
   }
   try {
-    const params = new URLSearchParams({ game: currentGameKey(), panel });
+    const params = new URLSearchParams({ game: currentGameKey(), panel, autoSync: "0" });
     const url = `/api/predictions?${params.toString()}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -2137,7 +2137,7 @@ async function loadPrediction(options = {}) {
     if (state.predictionPanel === panel) {
       renderPredictionPage();
     }
-    loadPredictionTracking({ silent: true, panel, autoSync: true });
+    loadPredictionTracking({ silent: true, panel, autoSync: false });
   } catch (error) {
     showToast(`加载预测失败：${error.message}`, true);
   } finally {

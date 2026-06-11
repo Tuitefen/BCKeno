@@ -7981,24 +7981,22 @@ def predictions_payload(
     if panel in PREDICTION_RETIRED_PANELS:
         raise ValueError("旧C/D/E/F/G计划已停用，不再生成新预测")
     now_value = now_ms if now_ms is not None else int(time.time() * 1000)
-    with DATA_LOCK:
-        try:
-            stat = history_path.stat()
-            history_identity = (stat.st_mtime_ns, stat.st_size)
-        except FileNotFoundError:
-            history_identity = (0, 0)
-        all_rows = load_history_rows(history_path, config)
+    try:
+        stat = history_path.stat()
+        history_identity = (stat.st_mtime_ns, stat.st_size)
+    except FileNotFoundError:
+        history_identity = (0, 0)
+    all_rows = load_history_rows(history_path, config)
     prediction_auto_sync: dict[str, Any] | None = None
     if allow_auto_sync and now_ms is None:
         try:
             all_rows, prediction_auto_sync = maybe_auto_sync_prediction_tracking(config, all_rows)
-            with DATA_LOCK:
-                try:
-                    stat = history_path.stat()
-                    history_identity = (stat.st_mtime_ns, stat.st_size)
-                except FileNotFoundError:
-                    history_identity = (0, 0)
-                all_rows = load_history_rows(history_path, config)
+            try:
+                stat = history_path.stat()
+                history_identity = (stat.st_mtime_ns, stat.st_size)
+            except FileNotFoundError:
+                history_identity = (0, 0)
+            all_rows = load_history_rows(history_path, config)
         except Exception as exc:
             prediction_auto_sync = {"ok": False, "error": str(exc), "errorType": type(exc).__name__}
     target_cache_ms = prediction_target_cache_ms(all_rows, config, now_value)
@@ -15943,7 +15941,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.send_json(
                     predictions_payload(
                         query,
-                        allow_auto_sync=query_bool(query, "autoSync", True),
+                        allow_auto_sync=query_bool(query, "autoSync", False),
                     )
                 )
             except ValueError as exc:
