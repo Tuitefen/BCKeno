@@ -119,6 +119,16 @@ The `supervisorctl` command may not exist in SSH. After `git pull`, restart
 `cpgame` from the aaPanel Super UI, then verify the new process from SSH.
 ```
 
+Update existing server:
+
+```bash
+cd /www/wwwroot/cpgame
+git pull origin main
+/www/wwwroot/cpgame/.venv/bin/python -m py_compile keno_dashboard_server.py fetch_official_supplements.py
+```
+
+Then restart `cpgame` from the aaPanel Super/Supervisor plugin UI.
+
 Verify after restart:
 
 ```bash
@@ -126,6 +136,13 @@ ps -ef | grep keno_dashboard_server.py | grep -v grep
 ss -ltnp | grep 8787
 curl -m 10 -sS http://127.0.0.1:8787/api/prediction-auto > /tmp/cpgame_auto.json
 python3 -m json.tool /tmp/cpgame_auto.json | head -80
+```
+
+C-plan daily miss display can be checked with:
+
+```bash
+curl -m 20 -sS "http://127.0.0.1:8787/api/predictions?game=poland_keno_20_70&panel=m&autoSync=0" > /tmp/cpgame_prediction_m.json
+python3 -m json.tool /tmp/cpgame_prediction_m.json | grep -A2 dailyMissStreak
 ```
 
 The deploy script automatically reads runtime data from:

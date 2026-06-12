@@ -263,13 +263,45 @@ Details:
 ```text
 - C-plan ticket cards now render labels like "#1 2码低组候选".
 - Tracking table strategy labels also hide duplicate "C计划" for C-plan rows.
-- Ticket cards and tracking rows show "当前未中 N 期" from existing
-  currentMiss/maxMiss fields.
+- C-plan ticket cards and tracking rows show "今日未中 N 期" from same-day
+  C-plan slot tracking when same-day tracking data exists.
 - Text explicitly marks the miss count as staking/reference context, not a
   must-follow instruction.
 - New tracking records carry `ticketRank` metadata for stable # display. This
   is display metadata only and does not affect prediction selection, settlement,
   or rules.
+```
+
+Follow-up correction:
+
+```text
+The previous "currentMiss" display was not the correct same-day staking
+reference. It came from the historical/training-window ticket statistics.
+
+Correct staking reference should be same-day miss streak by C-plan slot:
+use the configured game-day timezone, start from the first prediction tracking
+record of that local game day, track #1/#2/#3/#4 separately, reset to 0 after
+that slot wins, and increment after that slot loses. Pending, cancelled, and
+void rows do not increment the streak.
+
+Implemented `dailyMissStreak` for prediction tracking rows and C-plan ticket
+cards, and changed frontend wording to "今日未中 N 期". Historical max miss is
+intentionally not displayed in the C-plan staking-reference UI because it is
+not useful for today's stake sizing.
+
+Implementation notes:
+
+- `keno_dashboard_server.py` now enriches prediction tracking responses with
+  same-day slot streaks using tracking DB records for the full local game day,
+  not just the current page.
+- `/api/predictions` enriches C-plan ticket cards with the same field after
+  prediction-cache lookup/store, so the dynamic staking reference is not part
+  of the prediction algorithm or cache key.
+- New records write `ticketRank` from the generated ticket order. Older records
+  without `ticketRank` are ranked stably within the same target draw by
+  pick-count and ticket label.
+- This is display/reference metadata only; no prediction rules, scoring, odds,
+  or settlement logic were changed.
 ```
 
 Deployment docs were updated:

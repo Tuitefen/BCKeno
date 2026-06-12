@@ -1687,6 +1687,11 @@ body.tool-modal-open {
   font-size: 11px;
 }
 
+.tracking-miss-note span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
 .loading-inline {
   display: inline-flex;
   align-items: center;

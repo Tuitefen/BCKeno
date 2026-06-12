@@ -23,7 +23,7 @@ import traceback
 import uuid
 from bisect import bisect_left
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from itertools import combinations
 from pathlib import Path
@@ -8170,6 +8170,7 @@ def predictions_payload(
     )
     if cached is not None and cached_ready is not False:
         payload = dict(cached)
+        payload = attach_prediction_payload_daily_miss_streaks(payload, config)
         payload["cacheHit"] = True
         payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
         if prediction_auto_sync is not None:
@@ -8300,6 +8301,7 @@ def predictions_payload(
         with PREDICTION_CACHE_LOCK:
             lru_cache_set(PREDICTION_CACHE, cache_key, payload, PREDICTION_CACHE_MAX_ITEMS)
         perf["cacheStoreMs"] = round((time.monotonic() - cache_store_started) * 1000)
+    payload = attach_prediction_payload_daily_miss_streaks(payload, config)
     tracking_started = time.monotonic()
     if touch_tracking:
         payload["predictionTracking"] = touch_prediction_tracking_for_payload(
@@ -11096,7 +11098,7 @@ def prediction_tracking_records_from_payload(
     generated_at = str(payload.get("generatedAt") or utc_now_iso())
     method = str(predictions.get("method") or "")
     records: list[dict[str, Any]] = []
-    for ticket in tickets:
+    for ticket_index, ticket in enumerate(tickets, start=1):
         if not isinstance(ticket, dict):
             continue
         numbers = [int(number) for number in ticket.get("numbers") or []]
@@ -12196,6 +12198,305 @@ def adjacent_derived_stats_payload(query: dict[str, list[str]]) -> dict[str, Any
     }
 
 
+def prediction_tracking_slot_rank(record: dict[str, Any]) -> int:
+    rank = parse_int(record.get("ticketRank"), 0)
+    return rank if rank > 0 else 0
+
+
+def prediction_tracking_daily_window(
+    record: dict[str, Any],
+    config: dict[str, Any],
+) -> tuple[int, int, str] | None:
+    target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+    if target_ms <= 0:
+        return None
+    tz = telegram_game_day_timezone(config)
+    local_dt = datetime.fromtimestamp(target_ms / 1000, tz=UTC).astimezone(tz)
+    start_local = datetime(local_dt.year, local_dt.month, local_dt.day, tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    return (
+        int(start_local.astimezone(UTC).timestamp() * 1000),
+        int(end_local.astimezone(UTC).timestamp() * 1000),
+        local_dt.date().isoformat(),
+    )
+
+
+def load_prediction_tracking_day_records(
+    config: dict[str, Any],
+    panel: str | None,
+    start_ms: int,
+    end_ms: int,
+) -> list[dict[str, Any]]:
+    if start_ms <= 0 or end_ms <= start_ms:
+        return []
+    init_prediction_tracking_db()
+    panel_key = prediction_panel_from_value(panel) if panel is not None else None
+    params: list[Any] = [str(config["key"]), start_ms, end_ms]
+    where = "game_key = ? AND target_draw_time_ms >= ? AND target_draw_time_ms < ?"
+    if panel is not None:
+        where += " AND panel = ?"
+        params.append(panel_key)
+    method_where, method_params = prediction_tracking_current_method_where(panel_key)
+    where += method_where
+    params.extend(method_params)
+    with prediction_tracking_db_connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT record_json
+            FROM prediction_records
+            WHERE {where}
+            ORDER BY target_draw_time_ms ASC, created_at ASC, id ASC
+            """,
+            params,
+        ).fetchall()
+    return prediction_tracking_records_from_rows(rows)
+
+
+def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[str, int]:
+    groups: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
+    for record in records:
+        record_id = str(record.get("id") or "")
+        if not record_id:
+            continue
+        key = (
+            prediction_tracking_game_key(record),
+            prediction_panel_from_value(record.get("panel")),
+            str(record.get("methodVersion") or ""),
+            parse_int(record.get("targetDrawTimeMs"), 0),
+        )
+        groups.setdefault(key, []).append(record)
+
+    ranks: dict[str, int] = {}
+    for records_for_target in groups.values():
+        used_ranks: set[int] = set()
+        unranked: list[dict[str, Any]] = []
+        for record in records_for_target:
+            record_id = str(record.get("id") or "")
+            rank = parse_int(record.get("ticketRank"), 0)
+            if rank > 0:
+                ranks[record_id] = rank
+                used_ranks.add(rank)
+            else:
+                unranked.append(record)
+        unranked.sort(
+            key=lambda record: (
+                parse_int(record.get("pickCount"), 0),
+                str(record.get("ticketLabel") or ""),
+                str(record.get("id") or ""),
+            )
+        )
+        next_rank = 1
+        for record in unranked:
+            while next_rank in used_ranks:
+                next_rank += 1
+            record_id = str(record.get("id") or "")
+            ranks[record_id] = next_rank
+            used_ranks.add(next_rank)
+            next_rank += 1
+    return ranks
+
+
+def prediction_tracking_daily_key(
+    record: dict[str, Any],
+    config: dict[str, Any] | None,
+    slot_ranks: dict[str, int] | None = None,
+) -> tuple[str, str, str, int] | None:
+    if config is None:
+        return None
+    target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+    if target_ms <= 0:
+        return None
+    tz = telegram_game_day_timezone(config)
+    day_key = datetime.fromtimestamp(target_ms / 1000, tz=UTC).astimezone(tz).date().isoformat()
+    panel = prediction_panel_from_value(record.get("panel"))
+    record_id = str(record.get("id") or "")
+    rank = (slot_ranks or {}).get(record_id) or prediction_tracking_slot_rank(record)
+    if rank <= 0:
+        return None
+    return (
+        prediction_tracking_game_key(record),
+        panel,
+        day_key,
+        rank,
+    )
+
+
+def attach_prediction_tracking_daily_miss_streaks(
+    page_items: list[dict[str, Any]],
+    scoped_records: list[dict[str, Any]],
+    config: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if config is None or not page_items:
+        return page_items
+    target_items = [
+        record
+        for record in page_items
+        if prediction_panel_from_value(record.get("panel")) == PREDICTION_PANEL_M
+    ]
+    if not target_items:
+        return page_items
+    all_records_by_id: dict[str, dict[str, Any]] = {}
+    for record in [*scoped_records, *page_items]:
+        record_id = str(record.get("id") or "")
+        if record_id:
+            all_records_by_id[record_id] = record
+
+    day_windows: dict[tuple[str, str, int, int], None] = {}
+    for record in target_items:
+        window = prediction_tracking_daily_window(record, config)
+        if window is None:
+            continue
+        start_ms, end_ms, _day_key = window
+        day_windows[(prediction_tracking_game_key(record), prediction_panel_from_value(record.get("panel")), start_ms, end_ms)] = None
+    for game_key, panel, start_ms, end_ms in day_windows:
+        if game_key != str(config["key"]):
+            continue
+        for record in load_prediction_tracking_day_records(config, panel, start_ms, end_ms):
+            record_id = str(record.get("id") or "")
+            if record_id:
+                all_records_by_id.setdefault(record_id, record)
+
+    context_records = list(all_records_by_id.values())
+    slot_ranks = prediction_tracking_daily_slot_ranks(context_records)
+    requested_keys = {
+        key
+        for key in (prediction_tracking_daily_key(record, config, slot_ranks) for record in target_items)
+        if key is not None
+    }
+    if not requested_keys:
+        return page_items
+
+    groups: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
+    for record in context_records:
+        key = prediction_tracking_daily_key(record, config, slot_ranks)
+        if key in requested_keys:
+            groups.setdefault(key, []).append(record)
+
+    streak_by_id: dict[str, int] = {}
+    start_by_key: dict[tuple[str, str, str, int], int] = {}
+    for key, records in groups.items():
+        miss_streak = 0
+        sorted_records = sorted(
+            records,
+            key=lambda record: (
+                parse_int(record.get("targetDrawTimeMs"), 0),
+                str(record.get("createdAt") or ""),
+                str(record.get("id") or ""),
+            ),
+        )
+        start_by_key[key] = min((parse_int(record.get("targetDrawTimeMs"), 0) for record in sorted_records), default=0)
+        for record in sorted_records:
+            status = str(record.get("status") or "pending")
+            if status == "won":
+                miss_streak = 0
+            elif status == "lost":
+                miss_streak += 1
+            elif status == "pending":
+                pass
+            elif status in {"cancelled", "void"}:
+                pass
+            else:
+                pass
+            record_id = str(record.get("id") or "")
+            if record_id:
+                streak_by_id[record_id] = miss_streak
+
+    result: list[dict[str, Any]] = []
+    for record in page_items:
+        item = dict(record)
+        if prediction_panel_from_value(item.get("panel")) != PREDICTION_PANEL_M:
+            result.append(item)
+            continue
+        key = prediction_tracking_daily_key(item, config, slot_ranks)
+        record_id = str(item.get("id") or "")
+        item["ticketRank"] = slot_ranks.get(record_id) or prediction_tracking_slot_rank(item)
+        has_daily_tracking = record_id in streak_by_id
+        if has_daily_tracking:
+            item["dailyMissStreak"] = streak_by_id.get(record_id, 0)
+            item["dailyMissSource"] = "tracking_day_slot"
+        item["dailyMissStartDrawTimeMs"] = start_by_key.get(key, 0) if key is not None else 0
+        if item["dailyMissStartDrawTimeMs"]:
+            item["dailyMissStartDrawTimeUtc"] = datetime.fromtimestamp(
+                item["dailyMissStartDrawTimeMs"] / 1000,
+                tz=UTC,
+            ).isoformat(timespec="seconds")
+        else:
+            item["dailyMissStartDrawTimeUtc"] = ""
+        result.append(item)
+    return result
+
+
+def attach_prediction_payload_daily_miss_streaks(
+    payload: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    predictions = payload.get("predictions") if isinstance(payload.get("predictions"), dict) else {}
+    panel = prediction_panel_from_value(predictions.get("panel") or payload.get("panel"))
+    if panel != PREDICTION_PANEL_M:
+        return payload
+    tickets = predictions.get("strategyTickets") if isinstance(predictions.get("strategyTickets"), list) else []
+    if not tickets:
+        return payload
+    target_context = payload.get("predictionTarget") if isinstance(payload.get("predictionTarget"), dict) else {}
+    forecasts = predictions.get("forecasts") if isinstance(predictions.get("forecasts"), list) else []
+    first_forecast = forecasts[0] if forecasts and isinstance(forecasts[0], dict) else {}
+    target_ms = parse_int(target_context.get("targetDrawTimeMs"), 0) or parse_int(first_forecast.get("drawTimeMs"), 0)
+    if target_ms <= 0:
+        return payload
+
+    copied_payload = dict(payload)
+    copied_predictions = dict(predictions)
+    copied_tickets: list[dict[str, Any]] = []
+    pseudo_records: list[dict[str, Any]] = []
+    method_version = prediction_method_version_for_panel(panel)
+    target_utc = draw_time_utc_from_ms(target_ms)
+    for index, ticket in enumerate(tickets, start=1):
+        if not isinstance(ticket, dict):
+            continue
+        item = dict(ticket)
+        rank = parse_int(item.get("ticketRank"), index)
+        item["ticketRank"] = rank
+        copied_tickets.append(item)
+        pseudo_records.append(
+            {
+                "id": f"prediction_ticket_{index}",
+                "createdAt": "",
+                "gameKey": config["key"],
+                "panel": panel,
+                "methodVersion": method_version,
+                "targetDrawTimeMs": target_ms,
+                "targetDrawTimeUtc": target_utc,
+                "status": "pending",
+                "ticketRank": rank,
+                "strategyLabel": str(item.get("label") or ""),
+                "ticketLabel": str(item.get("ticketLabel") or "-".join(str(number) for number in item.get("numbers") or [])),
+                "mode": str(item.get("mode") or "main"),
+                "pickCount": parse_int(item.get("pickCount"), len(item.get("numbers") or [])),
+                "numbers": [int(number) for number in item.get("numbers") or []],
+                "bonusNumber": item.get("bonusNumber"),
+            }
+        )
+
+    enriched_records = attach_prediction_tracking_daily_miss_streaks(pseudo_records, [], config)
+    enriched_by_rank = {
+        parse_int(record.get("ticketRank"), 0): record
+        for record in enriched_records
+        if parse_int(record.get("ticketRank"), 0) > 0
+    }
+    for item in copied_tickets:
+        rank = parse_int(item.get("ticketRank"), 0)
+        enriched = enriched_by_rank.get(rank)
+        if not enriched:
+            continue
+        item["dailyMissStreak"] = parse_int(enriched.get("dailyMissStreak"), 0)
+        item["dailyMissSource"] = str(enriched.get("dailyMissSource") or "tracking_day_slot")
+        item["dailyMissStartDrawTimeMs"] = parse_int(enriched.get("dailyMissStartDrawTimeMs"), 0)
+        item["dailyMissStartDrawTimeUtc"] = str(enriched.get("dailyMissStartDrawTimeUtc") or "")
+    copied_predictions["strategyTickets"] = copied_tickets
+    copied_payload["predictions"] = copied_predictions
+    return copied_payload
+
+
 def prediction_tracking_response(
     records: list[dict[str, Any]],
     *,
@@ -12256,6 +12557,8 @@ def prediction_tracking_response(
     )
     created_items = prediction_records_for_panel(created or [], panel_key)
     group_items = groups if groups is not None else prediction_tracking_group_summaries(scoped_records)
+    response_items = ordered if page_items is not None else ordered[start:end]
+    response_items = attach_prediction_tracking_daily_miss_streaks(response_items, scoped_records, config)
     return {
         "ok": True,
         "game": game_public_config(config) if config is not None else None,
@@ -12279,7 +12582,7 @@ def prediction_tracking_response(
         "pageSize": page_size,
         "total": total_items,
         "totalPage": total_page,
-        "items": ordered if page_items is not None else ordered[start:end],
+        "items": response_items,
         "allItems": [],
     }
 

@@ -5941,10 +5941,9 @@ function rankedStrategyLabel(item, fallbackIndex = 0, panel = state.predictionPa
 }
 
 function predictionMissText(item) {
-  const miss = Number(item?.currentMiss || 0);
-  const maxMiss = Number(item?.maxMiss || 0);
-  const base = `当前未中 ${fmtInt(miss)} 期`;
-  return maxMiss > 0 ? `${base} / 历史最长 ${fmtInt(maxMiss)}` : base;
+  if (!item || item.dailyMissStreak === undefined || item.dailyMissStreak === null) return "";
+  const miss = Number(item.dailyMissStreak || 0);
+  return `今日未中 ${fmtInt(miss)} 期`;
 }
 
 function fmtYuan(value, digits = 2, signed = false) {
@@ -6061,7 +6060,11 @@ function renderPredictionStrategyTickets(tickets = []) {
           <span>${escapeHtml(ticket.mode === "bonus" ? `${ticket.pickCount}+1特殊` : `${ticket.pickCount}球`)} · ${fmtNumber(Number(ticket.odds || 0), 2)}x</span>
         </div>
         <div class="ticket-balls" title="${escapeHtml(ticket.ticketLabel || "")}">${ticketNumberBalls(ticket)}</div>
-        <div class="ticket-miss-badge">${escapeHtml(predictionMissText(ticket))}<span>倍投参考，不代表必须跟</span></div>
+        ${
+          predictionMissText(ticket)
+            ? `<div class="ticket-miss-badge">${escapeHtml(predictionMissText(ticket))}<span>按今日同序号追踪统计，仅作金额参考</span></div>`
+            : ""
+        }
         ${structureNote}
         <div class="ticket-metric-grid">
           <div><span>理论命中</span><strong>${fmtPct(Number(ticket.theoreticalHitRate || 0), 3)}</strong></div>
@@ -6072,7 +6075,6 @@ function renderPredictionStrategyTickets(tickets = []) {
         <div class="ticket-detail">
           <span>近 ${Number(ticket.recentWindow || 0).toLocaleString("zh-CN")} 期 ${Number(ticket.recentHits || 0).toLocaleString("zh-CN")} 中</span>
           <span>区间 ${fmtPct(Number(ci[0] || 0), 2)} - ${fmtPct(Number(ci[1] || 0), 2)}</span>
-          <span>${escapeHtml(predictionMissText(ticket))}</span>
           <span>${Number(ticket.chasePeriods || 0)} 期全挂 ${fmtPct(Number(ticket.missAllProbability || 0), 2)}</span>
         </div>
         ${renderTicketStakingSimulation(ticket)}
@@ -6397,7 +6399,11 @@ function renderPredictionTracking() {
             )}`,
           )}</strong>
           <div class="muted">${escapeHtml(record.methodVersion || "")}</div>
-          <div class="tracking-miss-note">${escapeHtml(predictionMissText(record))}</div>
+          ${
+            predictionMissText(record)
+              ? `<div class="tracking-miss-note">${escapeHtml(predictionMissText(record))}<span>当天第一条同序号计划起算</span></div>`
+              : ""
+          }
           ${structureMeta}
         </td>
         <td>${trackingTicketContent(record)}</td>
