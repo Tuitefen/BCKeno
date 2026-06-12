@@ -111,6 +111,23 @@ Autostart: enabled
 Autorestart: enabled
 ```
 
+Production note:
+
+```text
+The current server manages cpgame from the aaPanel Super/Supervisor plugin UI.
+The `supervisorctl` command may not exist in SSH. After `git pull`, restart
+`cpgame` from the aaPanel Super UI, then verify the new process from SSH.
+```
+
+Verify after restart:
+
+```bash
+ps -ef | grep keno_dashboard_server.py | grep -v grep
+ss -ltnp | grep 8787
+curl -m 10 -sS http://127.0.0.1:8787/api/prediction-auto > /tmp/cpgame_auto.json
+python3 -m json.tool /tmp/cpgame_auto.json | head -80
+```
+
 The deploy script automatically reads runtime data from:
 
 ```text

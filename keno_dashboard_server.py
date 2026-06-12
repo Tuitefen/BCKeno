@@ -11125,6 +11125,7 @@ def prediction_tracking_records_from_payload(
             "targetDrawTimeUtc": target.get("drawTimeUtc", ""),
             "targetDrawOffset": parse_int(target.get("drawOffset"), 1),
             "strategyLabel": str(ticket.get("label") or ""),
+            "ticketRank": parse_int(ticket.get("ticketRank"), ticket_index),
             "ticketLabel": str(ticket.get("ticketLabel") or "-".join(str(number) for number in numbers)),
             "mode": mode,
             "pickCount": pick_count,

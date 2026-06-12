@@ -5923,6 +5923,30 @@ function ticketExpectedMetric(ev) {
   return { className, label, value, title };
 }
 
+function compactStrategyLabel(label, panel = state.predictionPanel) {
+  let text = String(label || "").trim();
+  if (normalizePredictionPanel(panel) === PREDICTION_PANEL_M) {
+    text = text.replace(/^C计划\s*/, "");
+  }
+  return text || "策略候选票";
+}
+
+function ticketDisplayRank(item, fallbackIndex = 0) {
+  const rank = Number(item?.ticketRank || item?.displayRank || 0);
+  return Number.isFinite(rank) && rank > 0 ? rank : fallbackIndex + 1;
+}
+
+function rankedStrategyLabel(item, fallbackIndex = 0, panel = state.predictionPanel) {
+  return `#${ticketDisplayRank(item, fallbackIndex)} ${compactStrategyLabel(item?.label || item?.strategyLabel, panel)}`;
+}
+
+function predictionMissText(item) {
+  const miss = Number(item?.currentMiss || 0);
+  const maxMiss = Number(item?.maxMiss || 0);
+  const base = `当前未中 ${fmtInt(miss)} 期`;
+  return maxMiss > 0 ? `${base} / 历史最长 ${fmtInt(maxMiss)}` : base;
+}
+
 function fmtYuan(value, digits = 2, signed = false) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "--";
@@ -6033,10 +6057,11 @@ function renderPredictionStrategyTickets(tickets = []) {
         : "";
       return `<article class="prediction-ticket-card">
         <div class="prediction-card-title">
-          <strong>${escapeHtml(ticket.label || "策略候选票")} #${index + 1}</strong>
+          <strong>${escapeHtml(rankedStrategyLabel(ticket, index, panelKey))}</strong>
           <span>${escapeHtml(ticket.mode === "bonus" ? `${ticket.pickCount}+1特殊` : `${ticket.pickCount}球`)} · ${fmtNumber(Number(ticket.odds || 0), 2)}x</span>
         </div>
         <div class="ticket-balls" title="${escapeHtml(ticket.ticketLabel || "")}">${ticketNumberBalls(ticket)}</div>
+        <div class="ticket-miss-badge">${escapeHtml(predictionMissText(ticket))}<span>倍投参考，不代表必须跟</span></div>
         ${structureNote}
         <div class="ticket-metric-grid">
           <div><span>理论命中</span><strong>${fmtPct(Number(ticket.theoreticalHitRate || 0), 3)}</strong></div>
@@ -6047,7 +6072,7 @@ function renderPredictionStrategyTickets(tickets = []) {
         <div class="ticket-detail">
           <span>近 ${Number(ticket.recentWindow || 0).toLocaleString("zh-CN")} 期 ${Number(ticket.recentHits || 0).toLocaleString("zh-CN")} 中</span>
           <span>区间 ${fmtPct(Number(ci[0] || 0), 2)} - ${fmtPct(Number(ci[1] || 0), 2)}</span>
-          <span>遗漏 ${Number(ticket.currentMiss || 0).toLocaleString("zh-CN")} / 最大 ${Number(ticket.maxMiss || 0).toLocaleString("zh-CN")}</span>
+          <span>${escapeHtml(predictionMissText(ticket))}</span>
           <span>${Number(ticket.chasePeriods || 0)} 期全挂 ${fmtPct(Number(ticket.missAllProbability || 0), 2)}</span>
         </div>
         ${renderTicketStakingSimulation(ticket)}
@@ -6295,8 +6320,29 @@ function renderPredictionTracking() {
       '<tr><td colspan="7"><span class="muted">生成预测后会自动记录下一期策略候选票。</span></td></tr>';
     return;
   }
+  const displayRankByRecord = new Map();
+  const rankGroups = new Map();
+  for (const record of items) {
+    const groupKey = [
+      record.targetDrawTimeMs || record.targetDrawTimeUtc || "",
+      record.methodVersion || "",
+      normalizePredictionPanel(record.panel || state.predictionPanel),
+    ].join("|");
+    if (!rankGroups.has(groupKey)) rankGroups.set(groupKey, []);
+    rankGroups.get(groupKey).push(record);
+  }
+  for (const records of rankGroups.values()) {
+    records
+      .sort(
+        (left, right) =>
+          Number(left.pickCount || 0) - Number(right.pickCount || 0) ||
+          String(left.ticketLabel || "").localeCompare(String(right.ticketLabel || ""), "zh-CN") ||
+          String(left.id || "").localeCompare(String(right.id || ""), "zh-CN"),
+      )
+      .forEach((record, index) => displayRankByRecord.set(record, index + 1));
+  }
   els.predictionTrackingRows.innerHTML = items
-    .map((record) => {
+    .map((record, index) => {
       const recordProfit = Number(record.profit || 0);
       const targetRelative = relativeTargetLabel(record.targetDrawTimeUtc, record.status);
       const targetClass = targetRelative.startsWith("!") ? "target-overdue" : "target-relative";
@@ -6338,11 +6384,22 @@ function renderPredictionTracking() {
             recordProfit,
             2,
           )}</td>`;
+      const fallbackRank = displayRankByRecord.get(record) || index + 1;
       return `<tr>
         <td><strong>${fmtTime(record.targetDrawTimeUtc)}</strong>${
           targetRelative ? ` <span class="${targetClass}">${escapeHtml(targetRelative)}</span>` : ""
         }<div class="muted">${fmtDate(record.createdAt)} 创建</div></td>
-        <td>${escapeHtml(record.strategyLabel || "--")}<div class="muted">${escapeHtml(record.methodVersion || "")}</div>${structureMeta}</td>
+        <td>
+          <strong>${escapeHtml(
+            `#${ticketDisplayRank(record, fallbackRank - 1)} ${compactStrategyLabel(
+              record.strategyLabel,
+              recordPanel,
+            )}`,
+          )}</strong>
+          <div class="muted">${escapeHtml(record.methodVersion || "")}</div>
+          <div class="tracking-miss-note">${escapeHtml(predictionMissText(record))}</div>
+          ${structureMeta}
+        </td>
         <td>${trackingTicketContent(record)}</td>
         <td>${fmtPct(Number(record.theoreticalHitRate || 0), 3)}<div class="muted">近窗 ${fmtPct(
           Number(record.recentHitRate || 0),

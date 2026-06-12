@@ -64,6 +64,26 @@ Important: `git pull` updates files on disk but does not reload an already
 running Python process. If production still returns 504, first confirm that
 supervisor was restarted and that port 8787 is served by the new process.
 
+Later production screenshots confirmed:
+
+```text
+1. SSH does not have `supervisorctl`.
+2. Production is managed from the aaPanel Super/Supervisor plugin UI.
+3. User restarted cpgame from that UI.
+4. Backend process changed from old pid/start time to a new pid.
+5. Direct backend curl to /api/predictions returned in about 1.1 seconds.
+```
+
+Current interpretation:
+
+```text
+The original 504/5-minute wait was mainly caused by the old Python process not
+being restarted after git pull. After aaPanel Super restart, backend direct
+prediction speed is much better. Remaining frontend refresh delay may come from
+overlapping frontend requests, tracking refresh, auto sync, or proxy/browser
+flow rather than raw prediction compute.
+```
+
 The screenshot also showed two diagnostic command problems:
 
 ```text
@@ -218,6 +238,47 @@ catch-up / waiting-for-sync poll remains 5 seconds
 
 This reduces background CPU/lock pressure while frontend requests are loading.
 
+## 2026-06-12 UI / Deployment Follow-up
+
+User requested two small C-plan display changes:
+
+```text
+1. C-plan page already implies C-plan, so ticket names should not repeat
+   "C计划".
+2. C-plan low-group candidates should clearly show #1/#2/#3/#4.
+3. Show current miss count on each plan as betting-cost reference only. This
+   must not become an automatic follow recommendation.
+```
+
+Implemented display-only changes:
+
+```text
+web/app.js
+web/styles.css
+keno_dashboard_server.py
+```
+
+Details:
+
+```text
+- C-plan ticket cards now render labels like "#1 2码低组候选".
+- Tracking table strategy labels also hide duplicate "C计划" for C-plan rows.
+- Ticket cards and tracking rows show "当前未中 N 期" from existing
+  currentMiss/maxMiss fields.
+- Text explicitly marks the miss count as staking/reference context, not a
+  must-follow instruction.
+- New tracking records carry `ticketRank` metadata for stable # display. This
+  is display metadata only and does not affect prediction selection, settlement,
+  or rules.
+```
+
+Deployment docs were updated:
+
+```text
+DEPLOYMENT.md now records that production restarts cpgame from aaPanel
+Super/Supervisor plugin UI. `supervisorctl` may not exist in SSH on this server.
+```
+
 ## Local Verification
 
 Syntax checks passed:
@@ -280,6 +341,9 @@ Commit only:
 
 ```text
 keno_dashboard_server.py
+web/app.js
+web/styles.css
+DEPLOYMENT.md
 HANDOFF.md
 ```
 
@@ -301,27 +365,44 @@ After push, user should run on production:
 cd /www/wwwroot/cpgame
 git pull origin main
 /www/wwwroot/cpgame/.venv/bin/python -m py_compile keno_dashboard_server.py fetch_official_supplements.py
-supervisorctl restart cpgame
 ```
 
-Then verify:
-
-```bash
-curl -s 'http://127.0.0.1:8787/api/prediction-auto' | python3 -m json.tool | grep -E 'pollSeconds|effectivePollSeconds|effectiveCatchupPollSeconds|message'
-```
-
-Expected normal state:
+Then restart from aaPanel:
 
 ```text
-pollSeconds: 60
-effectivePollSeconds: 60
-effectiveCatchupPollSeconds: 5
+Open aaPanel Super/Supervisor plugin, restart cpgame from the UI.
+Do not rely on `supervisorctl` on this server; SSH reported command not found.
+```
+
+Then verify from SSH:
+
+```bash
+ps -ef | grep keno_dashboard_server.py | grep -v grep
+ss -ltnp | grep 8787
+```
+
+Auto tracking status:
+
+```bash
+curl -m 10 -sS http://127.0.0.1:8787/api/prediction-auto > /tmp/cpgame_auto.json
+python3 -m json.tool /tmp/cpgame_auto.json | head -120
+```
+
+Expected normal state depends on production runtime config:
+
+```text
+status/running present
+effectivePollSeconds present
+effectiveCatchupPollSeconds present
 ```
 
 Check C-plan performance:
 
 ```bash
-curl -s 'http://127.0.0.1:8787/api/predictions?game=poland_keno_20_70&panel=m&autoSync=0' | python3 -m json.tool | grep -E 'cacheHit|stakingSimulationIncluded|performance|predictionComputeMs|trackingTouchMs|totalMs|reason'
+u=http://127.0.0.1:8787/api/predictions
+q='game=poland_keno_20_70&panel=m&autoSync=0'
+time curl -m 60 -sS -o /tmp/p.json "$u?$q"
+python3 -m json.tool /tmp/p.json | head -120
 ```
 
 If it is still slow, inspect the `performance` fields first before changing
