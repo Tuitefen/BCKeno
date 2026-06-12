@@ -7237,6 +7237,7 @@ def prediction_payload(
     timeline_newest: dict[str, Any] | None = None,
     panel: str = PREDICTION_PANEL_DEFAULT,
     now_ms: int | None = None,
+    include_staking_simulation: bool = False,
 ) -> dict[str, Any]:
     config = config or LOTTERY_GAMES[DEFAULT_GAME_KEY]
     panel = prediction_panel_from_value(panel)
@@ -7332,7 +7333,7 @@ def prediction_payload(
             recent_draw_sets,
             recent_bonus_values,
             stats_index=stats_index,
-            include_staking_simulation=panel == PREDICTION_PANEL_M,
+            include_staking_simulation=panel == PREDICTION_PANEL_M and include_staking_simulation,
         )
         if needs_m_tickets
         else []
@@ -8100,37 +8101,67 @@ def predictions_payload(
     now_ms: int | None = None,
     allow_auto_sync: bool = False,
 ) -> dict[str, Any]:
+    perf_started = time.monotonic()
+    perf: dict[str, Any] = {
+        "cacheHit": False,
+        "touchTracking": touch_tracking,
+        "allowAutoSync": allow_auto_sync,
+    }
     config = game_from_query(query)
     ensure_predictions_supported(config)
     history_path = game_history_path(config)
     row_limit = parse_int(query.get("drawLimit", ["0"])[0], 0)
     panel = prediction_panel_from_query(query)
+    include_staking_simulation = panel == PREDICTION_PANEL_M and query_bool(query, "staking", False)
+    perf["game"] = config["key"]
+    perf["panel"] = panel
+    perf["includeStakingSimulation"] = include_staking_simulation
     if panel in PREDICTION_RETIRED_PANELS:
         raise ValueError("旧C/D/E/F/G计划已停用，不再生成新预测")
     now_value = now_ms if now_ms is not None else int(time.time() * 1000)
+    history_identity_started = time.monotonic()
     try:
         stat = history_path.stat()
         history_identity = (stat.st_mtime_ns, stat.st_size)
     except FileNotFoundError:
         history_identity = (0, 0)
+    perf["historyIdentityMs"] = round((time.monotonic() - history_identity_started) * 1000)
+    history_load_started = time.monotonic()
     all_rows = load_history_rows(history_path, config)
+    perf["historyLoadMs"] = round((time.monotonic() - history_load_started) * 1000)
+    perf["historyRows"] = len(all_rows)
     prediction_auto_sync: dict[str, Any] | None = None
     if allow_auto_sync and now_ms is None:
         try:
+            auto_sync_started = time.monotonic()
             all_rows, prediction_auto_sync = maybe_auto_sync_prediction_tracking(config, all_rows)
+            perf["autoSyncMs"] = round((time.monotonic() - auto_sync_started) * 1000)
             try:
                 stat = history_path.stat()
                 history_identity = (stat.st_mtime_ns, stat.st_size)
             except FileNotFoundError:
                 history_identity = (0, 0)
+            history_reload_started = time.monotonic()
             all_rows = load_history_rows(history_path, config)
+            perf["postSyncHistoryReloadMs"] = round((time.monotonic() - history_reload_started) * 1000)
+            perf["historyRows"] = len(all_rows)
         except Exception as exc:
             prediction_auto_sync = {"ok": False, "error": str(exc), "errorType": type(exc).__name__}
+            perf["autoSyncError"] = prediction_auto_sync
     target_cache_ms = prediction_target_cache_ms(all_rows, config, now_value)
-    cache_key = (config["key"], *history_identity, row_limit, target_cache_ms, panel)
+    cache_key = (
+        config["key"],
+        *history_identity,
+        row_limit,
+        target_cache_ms,
+        panel,
+        include_staking_simulation,
+    )
 
+    cache_lookup_started = time.monotonic()
     with PREDICTION_CACHE_LOCK:
         cached = lru_cache_get(PREDICTION_CACHE, cache_key)
+    perf["cacheLookupMs"] = round((time.monotonic() - cache_lookup_started) * 1000)
     cached_predictions = cached.get("predictions") if isinstance(cached, dict) else {}
     cached_ready = (
         cached_predictions.get("trackingReady")
@@ -8143,14 +8174,20 @@ def predictions_payload(
         payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
         if prediction_auto_sync is not None:
             payload["predictionAutoSync"] = prediction_auto_sync
+        tracking_started = time.monotonic()
         if touch_tracking:
             payload["predictionTracking"] = touch_prediction_tracking_for_payload(
                 payload,
                 config,
                 allow_auto_sync=allow_auto_sync,
             )
+        perf["trackingTouchMs"] = round((time.monotonic() - tracking_started) * 1000)
+        perf["cacheHit"] = True
+        perf["totalMs"] = round((time.monotonic() - perf_started) * 1000)
+        payload["performance"] = perf
         return payload
 
+    data_prep_started = time.monotonic()
     data_integrity = history_data_integrity(all_rows, config)
     rows = valid_draw_rows(all_rows, config)
     if row_limit > 0:
@@ -8159,6 +8196,76 @@ def predictions_payload(
 
     newest = rows[0] if rows else None
     oldest = rows[-1] if rows else None
+    perf["dataPrepMs"] = round((time.monotonic() - data_prep_started) * 1000)
+    target_started = time.monotonic()
+    early_target_context = prediction_tracking_target_context_from_latest(
+        latest_timeline,
+        config,
+        now_ms=now_value,
+    )
+    perf["targetContextMs"] = round((time.monotonic() - target_started) * 1000)
+    if not early_target_context["ready"]:
+        payload = {
+            "generatedAt": utc_now_iso(),
+            "cacheHit": False,
+            "panel": panel,
+            "panelLabel": prediction_panel_label(panel),
+            "game": game_public_config(config),
+            "historyFile": file_info(history_path),
+            "dataIntegrity": data_integrity,
+            "drawCount": len(rows),
+            "newestDraw": newest,
+            "newestTimelineDraw": latest_timeline,
+            "oldestDraw": oldest,
+            "predictionAutoSync": prediction_auto_sync,
+            "predictions": {
+                "panel": panel,
+                "panelLabel": prediction_panel_label(panel),
+                "sourcePanel": "",
+                "sourcePanels": [],
+                "sourceTickets": {},
+                "excludedNumbers": [],
+                "method": "",
+                "recentWindow": min(PREDICTION_RECENT_WINDOW, len(rows)),
+                "smallRange": [],
+                "bigRange": [],
+                "timeWindowUtc": {"start": "", "end": ""},
+                "forecasts": [],
+                "strategyTickets": [],
+            },
+            "stakingSimulationIncluded": include_staking_simulation,
+        }
+        mark_prediction_payload_waiting_for_sync(payload, early_target_context)
+        payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
+        tracking_started = time.monotonic()
+        if touch_tracking:
+            payload["predictionTracking"] = {
+                "panel": panel,
+                "panelLabel": prediction_panel_label(panel),
+                "settledNow": 0,
+                "createdNow": 0,
+                "summary": {},
+                "allSummary": {},
+                "lightweight": True,
+                "skipped": True,
+                "reason": "prediction_target_not_ready",
+                "autoSync": {"skipped": True, "reason": "prediction_target_not_ready"},
+            }
+        perf["trackingTouchMs"] = round((time.monotonic() - tracking_started) * 1000)
+        perf["predictionComputeMs"] = 0
+        perf["totalMs"] = round((time.monotonic() - perf_started) * 1000)
+        payload["performance"] = perf
+        return payload
+    prediction_started = time.monotonic()
+    predictions = prediction_payload(
+        rows,
+        config,
+        latest_timeline,
+        panel=panel,
+        now_ms=now_value,
+        include_staking_simulation=include_staking_simulation,
+    )
+    perf["predictionComputeMs"] = round((time.monotonic() - prediction_started) * 1000)
     payload = {
         "generatedAt": utc_now_iso(),
         "cacheHit": False,
@@ -8172,15 +8279,12 @@ def predictions_payload(
         "newestTimelineDraw": latest_timeline,
         "oldestDraw": oldest,
         "predictionAutoSync": prediction_auto_sync,
-        "predictions": prediction_payload(
-            rows,
-            config,
-            latest_timeline,
-            panel=panel,
-            now_ms=now_value,
-        ),
+        "predictions": predictions,
+        "stakingSimulationIncluded": include_staking_simulation,
     }
+    target_after_compute_started = time.monotonic()
     target_context = prediction_tracking_target_context(payload, config, now_ms=now_value)
+    perf["targetContextAfterComputeMs"] = round((time.monotonic() - target_after_compute_started) * 1000)
     if not target_context["ready"]:
         mark_prediction_payload_waiting_for_sync(payload, target_context)
         reason = str(target_context.get("reason") or "")
@@ -8192,8 +8296,11 @@ def predictions_payload(
         payload["predictionTarget"] = prediction_tracking_target_context_public(target_context)
     payload["eTag"] = response_etag((cache_key, sorted((key, tuple(value)) for key, value in query.items())))
     if target_context["ready"]:
+        cache_store_started = time.monotonic()
         with PREDICTION_CACHE_LOCK:
             lru_cache_set(PREDICTION_CACHE, cache_key, payload, PREDICTION_CACHE_MAX_ITEMS)
+        perf["cacheStoreMs"] = round((time.monotonic() - cache_store_started) * 1000)
+    tracking_started = time.monotonic()
     if touch_tracking:
         payload["predictionTracking"] = touch_prediction_tracking_for_payload(
             payload,
@@ -8201,6 +8308,9 @@ def predictions_payload(
             rows,
             allow_auto_sync=allow_auto_sync,
         )
+    perf["trackingTouchMs"] = round((time.monotonic() - tracking_started) * 1000)
+    perf["totalMs"] = round((time.monotonic() - perf_started) * 1000)
+    payload["performance"] = perf
     return payload
 
 
@@ -8406,6 +8516,24 @@ def schedule_prediction_prewarm(config: dict[str, Any], *, reason: str = "histor
         "reason": reason,
         "generatedAt": utc_now_iso(),
     }
+
+
+def schedule_startup_prediction_prewarm() -> list[dict[str, Any]]:
+    auto_config = load_prediction_auto_config()
+    enabled_keys = prediction_auto_enabled_games(auto_config)
+    if not enabled_keys:
+        enabled_keys = [
+            key
+            for key in PREDICTION_PREWARM_GAME_KEYS
+            if key in LOTTERY_GAMES and supports_predictions(LOTTERY_GAMES[key])
+        ]
+    results: list[dict[str, Any]] = []
+    for key in enabled_keys:
+        game_config = LOTTERY_GAMES.get(key)
+        if game_config is None:
+            continue
+        results.append(schedule_prediction_prewarm(game_config, reason="server_startup"))
+    return results
 
 
 CDE_KILL_BACKTEST_GAME_KEYS = {
@@ -10878,6 +11006,33 @@ def prediction_tracking_target_context(
         "target": target,
         "newest": newest,
     }
+
+
+def prediction_tracking_target_context_from_latest(
+    latest_timeline: dict[str, Any] | None,
+    config: dict[str, Any],
+    now_ms: int | None = None,
+) -> dict[str, Any]:
+    newest_ms = parse_int(latest_timeline.get("drawTimeMs") if latest_timeline else 0, 0)
+    target_ms, target_offset = next_operating_draw_after_ms(newest_ms, config)
+    target = (
+        {
+            "drawOffset": target_offset,
+            "drawTimeMs": target_ms,
+            "drawTimeUtc": draw_time_utc_from_ms(target_ms),
+        }
+        if target_ms > 0
+        else {}
+    )
+    return prediction_tracking_target_context(
+        {
+            "newestDraw": latest_timeline or {},
+            "newestTimelineDraw": latest_timeline or {},
+            "predictions": {"forecasts": [target] if target else []},
+        },
+        config,
+        now_ms=now_ms,
+    )
 
 
 def prediction_tracking_target_context_public(context: dict[str, Any]) -> dict[str, Any]:
@@ -14107,9 +14262,7 @@ def prediction_auto_effective_catchup_seconds(config: dict[str, Any]) -> int:
 
 def prediction_auto_effective_poll_seconds(config: dict[str, Any]) -> int:
     configured = parse_int(config.get("pollSeconds"), 30)
-    if len(prediction_auto_enabled_games(config)) <= 1:
-        return min(configured, PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS)
-    return configured
+    return max(15, configured)
 
 
 def prediction_auto_history_marker(config: dict[str, Any]) -> tuple[int, int, str, str]:
@@ -14207,6 +14360,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "summaryD": panel_summaries.get(PREDICTION_PANEL_D) or {},
                 }
                 PREDICTION_AUTO_HISTORY_MARKERS[key] = marker
+                prediction_prewarm = schedule_prediction_prewarm(game_config, reason="prediction_auto")
             else:
                 panel_summaries = prediction_tracking_panel_summaries_for_config(game_config)
                 tracking = {
@@ -14217,6 +14371,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "summaryM": panel_summaries.get(PREDICTION_PANEL_M) or {},
                 }
                 skipped_prediction = True
+                prediction_prewarm = {"scheduled": False, "reason": "prediction_generation_skipped", "game": key}
             tracking_summary_a = tracking.get("summaryA") or {}
             tracking_summary_b = tracking.get("summaryB") or {}
             tracking_summary_m = tracking.get("summaryM") or {}
@@ -14240,6 +14395,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "skippedPrediction": skipped_prediction,
                     "waitingForDraw": waiting_for_draw,
                     "refreshResult": refresh_result,
+                    "predictionPrewarm": prediction_prewarm,
                     "trackingWait": tracking_wait if waiting_for_draw else None,
                     "historyWait": history_wait if history_wait.get("waiting") else None,
                     "telegram": telegram_result,
@@ -16425,6 +16581,10 @@ def main() -> int:
     print(f"Data directory: {DATA_ROOT}")
     print(f"Log directory: {LOG_ROOT}")
     print(f"Backup directory: {BACKUP_ROOT}")
+    startup_prewarm = schedule_startup_prediction_prewarm()
+    if startup_prewarm:
+        scheduled = sum(1 for item in startup_prewarm if item.get("scheduled"))
+        print(f"Prediction prewarm scheduled for {scheduled}/{len(startup_prewarm)} games")
     if load_prediction_auto_config().get("enabled"):
         start_prediction_auto()
         print("Prediction auto tracking resumed from config")
