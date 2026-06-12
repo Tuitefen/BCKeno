@@ -3905,6 +3905,7 @@ def current_backtest_candidate_slots(records: list[dict[str, Any]]) -> list[dict
         key=lambda record: (
             slot_ranks.get(str(record.get("id") or ""), 0) or prediction_tracking_slot_rank(record) or 999,
             parse_int(record.get("pickCount"), len(record.get("numbers") or [])),
+            prediction_tracking_ticket_number_key(record),
             str(record.get("ticketLabel") or ""),
             str(record.get("id") or ""),
         ),
@@ -12242,6 +12243,20 @@ def prediction_tracking_slot_rank(record: dict[str, Any]) -> int:
     return rank if rank > 0 else 0
 
 
+def prediction_tracking_ticket_number_key(record: dict[str, Any]) -> tuple[int, ...]:
+    numbers = [
+        parse_int(number, 0)
+        for number in (record.get("numbers") or [])
+        if parse_int(number, 0) > 0
+    ]
+    if numbers:
+        return tuple(numbers)
+    return tuple(
+        parse_int(number, 0)
+        for number in re.findall(r"\d+", str(record.get("ticketLabel") or ""))
+    )
+
+
 def prediction_tracking_daily_window(
     record: dict[str, Any],
     config: dict[str, Any],
@@ -12320,6 +12335,7 @@ def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[
         unranked.sort(
             key=lambda record: (
                 parse_int(record.get("pickCount"), 0),
+                prediction_tracking_ticket_number_key(record),
                 str(record.get("ticketLabel") or ""),
                 str(record.get("id") or ""),
             )

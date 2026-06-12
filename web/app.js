@@ -2912,7 +2912,6 @@ function stakingSegmentPolicyCell(policy) {
     <span>ROI ${fmtPct(roi, 2)}</span>
     ${peakLine}
     <small>投入 ${fmtYuan(Number(policy.totalStake || 0), 2)}</small>
-    <small>返奖 ${fmtYuan(Number(policy.totalPayout || 0), 2)} · 命中 ${fmtInt(policy.wins || 0)}</small>
   </div>`;
 }
 
@@ -5955,6 +5954,23 @@ function predictionMissText(item) {
   return `当前第${fmtInt(currentMiss)}期未中`;
 }
 
+function trackingTicketNumberKey(record) {
+  const source = Array.isArray(record?.numbers) && record.numbers.length
+    ? record.numbers
+    : String(record?.ticketLabel || "").match(/\d+/g) || [];
+  return source.map((number) => Number(number || 0)).filter((number) => Number.isFinite(number) && number > 0);
+}
+
+function compareNumberKeys(left, right) {
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const leftValue = left[index] ?? 0;
+    const rightValue = right[index] ?? 0;
+    if (leftValue !== rightValue) return leftValue - rightValue;
+  }
+  return 0;
+}
+
 function fmtYuan(value, digits = 2, signed = false) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "--";
@@ -6359,6 +6375,7 @@ function renderPredictionTracking() {
       .sort(
         (left, right) =>
           Number(left.pickCount || 0) - Number(right.pickCount || 0) ||
+          compareNumberKeys(trackingTicketNumberKey(left), trackingTicketNumberKey(right)) ||
           String(left.ticketLabel || "").localeCompare(String(right.ticketLabel || ""), "zh-CN") ||
           String(left.id || "").localeCompare(String(right.id || ""), "zh-CN"),
       )
@@ -6419,12 +6436,12 @@ function renderPredictionTracking() {
         }<div class="muted">${fmtDate(record.createdAt)} 创建</div></td>
         <td>
           <strong>${escapeHtml(rankedStrategyLabel(record, fallbackRank - 1, recordPanel))}</strong>
-          <div class="muted">${escapeHtml(record.methodVersion || "")}</div>
           ${
             predictionMissText(record)
               ? `<div class="tracking-miss-note">${escapeHtml(predictionMissText(record))}</div>`
               : ""
           }
+          <div class="muted">${escapeHtml(record.methodVersion || "")}</div>
           ${structureMeta}
         </td>
         <td>${trackingTicketContent(record)}</td>

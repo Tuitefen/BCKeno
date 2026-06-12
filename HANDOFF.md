@@ -337,6 +337,23 @@ Local verification for this correction:
   `3码候选#3` and includes the hit in policy totals.
 ```
 
+Third correction:
+
+```text
+- The old-record fallback rank used string sorting for `ticketLabel`, which put
+  `12-28-58` before `2-6-39`. That misassigned the 2026-06-12 16:26 Beijing
+  3/3 hit to `3码候选#4` instead of `3码候选#3`.
+- Backend and frontend fallback ranking now compare ticket numbers numerically,
+  then fall back to label/id. This keeps old rows without `ticketRank` aligned
+  between tracking display and current backtest.
+- Rechecked `3码候选#3`: 2026-06-12 now includes both 16:06 `5-39-55` and
+  16:26 `2-6-39` as wins.
+- Current backtest daily totals for 2026-06-12, `3码候选#3`, after the fix:
+  flat +7, conservative +23, standard +39, aggressive +83 with default stakes.
+- Removed the extra current-backtest row text `返奖 xx · 命中 x`; user wanted
+  the amount corrected, not extra display text.
+```
+
 Deployment docs were updated:
 
 ```text
