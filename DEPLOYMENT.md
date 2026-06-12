@@ -145,6 +145,22 @@ curl -m 20 -sS "http://127.0.0.1:8787/api/predictions?game=poland_keno_20_70&pan
 python3 -m json.tool /tmp/cpgame_prediction_m.json | grep -A2 dailyMissStreak
 ```
 
+C-plan naming and current backtest mapping can be checked with:
+
+```bash
+curl -m 20 -sS "http://127.0.0.1:8787/api/current-staking-backtest?game=poland_keno_20_70&source=m&slot=p3_1&startDateTime=2026-06-12%2000:00&endDateTime=2026-06-12%2023:59&timeZone=Asia/Shanghai" > /tmp/cpgame_current_backtest_p3_1.json
+python3 -m json.tool /tmp/cpgame_current_backtest_p3_1.json | grep -E '"label": "3码候选#3"|"wins"|"totalPayout"' | head -40
+```
+
+The current backtest UI labels should match prediction/tracking labels:
+
+```text
+2码候选#1
+2码候选#2
+3码候选#3
+3码候选#4
+```
+
 The deploy script automatically reads runtime data from:
 
 ```text

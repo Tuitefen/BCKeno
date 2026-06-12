@@ -3866,16 +3866,16 @@ def current_backtest_source_panel(value: Any) -> tuple[str, str]:
 def current_backtest_slot_selection(value: Any) -> tuple[set[str], str]:
     slot = str(value or "p3_1").strip().lower()
     labels = {
-        "p2_1": "2码1",
-        "p2_2": "2码2",
-        "p2_3": "2码3",
-        "p2_4": "2码4",
-        "p2_all": "全部2码",
-        "p3_1": "3码1",
-        "p3_2": "3码2",
-        "p3_3": "3码3",
-        "p3_4": "3码4",
-        "p3_all": "全部3码",
+        "p2_1": "2码候选#1",
+        "p2_2": "2码候选#2",
+        "p2_3": "2码候选#3",
+        "p2_4": "2码候选#4",
+        "p2_all": "全部2码候选",
+        "p3_1": "3码候选#3",
+        "p3_2": "3码候选#4",
+        "p3_3": "3码候选#5",
+        "p3_4": "3码候选#6",
+        "p3_all": "全部3码候选",
         "all": "全部候选",
     }
     if slot == "p2_all":
@@ -3887,6 +3887,45 @@ def current_backtest_slot_selection(value: Any) -> tuple[set[str], str]:
     if slot not in labels:
         slot = "p3_1"
     return {slot}, labels[slot]
+
+
+def current_backtest_candidate_label(record: dict[str, Any], rank: int) -> str:
+    pick_count = parse_int(record.get("pickCount"), len(record.get("numbers") or []))
+    if pick_count > 0 and rank > 0:
+        return f"{pick_count}码候选#{rank}"
+    if pick_count > 0:
+        return f"{pick_count}码候选"
+    return "候选票"
+
+
+def current_backtest_candidate_slots(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    slot_ranks = prediction_tracking_daily_slot_ranks(records)
+    ordered = sorted(
+        records,
+        key=lambda record: (
+            slot_ranks.get(str(record.get("id") or ""), 0) or prediction_tracking_slot_rank(record) or 999,
+            parse_int(record.get("pickCount"), len(record.get("numbers") or [])),
+            str(record.get("ticketLabel") or ""),
+            str(record.get("id") or ""),
+        ),
+    )
+    pick_counts: dict[int, int] = {}
+    result: list[dict[str, Any]] = []
+    for index, record in enumerate(ordered, start=1):
+        record_id = str(record.get("id") or "")
+        rank = slot_ranks.get(record_id) or prediction_tracking_slot_rank(record) or index
+        pick_count = parse_int(record.get("pickCount"), len(record.get("numbers") or []))
+        pick_counts[pick_count] = pick_counts.get(pick_count, 0) + 1
+        slot = pick_counts[pick_count]
+        result.append(
+            {
+                "key": f"p{pick_count}_{slot}",
+                "slotLabel": current_backtest_candidate_label(record, rank),
+                "ticketRank": rank,
+                "record": record,
+            }
+        )
+    return result
 
 
 def load_current_backtest_tracking_records(
@@ -3967,7 +4006,7 @@ def current_backtest_group_entries(
     missing_targets = 0
     for target_ms in sorted(grouped):
         batch = grouped[target_ms]
-        slots = telegram_candidate_slots(batch)
+        slots = current_backtest_candidate_slots(batch)
         selected: list[dict[str, Any]] = []
         for item in slots:
             key = str(item.get("key") or "")

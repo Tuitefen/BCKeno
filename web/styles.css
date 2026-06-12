@@ -1683,8 +1683,8 @@ body.tool-modal-open {
 
 .tracking-miss-note {
   margin: 4px 0 0;
-  color: var(--muted);
-  font-size: 11px;
+  color: var(--text);
+  font-size: 12px;
 }
 
 .tracking-miss-note span {

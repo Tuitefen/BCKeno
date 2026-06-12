@@ -304,6 +304,39 @@ Implementation notes:
   or settlement logic were changed.
 ```
 
+Second correction after UI/backtest review:
+
+```text
+- User-facing C-plan names are now unified as `2码候选#1`, `2码候选#2`,
+  `3码候选#3`, and `3码候选#4`.
+- The prediction cards, prediction tracking table, and current backtest dropdown
+  use the same naming so `3码候选#3` means the same ticket everywhere.
+- Current backtest still accepts internal slot keys such as `p3_1`, but the
+  visible label is `3码候选#3`.
+- Current backtest now maps old tracking rows without `ticketRank` through the
+  same display-rank fallback used by the tracking table, instead of re-sorting
+  by score. This fixes the Poland 2026-06-12 16:06 Beijing case where
+  `5-39-55` should be `3码候选#3` and count under `p3_1`.
+- Current miss wording is now `当前第xx期未中`. It is shown directly under the
+  strategy name as stake-sizing reference, while won rows do not show a miss
+  badge.
+- Current backtest policy cells now also show total payout and hit count, making
+  it easier to verify that a 3-code hit is paid at the stake level active before
+  that draw.
+```
+
+Local verification for this correction:
+
+```text
+- Beijing 2026-06-12 16:06 / UTC 2026-06-12T08:06:
+  `5-39-55` maps to `p3_1`, label `3码候选#3`, status `won`, matched 3/3.
+- Before that hit, same-day `3码候选#3` had 53 misses. With default stakes:
+  flat stake 1 -> payout 40; conservative stake 2 -> payout 80; standard stake
+  3 -> payout 120; aggressive stake 6 -> payout 240.
+- 2026-06-12 current backtest for `p3_1` reports selection label
+  `3码候选#3` and includes the hit in policy totals.
+```
+
 Deployment docs were updated:
 
 ```text

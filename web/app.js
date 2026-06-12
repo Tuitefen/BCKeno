@@ -2912,6 +2912,7 @@ function stakingSegmentPolicyCell(policy) {
     <span>ROI ${fmtPct(roi, 2)}</span>
     ${peakLine}
     <small>投入 ${fmtYuan(Number(policy.totalStake || 0), 2)}</small>
+    <small>返奖 ${fmtYuan(Number(policy.totalPayout || 0), 2)} · 命中 ${fmtInt(policy.wins || 0)}</small>
   </div>`;
 }
 
@@ -5937,13 +5938,21 @@ function ticketDisplayRank(item, fallbackIndex = 0) {
 }
 
 function rankedStrategyLabel(item, fallbackIndex = 0, panel = state.predictionPanel) {
-  return `#${ticketDisplayRank(item, fallbackIndex)} ${compactStrategyLabel(item?.label || item?.strategyLabel, panel)}`;
+  const rank = ticketDisplayRank(item, fallbackIndex);
+  const pickCount = Number(item?.pickCount || (Array.isArray(item?.numbers) ? item.numbers.length : 0));
+  if (normalizePredictionPanel(panel) === PREDICTION_PANEL_M && Number.isFinite(pickCount) && pickCount > 0) {
+    return `${fmtInt(pickCount)}码候选#${fmtInt(rank)}`;
+  }
+  return `#${rank} ${compactStrategyLabel(item?.label || item?.strategyLabel, panel)}`;
 }
 
 function predictionMissText(item) {
   if (!item || item.dailyMissStreak === undefined || item.dailyMissStreak === null) return "";
   const miss = Number(item.dailyMissStreak || 0);
-  return `今日未中 ${fmtInt(miss)} 期`;
+  const status = String(item.status || "").toLowerCase();
+  const currentMiss = status === "lost" ? miss : miss + 1;
+  if (status === "won" || currentMiss <= 0) return "";
+  return `当前第${fmtInt(currentMiss)}期未中`;
 }
 
 function fmtYuan(value, digits = 2, signed = false) {
@@ -6062,7 +6071,7 @@ function renderPredictionStrategyTickets(tickets = []) {
         <div class="ticket-balls" title="${escapeHtml(ticket.ticketLabel || "")}">${ticketNumberBalls(ticket)}</div>
         ${
           predictionMissText(ticket)
-            ? `<div class="ticket-miss-badge">${escapeHtml(predictionMissText(ticket))}<span>按今日同序号追踪统计，仅作金额参考</span></div>`
+            ? `<div class="ticket-miss-badge">${escapeHtml(predictionMissText(ticket))}</div>`
             : ""
         }
         ${structureNote}
@@ -6334,14 +6343,31 @@ function renderPredictionTracking() {
     rankGroups.get(groupKey).push(record);
   }
   for (const records of rankGroups.values()) {
-    records
+    const usedRanks = new Set();
+    const unranked = [];
+    for (const record of records) {
+      const rank = Number(record.ticketRank || 0);
+      if (Number.isFinite(rank) && rank > 0) {
+        displayRankByRecord.set(record, rank);
+        usedRanks.add(rank);
+      } else {
+        unranked.push(record);
+      }
+    }
+    let nextRank = 1;
+    unranked
       .sort(
         (left, right) =>
           Number(left.pickCount || 0) - Number(right.pickCount || 0) ||
           String(left.ticketLabel || "").localeCompare(String(right.ticketLabel || ""), "zh-CN") ||
           String(left.id || "").localeCompare(String(right.id || ""), "zh-CN"),
       )
-      .forEach((record, index) => displayRankByRecord.set(record, index + 1));
+      .forEach((record) => {
+        while (usedRanks.has(nextRank)) nextRank += 1;
+        displayRankByRecord.set(record, nextRank);
+        usedRanks.add(nextRank);
+        nextRank += 1;
+      });
   }
   els.predictionTrackingRows.innerHTML = items
     .map((record, index) => {
@@ -6392,16 +6418,11 @@ function renderPredictionTracking() {
           targetRelative ? ` <span class="${targetClass}">${escapeHtml(targetRelative)}</span>` : ""
         }<div class="muted">${fmtDate(record.createdAt)} 创建</div></td>
         <td>
-          <strong>${escapeHtml(
-            `#${ticketDisplayRank(record, fallbackRank - 1)} ${compactStrategyLabel(
-              record.strategyLabel,
-              recordPanel,
-            )}`,
-          )}</strong>
+          <strong>${escapeHtml(rankedStrategyLabel(record, fallbackRank - 1, recordPanel))}</strong>
           <div class="muted">${escapeHtml(record.methodVersion || "")}</div>
           ${
             predictionMissText(record)
-              ? `<div class="tracking-miss-note">${escapeHtml(predictionMissText(record))}<span>当天第一条同序号计划起算</span></div>`
+              ? `<div class="tracking-miss-note">${escapeHtml(predictionMissText(record))}</div>`
               : ""
           }
           ${structureMeta}
