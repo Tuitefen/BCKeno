@@ -390,6 +390,19 @@ Fourth correction after staking ledger review:
   `hitLedger` to audit the exact stake sequence for the current server state.
 ```
 
+Fifth correction for visible current-miss text:
+
+```text
+- The backend was already returning `dailyMissStreak` for C-plan tracking rows
+  and current prediction tickets, but the frontend hid zero values. That meant
+  a freshly reset/current pending ticket could show no `当前第xx期未中` text.
+- Frontend display now shows pending/current tickets as `dailyMissStreak + 1`,
+  so a newly reset candidate displays `当前第1期未中` instead of disappearing.
+  Settled lost rows still display the backend `dailyMissStreak` value.
+- This is display-only. Staking backtest money still uses the pre-bet miss
+  count (`missBefore`) from the ledger, so bet sizing remains unchanged.
+```
+
 Deployment docs were updated:
 
 ```text

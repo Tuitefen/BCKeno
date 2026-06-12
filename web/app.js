@@ -5949,8 +5949,10 @@ function predictionMissText(item) {
   if (!item || item.dailyMissStreak === undefined || item.dailyMissStreak === null) return "";
   const miss = Number(item.dailyMissStreak || 0);
   const status = String(item.status || "").toLowerCase();
-  if (status === "won" || !Number.isFinite(miss) || miss <= 0) return "";
-  return `当前第${fmtInt(miss)}期未中`;
+  if (status === "won" || !Number.isFinite(miss)) return "";
+  const currentMiss = status === "lost" ? miss : miss + 1;
+  if (currentMiss <= 0) return "";
+  return `当前第${fmtInt(currentMiss)}期未中`;
 }
 
 function trackingTicketNumberKey(record) {
