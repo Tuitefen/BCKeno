@@ -5945,14 +5945,29 @@ function rankedStrategyLabel(item, fallbackIndex = 0, panel = state.predictionPa
   return `#${rank} ${compactStrategyLabel(item?.label || item?.strategyLabel, panel)}`;
 }
 
-function predictionMissText(item) {
-  if (!item || item.dailyMissStreak === undefined || item.dailyMissStreak === null) return "";
-  const miss = Number(item.dailyMissStreak || 0);
+function predictionMissCount(item) {
+  if (!item) return null;
   const status = String(item.status || "").toLowerCase();
-  if (status === "won" || !Number.isFinite(miss)) return "";
-  const currentMiss = status === "lost" ? miss : miss + 1;
-  if (currentMiss <= 0) return "";
-  return `当前第${fmtInt(currentMiss)}期未中`;
+  if (status === "won" || status === "cancelled" || status === "void") return null;
+  if (item.dailyMissDisplayStreak !== undefined && item.dailyMissDisplayStreak !== null) {
+    const displayMiss = Number(item.dailyMissDisplayStreak);
+    return Number.isFinite(displayMiss) && displayMiss > 0 ? displayMiss : null;
+  }
+  if (item.dailyMissStreak === undefined || item.dailyMissStreak === null) return null;
+  const miss = Number(item.dailyMissStreak || 0);
+  if (!Number.isFinite(miss)) return null;
+  const displayMiss = status === "lost" ? miss : miss + 1;
+  return displayMiss > 0 ? displayMiss : null;
+}
+
+function predictionMissText(item) {
+  const displayMiss = predictionMissCount(item);
+  return displayMiss ? `当前第${fmtInt(displayMiss)}期未中` : "";
+}
+
+function predictionMissLine(item, className) {
+  const missText = predictionMissText(item);
+  return missText ? `<div class="${className}">${escapeHtml(missText)}</div>` : "";
 }
 
 function trackingTicketNumberKey(record) {
@@ -6085,12 +6100,8 @@ function renderPredictionStrategyTickets(tickets = []) {
           <strong>${escapeHtml(rankedStrategyLabel(ticket, index, panelKey))}</strong>
           <span>${escapeHtml(ticket.mode === "bonus" ? `${ticket.pickCount}+1特殊` : `${ticket.pickCount}球`)} · ${fmtNumber(Number(ticket.odds || 0), 2)}x</span>
         </div>
+        ${predictionMissLine(ticket, "ticket-miss-badge")}
         <div class="ticket-balls" title="${escapeHtml(ticket.ticketLabel || "")}">${ticketNumberBalls(ticket)}</div>
-        ${
-          predictionMissText(ticket)
-            ? `<div class="ticket-miss-badge">${escapeHtml(predictionMissText(ticket))}</div>`
-            : ""
-        }
         ${structureNote}
         <div class="ticket-metric-grid">
           <div><span>理论命中</span><strong>${fmtPct(Number(ticket.theoreticalHitRate || 0), 3)}</strong></div>
@@ -6431,18 +6442,16 @@ function renderPredictionTracking() {
             2,
           )}</td>`;
       const fallbackRank = displayRankByRecord.get(record) || index + 1;
+      const missText = predictionMissText(record);
+      const missLine = missText ? `<div class="tracking-miss-note">${escapeHtml(missText)}</div>` : "";
       return `<tr>
         <td><strong>${fmtTime(record.targetDrawTimeUtc)}</strong>${
           targetRelative ? ` <span class="${targetClass}">${escapeHtml(targetRelative)}</span>` : ""
         }<div class="muted">${fmtDate(record.createdAt)} 创建</div></td>
         <td>
           <strong>${escapeHtml(rankedStrategyLabel(record, fallbackRank - 1, recordPanel))}</strong>
-          ${
-            predictionMissText(record)
-              ? `<div class="tracking-miss-note">${escapeHtml(predictionMissText(record))}</div>`
-              : ""
-          }
-          <div class="muted">${escapeHtml(record.methodVersion || "")}</div>
+          ${missLine}
+          <div class="muted">${escapeHtml(record.methodVersion || "")}${missText ? ` · ${escapeHtml(missText)}` : ""}</div>
           ${structureMeta}
         </td>
         <td>${trackingTicketContent(record)}</td>

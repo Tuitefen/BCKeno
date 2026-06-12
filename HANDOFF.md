@@ -403,6 +403,27 @@ Fifth correction for visible current-miss text:
   count (`missBefore`) from the ledger, so bet sizing remains unchanged.
 ```
 
+Sixth correction for the missing text in the actual tracking table:
+
+```text
+- User screenshot still showed no `当前第xx期未中` in the C-plan tracking table.
+  Root cause: the running table payload can expose the visible streak as
+  `currentMiss`/old fields while the frontend was only checking
+  `dailyMissStreak`, and the previous edit also introduced a class name that
+  had no styling.
+- Backend now emits an explicit `dailyMissDisplayStreak` for C-plan tracking
+  rows and prediction tickets. Pending/current tickets use the next/current bet
+  display count; settled lost rows use the settled same-day miss streak; won,
+  cancelled, and void rows do not display a miss badge.
+- Frontend now renders `当前第xx期未中` directly under the strategy name with
+  the existing `tracking-miss-note` style, and also appends the same text after
+  `strategy-ticket-m-lowgroup-v1` in the visible method line. This is deliberate
+  double visibility for the exact strategy column shown in the screenshot.
+- `web/index.html` now cache-busts `/app.js` and `/styles.css` with
+  `v=20260612-miss-visible`, so production browsers should load the corrected
+  frontend after pull/restart instead of reusing stale JavaScript.
+```
+
 Deployment docs were updated:
 
 ```text

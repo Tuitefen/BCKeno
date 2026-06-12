@@ -12497,7 +12497,13 @@ def attach_prediction_tracking_daily_miss_streaks(
         item["ticketRank"] = slot_ranks.get(record_id) or prediction_tracking_slot_rank(item)
         has_daily_tracking = record_id in streak_by_id
         if has_daily_tracking:
-            item["dailyMissStreak"] = streak_by_id.get(record_id, 0)
+            daily_miss_streak = streak_by_id.get(record_id, 0)
+            item["dailyMissStreak"] = daily_miss_streak
+            item["dailyMissDisplayStreak"] = (
+                daily_miss_streak + 1
+                if str(item.get("status") or "pending") == "pending"
+                else daily_miss_streak
+            )
             item["dailyMissSource"] = "tracking_day_slot"
         item["dailyMissStartDrawTimeMs"] = start_by_key.get(key, 0) if key is not None else 0
         if item["dailyMissStartDrawTimeMs"]:
@@ -12574,6 +12580,7 @@ def attach_prediction_payload_daily_miss_streaks(
         if not enriched:
             continue
         item["dailyMissStreak"] = parse_int(enriched.get("dailyMissStreak"), 0)
+        item["dailyMissDisplayStreak"] = parse_int(enriched.get("dailyMissDisplayStreak"), item["dailyMissStreak"] + 1)
         item["dailyMissSource"] = str(enriched.get("dailyMissSource") or "tracking_day_slot")
         item["dailyMissStartDrawTimeMs"] = parse_int(enriched.get("dailyMissStartDrawTimeMs"), 0)
         item["dailyMissStartDrawTimeUtc"] = str(enriched.get("dailyMissStartDrawTimeUtc") or "")

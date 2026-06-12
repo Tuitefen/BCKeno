@@ -142,8 +142,15 @@ C-plan daily miss display can be checked with:
 
 ```bash
 curl -m 20 -sS "http://127.0.0.1:8787/api/predictions?game=poland_keno_20_70&panel=m&autoSync=0" > /tmp/cpgame_prediction_m.json
-python3 -m json.tool /tmp/cpgame_prediction_m.json | grep -A2 dailyMissStreak
+python3 -m json.tool /tmp/cpgame_prediction_m.json | grep -A3 -E 'dailyMissStreak|dailyMissDisplayStreak'
+curl -m 20 -sS "http://127.0.0.1:8787/api/prediction-tracking?game=poland_keno_20_70&panel=m&status=all&page=1&pageSize=10&autoSync=0" > /tmp/cpgame_tracking_m.json
+python3 -m json.tool /tmp/cpgame_tracking_m.json | grep -A3 -E 'dailyMissStreak|dailyMissDisplayStreak'
 ```
+
+After pulling a frontend change, hard refresh the browser if the C-plan page
+still looks stale. `web/index.html` carries cache-busting query strings for
+`/app.js` and `/styles.css`, but browser/proxy caches may still need one manual
+refresh after restart.
 
 C-plan naming and current backtest mapping can be checked with:
 
