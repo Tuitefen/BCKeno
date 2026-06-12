@@ -3899,7 +3899,7 @@ def current_backtest_candidate_label(record: dict[str, Any], rank: int) -> str:
 
 
 def current_backtest_candidate_slots(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    slot_ranks = prediction_tracking_daily_slot_ranks(records)
+    slot_ranks, rank_sources = prediction_tracking_daily_slot_rank_info(records)
     ordered = sorted(
         records,
         key=lambda record: (
@@ -3923,6 +3923,7 @@ def current_backtest_candidate_slots(records: list[dict[str, Any]]) -> list[dict
                 "key": f"p{pick_count}_{slot}",
                 "slotLabel": current_backtest_candidate_label(record, rank),
                 "ticketRank": rank,
+                "rankSource": rank_sources.get(record_id, "stored" if prediction_tracking_slot_rank(record) > 0 else "fallback"),
                 "record": record,
             }
         )
@@ -4020,6 +4021,8 @@ def current_backtest_group_entries(
                 {
                     "slotKey": key,
                     "slotLabel": str(item.get("slotLabel") or key),
+                    "ticketRank": parse_int(item.get("ticketRank"), 0),
+                    "rankSource": str(item.get("rankSource") or ""),
                     "record": record,
                 }
             )
@@ -4071,7 +4074,7 @@ def current_backtest_policy_simulation(
             current_miss = miss_by_slot.get(slot_key, 0)
             stake = staking_backtest_stake_for_miss(policy, current_miss)
             odds = parse_float(record.get("odds"), 0)
-            if odds <= 1:
+            if odds <= 0:
                 pick_count = parse_int(record.get("pickCount"), len(record.get("numbers") or []))
                 odds = parse_float(
                     DEFAULT_MAIN_ODDS_BY_GAME.get(prediction_tracking_game_key(record), {}).get(pick_count),
@@ -4095,6 +4098,8 @@ def current_backtest_policy_simulation(
                             "drawTimeUtc": staking_backtest_ms_iso(target_ms),
                             "slotKey": slot_key,
                             "slotLabel": str(item.get("slotLabel") or slot_key),
+                            "ticketRank": parse_int(item.get("ticketRank"), 0),
+                            "rankSource": str(item.get("rankSource") or ""),
                             "ticketLabel": str(record.get("ticketLabel") or ""),
                             "missBefore": current_miss,
                             "stake": round(stake, 4),
@@ -12358,7 +12363,7 @@ def load_prediction_tracking_day_records(
     return prediction_tracking_records_from_rows(rows)
 
 
-def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[str, int]:
+def prediction_tracking_daily_slot_rank_info(records: list[dict[str, Any]]) -> tuple[dict[str, int], dict[str, str]]:
     groups: dict[tuple[str, str, str, int], list[dict[str, Any]]] = {}
     for record in records:
         record_id = str(record.get("id") or "")
@@ -12373,6 +12378,7 @@ def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[
         groups.setdefault(key, []).append(record)
 
     ranks: dict[str, int] = {}
+    rank_sources: dict[str, str] = {}
     for records_for_target in groups.values():
         used_ranks: set[int] = set()
         unranked: list[dict[str, Any]] = []
@@ -12381,6 +12387,7 @@ def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[
             rank = parse_int(record.get("ticketRank"), 0)
             if rank > 0:
                 ranks[record_id] = rank
+                rank_sources[record_id] = "stored"
                 used_ranks.add(rank)
             else:
                 unranked.append(record)
@@ -12391,8 +12398,14 @@ def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[
                 next_rank += 1
             record_id = str(record.get("id") or "")
             ranks[record_id] = next_rank
+            rank_sources[record_id] = "fallback"
             used_ranks.add(next_rank)
             next_rank += 1
+    return ranks, rank_sources
+
+
+def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[str, int]:
+    ranks, _rank_sources = prediction_tracking_daily_slot_rank_info(records)
     return ranks
 
 
@@ -12457,7 +12470,7 @@ def attach_prediction_tracking_daily_miss_streaks(
                 all_records_by_id.setdefault(record_id, record)
 
     context_records = list(all_records_by_id.values())
-    slot_ranks = prediction_tracking_daily_slot_ranks(context_records)
+    slot_ranks, rank_sources = prediction_tracking_daily_slot_rank_info(context_records)
     requested_keys = {
         key
         for key in (prediction_tracking_daily_key(record, config, slot_ranks) for record in target_items)
@@ -12510,6 +12523,7 @@ def attach_prediction_tracking_daily_miss_streaks(
         key = prediction_tracking_daily_key(item, config, slot_ranks)
         record_id = str(item.get("id") or "")
         item["ticketRank"] = slot_ranks.get(record_id) or prediction_tracking_slot_rank(item)
+        item["rankSource"] = rank_sources.get(record_id, "stored" if prediction_tracking_slot_rank(item) > 0 else "fallback")
         has_daily_tracking = record_id in streak_by_id
         if has_daily_tracking:
             daily_miss_streak = streak_by_id.get(record_id, 0)

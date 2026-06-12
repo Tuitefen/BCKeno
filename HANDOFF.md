@@ -796,3 +796,97 @@ The previous all-red historical rows were not reliable. They came from old-row
 slot reconstruction, not from a prediction-rule change. After the fallback fix,
 6/8, 6/9, and 6/10 are not all-red; 6/11 remains negative but less severe.
 ```
+
+## 2026-06-12 Claude Follow-up Hardening
+
+Claude reviewed commit `7d19367` and concluded the fix is correct and
+minimal, but recommended several low-risk hardening changes.
+
+Implemented follow-up hardening:
+
+```text
+keno_dashboard_server.py
+- Added `prediction_tracking_daily_slot_rank_info(records)` returning both
+  rank and rankSource (`stored` or `fallback`).
+- Kept `prediction_tracking_daily_slot_ranks(records)` as a compatibility
+  wrapper for existing callers.
+- Current-backtest selected tickets and `hitLedger` now include `ticketRank`
+  and `rankSource`, making old-row fallback visible in diagnostics.
+- Prediction tracking API rows enriched by daily-miss logic now include
+  `rankSource`.
+- In current-backtest policy simulation, default odds fallback now applies only
+  when `odds <= 0`, not `odds <= 1`. This avoids incorrectly overwriting a
+  legitimate odds value of 1.0 in generic future cases.
+
+web/app.js
+- Added `normalizeRecordPredictionPanel(panel)` so record-level fallback matches
+  backend behavior: missing panel defaults to A-plan, not the currently selected
+  UI panel.
+- Tracking fallback rank sorting now uses numeric pickCount fallback from
+  `numbers.length`, matching backend behavior.
+- Tracking fallback string ties now use plain codepoint comparison instead of
+  `localeCompare("zh-CN")`, reducing frontend/backend divergence risk.
+```
+
+Not implemented yet:
+
+```text
+- Full performance refactor for repeated rank-map calculation on very large
+  windows. Current windows are small enough; revisit before expanding to 30+
+  days.
+- Backfilling old rows with synthetic ticketRank. Runtime fallback is safer
+  because it keeps old data auditable and avoids baking current code's
+  reconstruction into historical records.
+- Reconstructing the original diversity-filter step for old rows. Old records
+  do not store enough candidate-pool data for perfect reconstruction. New rows
+  already store `ticketRank`, which is the real fix going forward.
+```
+
+Local verification after hardening:
+
+```text
+python -m py_compile .\keno_dashboard_server.py .\tmp\verify_cplan_slot_rank_fix.py
+node --check .\web\app.js
+python .\tmp\verify_cplan_slot_rank_fix.py
+```
+
+The local backend was restarted again:
+
+```text
+Old local PID 18744 stopped.
+New local PID 14796 started at 2026-06-12 22:42:25.
+```
+
+API verification after restart:
+
+```text
+GET /api/current-staking-backtest?...slot=p3_1&timeZone=Europe/Warsaw&
+startDateTime=2026-06-08T00:00:00&endDateTime=2026-06-11T23:59:59&ledger=1
+
+date        rounds wins flat    conservative standard aggressive
+2026-06-08  115    3    +5.00   +33.00       +32.00   +94.00
+2026-06-09  223    8   +97.00  +122.00      +112.00  +159.00
+2026-06-10  209    4   -49.00   +23.00       +37.00  +154.00
+2026-06-11  242    5   -42.00  -129.00      -179.00  -302.00
+```
+
+The first 2026-06-08 hit ledger entries now include diagnostics such as:
+
+```text
+slotKey=p3_1
+slotLabel=3码候选#3
+ticketRank=3
+rankSource=fallback
+ticketLabel=33-55-63
+missBefore=70
+stake=3
+payout=120
+```
+
+Tracking API verification:
+
+```text
+/api/prediction-tracking?...panel=m...
+Recent new rows include `rankSource: stored`; old reconstructed rows can show
+`rankSource: fallback`.
+```

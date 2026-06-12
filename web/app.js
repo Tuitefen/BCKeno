@@ -781,6 +781,10 @@ function normalizePredictionPanel(panel = state.predictionPanel) {
   return panel === PREDICTION_PANEL_B ? PREDICTION_PANEL_B : PREDICTION_PANEL_DEFAULT;
 }
 
+function normalizeRecordPredictionPanel(panel) {
+  return normalizePredictionPanel(panel || PREDICTION_PANEL_DEFAULT);
+}
+
 function predictionPanelState(panel = state.predictionPanel) {
   return state.predictionPanels[normalizePredictionPanel(panel)] || state.predictionPanels[PREDICTION_PANEL_DEFAULT];
 }
@@ -5987,11 +5991,26 @@ function compareNumberKeys(left, right) {
   return 0;
 }
 
+function compareCodepoint(left, right) {
+  const leftText = String(left || "");
+  const rightText = String(right || "");
+  if (leftText < rightText) return -1;
+  if (leftText > rightText) return 1;
+  return 0;
+}
+
+function trackingPickCount(record) {
+  const explicit = Number(record?.pickCount || 0);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const numbers = trackingTicketNumberKey(record);
+  return numbers.length;
+}
+
 function compareTrackingUnrankedRecords(left, right) {
-  const leftPanel = normalizePredictionPanel(left?.panel || state.predictionPanel);
-  const rightPanel = normalizePredictionPanel(right?.panel || state.predictionPanel);
-  const leftPickCount = Number(left?.pickCount || 0);
-  const rightPickCount = Number(right?.pickCount || 0);
+  const leftPanel = normalizeRecordPredictionPanel(left?.panel);
+  const rightPanel = normalizeRecordPredictionPanel(right?.panel);
+  const leftPickCount = trackingPickCount(left);
+  const rightPickCount = trackingPickCount(right);
   const pickDiff = leftPickCount - rightPickCount;
   if (pickDiff) return pickDiff;
   if (leftPanel === PREDICTION_PANEL_M && rightPanel === PREDICTION_PANEL_M) {
@@ -6006,8 +6025,8 @@ function compareTrackingUnrankedRecords(left, right) {
   }
   return (
     compareNumberKeys(trackingTicketNumberKey(left), trackingTicketNumberKey(right)) ||
-    String(left?.ticketLabel || "").localeCompare(String(right?.ticketLabel || ""), "zh-CN") ||
-    String(left?.id || "").localeCompare(String(right?.id || ""), "zh-CN")
+    compareCodepoint(left?.ticketLabel, right?.ticketLabel) ||
+    compareCodepoint(left?.id, right?.id)
   );
 }
 
@@ -6389,7 +6408,7 @@ function renderPredictionTracking() {
     const groupKey = [
       record.targetDrawTimeMs || record.targetDrawTimeUtc || "",
       record.methodVersion || "",
-      normalizePredictionPanel(record.panel || state.predictionPanel),
+      normalizeRecordPredictionPanel(record.panel),
     ].join("|");
     if (!rankGroups.has(groupKey)) rankGroups.set(groupKey, []);
     rankGroups.get(groupKey).push(record);
@@ -6423,7 +6442,7 @@ function renderPredictionTracking() {
       const targetClass = targetRelative.startsWith("!") ? "target-overdue" : "target-relative";
       const coreNumbers = Array.isArray(record.coreNumbers) ? record.coreNumbers : [];
       const companionNumbers = Array.isArray(record.companionNumbers) ? record.companionNumbers : [];
-      const recordPanel = normalizePredictionPanel(record.panel || state.predictionPanel);
+      const recordPanel = normalizeRecordPredictionPanel(record.panel);
       const isPanelFRecord = recordPanel === PREDICTION_PANEL_F;
       const isPanelGRecord = recordPanel === PREDICTION_PANEL_G;
       const isPanelMRecord = recordPanel === PREDICTION_PANEL_M;
