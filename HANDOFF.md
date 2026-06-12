@@ -890,3 +890,87 @@ Tracking API verification:
 Recent new rows include `rankSource: stored`; old reconstructed rows can show
 `rankSource: fallback`.
 ```
+
+## 2026-06-12 Production 504 / Missing C-plan Rows Follow-up
+
+User confirmed production was pulled and restarted from aaPanel Super UI, and
+HEAD matched `21d0e92`, but C-plan still waited about 4 minutes and then showed
+HTTP 504. A later screenshot showed C-plan tracking finally created new rows at
+23:03 for the 23:06 target, while the rows between 22:50 and 23:06 were absent.
+
+Current diagnosis:
+
+```text
+1. The page could render existing C-plan tracking rows, so static assets and
+   HEAD mismatch were not the root issue.
+2. The frontend prediction request used autoSync=0, but the follow-up tracking
+   table request did not. That meant ordinary page refreshes could still invoke
+   tracking auto-sync/settlement work.
+3. The prediction endpoint also touched the tracking DB under
+   PREDICTION_TRACKING_LOCK even for no-auto-sync page loads. If the auto worker
+   or settlement held that lock, the page request could wait long enough for the
+   proxy to return 504.
+4. When the auto worker hit a "target not ready / inside betting cutoff" state,
+   it could mark the current history marker as handled even though no candidate
+   rows were created. After a stall, it then jumped to the next available target
+   instead of short-polling until a clean target window was available.
+```
+
+Implemented fix:
+
+```text
+web/app.js
+- All ordinary prediction tracking table reads now send autoSync=0.
+- The automatic retry after trackingReady=false no longer enables autoSync.
+  Sync remains the job of the backend auto worker or explicit user sync action.
+
+keno_dashboard_server.py
+- Added PREDICTION_TRACKING_TOUCH_LOCK_TIMEOUT_SECONDS = 1.5.
+- For no-auto-sync /api/predictions calls, lightweight tracking touch now uses a
+  short lock timeout. If tracking is busy, the endpoint returns the prediction
+  payload with predictionTracking.reason = prediction_tracking_lock_busy instead
+  of waiting until Nginx/aaPanel returns 504.
+- Auto worker now exposes waitingForTarget.
+- If predictions return trackingReady=false and no rows were created, auto
+  tracking does not update PREDICTION_AUTO_HISTORY_MARKERS for that game.
+- waitingForTarget and refresh errors put auto tracking into the existing
+  5-second catch-up poll instead of the normal 60-second poll.
+```
+
+Important behavior:
+
+```text
+The fix does not backfill target draws that were already past the betting
+cutoff. Creating retroactive "pending" candidates would be misleading because
+they were not actually available to bet at that time. The fix prevents the
+system from continuing to skip future eligible targets after a stall.
+```
+
+Local verification after edit and real backend restart:
+
+```text
+Old local backend PID 48632 stopped.
+New local backend PID 49480 started at 2026-06-12 23:20:40.
+
+python -m py_compile .\keno_dashboard_server.py
+node --check .\web\app.js
+
+GET /api/predictions?game=poland_keno_20_70&panel=m&autoSync=0
+During cutoff window:
+  predictionComputeMs = 0
+  totalMs ~= 133
+  predictions.trackingReady = false
+  predictionTracking.reason = prediction_target_not_ready
+
+GET /api/prediction-tracking?...panel=m&autoSync=0
+  autoSync.reason = request_disabled
+
+GET /api/prediction-auto
+  waitingForDraw = true
+  waitingForTarget = true
+  pollSeconds = 5
+  message includes short polling for draw sync
+```
+
+This change is scheduling/locking/frontend request behavior only. It does not
+change C-plan number generation, ranking, odds, settlement, or staking formulas.

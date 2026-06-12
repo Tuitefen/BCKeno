@@ -332,6 +332,7 @@ PREDICTION_AUTO_SINGLE_GAME_CATCHUP_SECONDS = 5
 PREDICTION_AUTO_MULTI_GAME_CATCHUP_SECONDS = 60
 PREDICTION_AUTO_CATCHUP_MAX_SECONDS = 300
 PREDICTION_DRAW_SYNC_GRACE_SECONDS = 10
+PREDICTION_TRACKING_TOUCH_LOCK_TIMEOUT_SECONDS = 1.5
 PREDICTION_RECENT_WINDOW = 240
 PREDICTION_NUMBER_WEIGHTS = [
     {"miss": 0.50, "momentum": 0.32, "history": 0.18},
@@ -12733,6 +12734,33 @@ def prediction_tracking_touch_response(
     }
 
 
+def skipped_prediction_tracking_touch_response(
+    panel: str | None,
+    reason: str,
+    *,
+    waited_ms: int = 0,
+    lightweight: bool = True,
+    auto_sync: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    panel_key = prediction_panel_from_value(panel)
+    response = {
+        "panel": panel_key,
+        "panelLabel": prediction_panel_label(panel_key),
+        "settledNow": 0,
+        "createdNow": 0,
+        "summary": {},
+        "allSummary": {},
+        "lightweight": lightweight,
+        "skipped": True,
+        "reason": reason,
+    }
+    if waited_ms:
+        response["lockWaitMs"] = waited_ms
+    if auto_sync is not None:
+        response["autoSync"] = auto_sync
+    return response
+
+
 def prediction_tracking_auto_sync_status(
     records: list[dict[str, Any]],
     rows: list[dict[str, Any]],
@@ -12947,8 +12975,22 @@ def touch_prediction_tracking_for_payload(
     auto_sync: dict[str, Any] | None = None
     if not allow_auto_sync:
         auto_sync = {"skipped": True, "reason": "prediction_payload_no_auto_sync"}
-        with PREDICTION_TRACKING_LOCK:
+        lock_started = time.monotonic()
+        lock_acquired = PREDICTION_TRACKING_LOCK.acquire(
+            timeout=PREDICTION_TRACKING_TOUCH_LOCK_TIMEOUT_SECONDS
+        )
+        lock_wait_ms = round((time.monotonic() - lock_started) * 1000)
+        if not lock_acquired:
+            return skipped_prediction_tracking_touch_response(
+                panel,
+                "prediction_tracking_lock_busy",
+                waited_ms=lock_wait_ms,
+                auto_sync=auto_sync,
+            )
+        try:
             created = add_prediction_tracking_snapshot_lightweight(payload, config)
+        finally:
+            PREDICTION_TRACKING_LOCK.release()
         return {
             "panel": panel,
             "panelLabel": prediction_panel_label(panel),
@@ -12958,6 +13000,7 @@ def touch_prediction_tracking_for_payload(
             "allSummary": {},
             "lightweight": True,
             "autoSync": auto_sync,
+            "lockWaitMs": lock_wait_ms,
         }
 
     if rows is None:
@@ -14748,10 +14791,17 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                 tracking_records = load_prediction_tracking_for_game(key)
             tracking_wait = prediction_tracking_auto_sync_status(tracking_records, tracking_rows, game_config)
             history_wait = prediction_history_waiting_for_latest_draw(tracking_rows, game_config)
+            refresh_status = str((refresh_result or {}).get("meta", {}).get("status") or "")
+            refresh_error = str((refresh_result or {}).get("meta", {}).get("error") or "")
             waiting_for_draw = bool(
                 config.get("sync", True)
-                and (tracking_wait.get("needsSync") or history_wait.get("waiting"))
+                and (
+                    tracking_wait.get("needsSync")
+                    or history_wait.get("waiting")
+                    or (refresh_error and refresh_status == "error")
+                )
             )
+            prediction_waiting_for_target = False
             should_generate_prediction = (
                 not config.get("sync", True)
                 or previous_marker is None
@@ -14784,7 +14834,15 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "summaryM": panel_summaries.get(PREDICTION_PANEL_M) or {},
                     "summaryD": panel_summaries.get(PREDICTION_PANEL_D) or {},
                 }
-                PREDICTION_AUTO_HISTORY_MARKERS[key] = marker
+                prediction_waiting_for_target = any(
+                    (
+                        isinstance(prediction.get("predictions"), dict)
+                        and prediction["predictions"].get("trackingReady") is False
+                    )
+                    for prediction in [prediction_a, prediction_b, prediction_m, prediction_d]
+                )
+                if not prediction_waiting_for_target or parse_int(tracking.get("createdNow"), 0) > 0:
+                    PREDICTION_AUTO_HISTORY_MARKERS[key] = marker
                 prediction_prewarm = schedule_prediction_prewarm(game_config, reason="prediction_auto")
             else:
                 panel_summaries = prediction_tracking_panel_summaries_for_config(game_config)
@@ -14818,7 +14876,8 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "trackingTotalM": parse_int(tracking_summary_m.get("total"), 0),
                     "trackingTotalD": parse_int(tracking_summary_d.get("total"), 0),
                     "skippedPrediction": skipped_prediction,
-                    "waitingForDraw": waiting_for_draw,
+                    "waitingForDraw": waiting_for_draw or prediction_waiting_for_target,
+                    "waitingForTarget": prediction_waiting_for_target,
                     "refreshResult": refresh_result,
                     "predictionPrewarm": prediction_prewarm,
                     "trackingWait": tracking_wait if waiting_for_draw else None,

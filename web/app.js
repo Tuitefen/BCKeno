@@ -1026,7 +1026,7 @@ function schedulePredictionSyncRetry(panel) {
   state.predictionSyncRetryTimer = window.setTimeout(() => {
     state.predictionSyncRetryTimer = null;
     if (state.activeView.startsWith("prediction") && state.predictionPanel === panel) {
-      loadPrediction({ force: true, preserve: true, panel, retrySync: true });
+      loadPrediction({ force: true, preserve: true, panel });
     }
   }, 5000);
 }
@@ -2167,9 +2167,7 @@ async function loadPredictionTracking(options = {}) {
       page: String(slot.predictionTrackingPage || 1),
       pageSize: "20",
     });
-    if (options.autoSync === false) {
-      params.set("autoSync", "0");
-    }
+    params.set("autoSync", options.autoSync === true ? "1" : "0");
     const response = await fetch(`/api/prediction-tracking?${params.toString()}`);
     const data = await response.json();
     if (!response.ok || data.ok === false) {
