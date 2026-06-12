@@ -4039,6 +4039,8 @@ def current_backtest_group_entries(
 def current_backtest_policy_simulation(
     draw_entries: list[dict[str, Any]],
     policy: dict[str, Any],
+    *,
+    include_ledger: bool = False,
 ) -> dict[str, Any]:
     total_stake = 0.0
     total_payout = 0.0
@@ -4052,6 +4054,9 @@ def current_backtest_policy_simulation(
     miss_by_slot: dict[str, int] = {}
     longest_miss_by_slot: dict[str, int] = {}
     next_stake_by_slot: dict[str, float] = {}
+    wins_by_slot: dict[str, int] = {}
+    max_stake_by_slot: dict[str, float] = {}
+    hit_ledger: list[dict[str, Any]] = []
     milestones = {50: 0, 100: 0, 150: 0, 200: 0}
 
     for entry in draw_entries:
@@ -4078,9 +4083,27 @@ def current_backtest_policy_simulation(
             total_payout += payout
             balance += payout - stake
             max_stake_used = max(max_stake_used, stake)
+            max_stake_by_slot[slot_key] = max(max_stake_by_slot.get(slot_key, 0.0), stake)
             bets += 1
             if won:
                 wins += 1
+                wins_by_slot[slot_key] = wins_by_slot.get(slot_key, 0) + 1
+                if include_ledger and len(hit_ledger) < 200:
+                    hit_ledger.append(
+                        {
+                            "drawTimeMs": target_ms,
+                            "drawTimeUtc": staking_backtest_ms_iso(target_ms),
+                            "slotKey": slot_key,
+                            "slotLabel": str(item.get("slotLabel") or slot_key),
+                            "ticketLabel": str(record.get("ticketLabel") or ""),
+                            "missBefore": current_miss,
+                            "stake": round(stake, 4),
+                            "odds": round(odds, 4),
+                            "payout": round(payout, 4),
+                            "ticketProfit": round(payout - stake, 4),
+                            "balanceAfterTicket": round(balance, 4),
+                        }
+                    )
                 miss_by_slot[slot_key] = 0
             else:
                 next_miss = current_miss + 1
@@ -4124,6 +4147,10 @@ def current_backtest_policy_simulation(
         "maxStake": round(max_stake_used, 4),
         "longestMissStreak": max(longest_miss_by_slot.values(), default=0),
         "currentMissStreak": max(miss_by_slot.values(), default=0),
+        "winsBySlot": wins_by_slot,
+        "currentMissBySlot": {slot: int(value) for slot, value in sorted(miss_by_slot.items())},
+        "longestMissBySlot": {slot: int(value) for slot, value in sorted(longest_miss_by_slot.items())},
+        "maxStakeBySlot": {slot: round(value, 4) for slot, value in sorted(max_stake_by_slot.items())},
         "nextStake": round(sum(next_stake_by_slot.values()), 4),
         "nextStakeBySlot": next_stake_by_slot,
         "milestones": {
@@ -4135,6 +4162,8 @@ def current_backtest_policy_simulation(
             for threshold, hit_ms in milestones.items()
         },
     }
+    if include_ledger:
+        result["hitLedger"] = hit_ledger
     result["profitPerRound"] = net_profit / rounds if rounds else 0
     return result
 
@@ -4171,6 +4200,7 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
     entries, coverage = current_backtest_group_entries(records, selected_slots, select_all=not selected_slots)
     game_day_tz = telegram_game_day_timezone(config)
     policies = staking_backtest_policy_profiles(query)
+    include_ledger = query_bool(query, "ledger", False) or query_bool(query, "debugLedger", False)
 
     day_entries: dict[str, list[dict[str, Any]]] = {}
     for entry in entries:
@@ -4184,7 +4214,7 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
     for day_key in sorted(day_entries):
         rows = sorted(day_entries[day_key], key=lambda item: parse_int(item.get("targetDrawTimeMs"), 0))
         policy_results = {
-            str(policy["key"]): current_backtest_policy_simulation(rows, policy)
+            str(policy["key"]): current_backtest_policy_simulation(rows, policy, include_ledger=include_ledger)
             for policy in policies
         }
         for key, item in policy_results.items():

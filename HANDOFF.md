@@ -348,10 +348,46 @@ Third correction:
   between tracking display and current backtest.
 - Rechecked `3码候选#3`: 2026-06-12 now includes both 16:06 `5-39-55` and
   16:26 `2-6-39` as wins.
-- Current backtest daily totals for 2026-06-12, `3码候选#3`, after the fix:
+- Current backtest daily totals are moving values while same-day records keep
+  settling. Earlier local snapshot for 2026-06-12, `3码候选#3`, reported
   flat +7, conservative +23, standard +39, aggressive +83 with default stakes.
+  Do not treat those as fixed expected values after more draws settle.
 - Removed the extra current-backtest row text `返奖 xx · 命中 x`; user wanted
   the amount corrected, not extra display text.
+```
+
+Fourth correction after staking ledger review:
+
+```text
+- Scope is single slot `3码候选#3` / internal `p3_1`. Do not merge `#4` or
+  `全部3码候选` when the user is checking #3.
+- Current backtest policy simulation can return a non-UI `hitLedger` field per
+  policy when the query includes `ledger=1`. This is for auditing the money
+  only: each hit includes draw time, slot, ticket, missBefore, stake, odds,
+  payout, ticketProfit, and balance after that ticket. Normal UI queries do not
+  include this field.
+- The current backtest table wording changed from ambiguous `最高` to
+  `峰值净利`. This value is `peakProfit`, the highest cumulative net balance in
+  the day, not highest stake. Highest stake remains available as `maxStake` in
+  the API.
+- Frontend `当前第xx期未中` now uses backend `dailyMissStreak` exactly. It no
+  longer adds +1 for pending rows, so the displayed count matches the stake
+  tier used for the next/current bet.
+- Local raw record check: Beijing 17:14 and 17:34 hits were `3码候选#4`, not
+  `3码候选#3`; they must not be counted in the #3 single-slot ledger.
+- Local latest snapshot while editing (records settled through Beijing 18:02)
+  for 2026-06-12 `3码候选#3`:
+  - 16:06 `5-39-55`: missBefore 53. flat stake 1/payout 40; conservative
+    stake 2/payout 80; standard stake 3/payout 120; aggressive stake 6/payout
+    240.
+  - 16:26 `2-6-39`: missBefore 4. all ladder profiles were back at stake 1,
+    payout 40.
+  - 17:58 `5-19-62`: missBefore 22. flat stake 1/payout 40; conservative
+    stake 1/payout 40; standard stake 2/payout 80; aggressive stake 3/payout
+    120.
+  Latest local totals at that snapshot: flat +38, conservative +54, standard
+  +107, aggressive +182. These totals will change as later draws settle; use
+  `hitLedger` to audit the exact stake sequence for the current server state.
 ```
 
 Deployment docs were updated:

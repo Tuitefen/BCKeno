@@ -152,6 +152,24 @@ curl -m 20 -sS "http://127.0.0.1:8787/api/current-staking-backtest?game=poland_k
 python3 -m json.tool /tmp/cpgame_current_backtest_p3_1.json | grep -E '"label": "3码候选#3"|"wins"|"totalPayout"' | head -40
 ```
 
+Audit the exact `3码候选#3` stake ledger after pull/restart:
+
+```bash
+curl -m 20 -sS "http://127.0.0.1:8787/api/current-staking-backtest?game=poland_keno_20_70&source=m&slot=p3_1&startDateTime=2026-06-12%2000:00&endDateTime=2026-06-12%2023:59&timeZone=Asia/Shanghai&ledger=1" > /tmp/cpgame_current_backtest_p3_1_ledger.json
+python3 - <<'PY'
+import json
+from pathlib import Path
+
+data = json.loads(Path('/tmp/cpgame_current_backtest_p3_1_ledger.json').read_text())
+day = next((item for item in data.get('days', []) if item.get('date') == '2026-06-12'), {})
+for key in ('flat', 'conservative', 'standard', 'aggressive'):
+    policy = (day.get('policies') or {}).get(key) or {}
+    print(key, 'wins=', policy.get('wins'), 'stake=', policy.get('totalStake'), 'payout=', policy.get('totalPayout'), 'net=', policy.get('netProfit'))
+    for hit in policy.get('hitLedger') or []:
+        print(' ', hit.get('drawTimeUtc'), hit.get('ticketLabel'), 'missBefore=', hit.get('missBefore'), 'stake=', hit.get('stake'), 'payout=', hit.get('payout'), 'balance=', hit.get('balanceAfterTicket'))
+PY
+```
+
 The current backtest UI labels should match prediction/tracking labels:
 
 ```text

@@ -2905,7 +2905,7 @@ function stakingSegmentPolicyCell(policy) {
   const peakTime = policy.peakTimeUtc ? fmtTime(policy.peakTimeUtc) : "";
   const className = net > 0 ? "positive" : net < 0 ? "negative" : "";
   const peakLine = Number.isFinite(peak)
-    ? `<small>最高 ${fmtYuan(peak, 2, true)}${peakTime ? ` · ${escapeHtml(peakTime)}` : ""}</small>`
+    ? `<small>峰值净利 ${fmtYuan(peak, 2, true)}${peakTime ? ` · ${escapeHtml(peakTime)}` : ""}</small>`
     : "";
   return `<div class="staking-segment-policy-cell">
     <strong class="${className}">${fmtYuan(net, 2, true)}</strong>
@@ -5949,9 +5949,8 @@ function predictionMissText(item) {
   if (!item || item.dailyMissStreak === undefined || item.dailyMissStreak === null) return "";
   const miss = Number(item.dailyMissStreak || 0);
   const status = String(item.status || "").toLowerCase();
-  const currentMiss = status === "lost" ? miss : miss + 1;
-  if (status === "won" || currentMiss <= 0) return "";
-  return `当前第${fmtInt(currentMiss)}期未中`;
+  if (status === "won" || !Number.isFinite(miss) || miss <= 0) return "";
+  return `当前第${fmtInt(miss)}期未中`;
 }
 
 function trackingTicketNumberKey(record) {
