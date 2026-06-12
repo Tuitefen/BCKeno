@@ -5987,6 +5987,30 @@ function compareNumberKeys(left, right) {
   return 0;
 }
 
+function compareTrackingUnrankedRecords(left, right) {
+  const leftPanel = normalizePredictionPanel(left?.panel || state.predictionPanel);
+  const rightPanel = normalizePredictionPanel(right?.panel || state.predictionPanel);
+  const leftPickCount = Number(left?.pickCount || 0);
+  const rightPickCount = Number(right?.pickCount || 0);
+  const pickDiff = leftPickCount - rightPickCount;
+  if (pickDiff) return pickDiff;
+  if (leftPanel === PREDICTION_PANEL_M && rightPanel === PREDICTION_PANEL_M) {
+    const scoreDiff = Number(right?.score || 0) - Number(left?.score || 0);
+    if (scoreDiff) return scoreDiff;
+    const recentDiff = Number(right?.recentHitRate || 0) - Number(left?.recentHitRate || 0);
+    if (recentDiff) return recentDiff;
+    const maxMissDiff = Number(left?.maxMiss || 0) - Number(right?.maxMiss || 0);
+    if (maxMissDiff) return maxMissDiff;
+    const currentMissDiff = Number(left?.currentMiss || 0) - Number(right?.currentMiss || 0);
+    if (currentMissDiff) return currentMissDiff;
+  }
+  return (
+    compareNumberKeys(trackingTicketNumberKey(left), trackingTicketNumberKey(right)) ||
+    String(left?.ticketLabel || "").localeCompare(String(right?.ticketLabel || ""), "zh-CN") ||
+    String(left?.id || "").localeCompare(String(right?.id || ""), "zh-CN")
+  );
+}
+
 function fmtYuan(value, digits = 2, signed = false) {
   const number = Number(value);
   if (!Number.isFinite(number)) return "--";
@@ -6384,13 +6408,7 @@ function renderPredictionTracking() {
     }
     let nextRank = 1;
     unranked
-      .sort(
-        (left, right) =>
-          Number(left.pickCount || 0) - Number(right.pickCount || 0) ||
-          compareNumberKeys(trackingTicketNumberKey(left), trackingTicketNumberKey(right)) ||
-          String(left.ticketLabel || "").localeCompare(String(right.ticketLabel || ""), "zh-CN") ||
-          String(left.id || "").localeCompare(String(right.id || ""), "zh-CN"),
-      )
+      .sort(compareTrackingUnrankedRecords)
       .forEach((record) => {
         while (usedRanks.has(nextRank)) nextRank += 1;
         displayRankByRecord.set(record, nextRank);

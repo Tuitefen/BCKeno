@@ -12287,6 +12287,28 @@ def prediction_tracking_ticket_number_key(record: dict[str, Any]) -> tuple[int, 
     )
 
 
+def prediction_tracking_unranked_sort_key(record: dict[str, Any]) -> tuple[Any, ...]:
+    panel = prediction_panel_from_value(record.get("panel"))
+    pick_count = parse_int(record.get("pickCount"), len(record.get("numbers") or []))
+    if panel == PREDICTION_PANEL_M:
+        return (
+            pick_count,
+            -parse_float(record.get("score"), 0),
+            -parse_float(record.get("recentHitRate"), 0),
+            parse_int(record.get("maxMiss"), 0),
+            parse_int(record.get("currentMiss"), 0),
+            prediction_tracking_ticket_number_key(record),
+            str(record.get("ticketLabel") or ""),
+            str(record.get("id") or ""),
+        )
+    return (
+        pick_count,
+        prediction_tracking_ticket_number_key(record),
+        str(record.get("ticketLabel") or ""),
+        str(record.get("id") or ""),
+    )
+
+
 def prediction_tracking_daily_window(
     record: dict[str, Any],
     config: dict[str, Any],
@@ -12362,14 +12384,7 @@ def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[
                 used_ranks.add(rank)
             else:
                 unranked.append(record)
-        unranked.sort(
-            key=lambda record: (
-                parse_int(record.get("pickCount"), 0),
-                prediction_tracking_ticket_number_key(record),
-                str(record.get("ticketLabel") or ""),
-                str(record.get("id") or ""),
-            )
-        )
+        unranked.sort(key=prediction_tracking_unranked_sort_key)
         next_rank = 1
         for record in unranked:
             while next_rank in used_ranks:

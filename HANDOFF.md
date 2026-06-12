@@ -583,3 +583,216 @@ The user is sensitive to:
 
 Always push after code changes when asked/expected, and tell user to pull on
 server.
+
+## Session Restart Handoff - 2026-06-12 19:00 CST
+
+Current user state:
+
+```text
+User will restart the conversation/session.
+First task after restart: read Claude's audit result.
+Second task after restart: re-audit/back-calculate 2026-06-08, 2026-06-09,
+2026-06-10, and 2026-06-11 current-backtest profit. User believes the all-red
+negative result for these days is definitely suspicious/wrong and wants a
+proper reverse calculation, not another UI-only explanation.
+```
+
+Important correction/root cause from this session:
+
+```text
+The repeated "当前第xx期未中" display failure was not only a frontend code issue.
+Local port 8787 was still running an old Python process from 2026-06-12 13:46
+and had not been restarted after the frontend/backend edits. The user kept
+refreshing the browser, but the server was still serving old runtime code.
+
+Old local listener:
+PID 41072, python.exe, started 2026-06-12 13:46:52.
+
+It was stopped and local service was restarted from:
+F:\我的开发\CPGAME\start_server.ps1
+
+Current verified local listener after restart:
+PID 9972 on 127.0.0.1:8787.
+
+After restart, the C-plan tracking table finally shows "当前第xx期未中" and the
+current-backtest label changed from old "3码1" to new "3码候选#3".
+```
+
+Claude audit package created for the missing current-miss issue:
+
+```text
+F:\我的开发\CPGAME\claude\cplan_miss_visible_20260612_1845
+```
+
+Package includes:
+
+```text
+README_FOR_CLAUDE.md
+keno_dashboard_server.py
+web/app.js
+web/index.html
+web/styles.css
+HANDOFF.md
+DEPLOYMENT.md
+latest_commit_diff.patch
+git_head.txt
+tracking_payload_sample.json
+screenshots/missing_current_miss.png
+```
+
+Latest pushed code commit before session restart:
+
+```text
+77cd53aa19c45e976f072b2c216dfccd907d4797
+Make C-plan miss count visible
+```
+
+Local verification after restart:
+
+```text
+GET /api/current-staking-backtest?game=poland_keno_20_70&source=m&slot=p3_1&timeZone=Asia/Shanghai&baseStake=1&stepStake=1&conservativeStepMisses=30&conservativeMaxStake=5&standardStepMisses=20&standardMaxStake=8&aggressiveStepMisses=10&aggressiveMaxStake=12
+
+selection.label = 3码候选#3
+summary.rounds = 903
+summary.bets = 903
+summary.policies.conservative.netProfit = -586.0
+coverage.records = 3612
+coverage.startTimeUtc = 2026-06-08T13:38:00+00:00
+coverage.endTimeUtc = 2026-06-12T12:06:00+00:00
+```
+
+Local day rows after restart for `slot=p3_1` / `3码候选#3`:
+
+```text
+date        rounds bets flat    conservative standard aggressive
+2026-06-12  114    114   +6.00   +20.00       +63.00   +114.00
+2026-06-11  242    242  -122.00 -207.00      -302.00  -554.00
+2026-06-10  209    209   -89.00 -121.00      -100.00  -127.00
+2026-06-09  223    223   -63.00 -157.00      -180.00  -349.00
+```
+
+The user specifically challenged these all-negative historical day results.
+Do not assume they are correct. Reconstruct the per-ticket ledger for
+2026-06-08 through 2026-06-11 and verify:
+
+```text
+- Which records are selected into p3_1 / "3码候选#3" each draw.
+- Whether old records without ticketRank are mapped to #3 correctly.
+- Whether day boundaries use the expected game day and Beijing display range.
+- Whether payout odds/stakes are applied before resetting miss streak.
+- Whether all wins for those days are included and assigned to the correct
+  candidate slot.
+```
+
+Useful next commands:
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8787/api/current-staking-backtest?game=poland_keno_20_70&source=m&slot=p3_1&timeZone=Asia/Shanghai&baseStake=1&stepStake=1&conservativeStepMisses=30&conservativeMaxStake=5&standardStepMisses=20&standardMaxStake=8&aggressiveStepMisses=10&aggressiveMaxStake=12&ledger=1"
+
+python -c "import keno_dashboard_server as k; p=k.current_staking_backtest_payload({'game':['poland_keno_20_70'],'source':['m'],'slot':['p3_1'],'timeZone':['Asia/Shanghai'],'baseStake':['1'],'stepStake':['1'],'conservativeStepMisses':['30'],'conservativeMaxStake':['5'],'standardStepMisses':['20'],'standardMaxStake':['8'],'aggressiveStepMisses':['10'],'aggressiveMaxStake':['12'],'ledger':['1']}); print(p['selection']['label'], p['summary']['rounds'], p['summary']['policies']['conservative']['netProfit'])"
+```
+
+Current uncommitted local files at restart are runtime/local only:
+
+```text
+data/bc_italy_win_for_life_10_20_history.csv
+data/bc_poland_keno_20_70_history.csv
+data/bc_russia_rapido_8_20_history.csv
+data/bc_spain_l_express_20_70_history.csv
+data/prediction_auto_config.json
+cpgame_audit_v8_sync.md
+启动Claude.bat
+claude/cplan_miss_visible_20260612_1845/
+```
+
+Do not commit runtime data or the Claude audit package unless the user
+explicitly asks.
+
+## 2026-06-12 Current Backtest Slot-Rank Audit
+
+User corrected the day-boundary requirement:
+
+```text
+Do not use Beijing natural day 00:00-00:00.
+For Poland Keno, one betting day is the configured operating day: first draw
+through the next early-morning close, currently Europe/Warsaw 06:34-23:54
+which displays in Beijing as about 12:34 through 05:54 next day.
+```
+
+Root cause found for suspicious 2026-06-08 through 2026-06-11 `p3_1` /
+`3码候选#3` current-backtest results:
+
+```text
+Old tracking rows for those days have no `ticketRank`.
+The fallback rank reconstruction used numeric ticket ordering.
+But C-plan originally generated candidates by pick count, then score,
+recentHitRate, maxMiss, currentMiss, and ticket numbers.
+This could swap the old #3/#4 3-code candidates.
+```
+
+Fix implemented:
+
+```text
+keno_dashboard_server.py
+- Added `prediction_tracking_unranked_sort_key`.
+- For C-plan rows without `ticketRank`, fallback ranking now mirrors the
+  original C-plan candidate ordering as closely as possible from stored fields:
+  pickCount, score desc, recentHitRate desc, maxMiss asc, currentMiss asc,
+  numeric ticket key, label, id.
+- Fixed a temporary indentation mistake in `prediction_tracking_daily_slot_ranks`
+  that had accidentally attached `else` to the `for` instead of `if rank > 0`.
+
+web/app.js
+- Tracking-table fallback display rank now uses the same C-plan ordering for
+  rows without `ticketRank`, keeping visible labels aligned with backend
+  current-backtest slot assignment.
+```
+
+This is a historical tracking/backtest slot-assignment fix only. It does not
+change prediction generation rules, selected numbers for new C-plan payloads,
+odds, settlement, or staking formulas.
+
+Local process verification after edit:
+
+```text
+Old local backend PID 43596 was stopped.
+New local backend PID 18744 started at 2026-06-12 20:53:03.
+API verification below was run against that restarted process.
+```
+
+Local syntax checks passed:
+
+```powershell
+python -m py_compile .\keno_dashboard_server.py
+node --check .\web\app.js
+python -m py_compile .\tmp\audit_current_backtest_days.py
+```
+
+Independent script and API now agree for `slot=p3_1`, Europe/Warsaw
+2026-06-08 through 2026-06-11:
+
+```text
+date        rounds wins flat    conservative standard aggressive
+2026-06-08  115    3    +5.00   +33.00       +32.00   +94.00
+2026-06-09  223    8   +97.00  +122.00      +112.00  +159.00
+2026-06-10  209    4   -49.00   +23.00       +37.00  +154.00
+2026-06-11  242    5   -42.00  -129.00      -179.00  -302.00
+```
+
+Main corrected hits now included under `3码候选#3`:
+
+```text
+2026-06-08 betting day includes Beijing 2026-06-09 04:10, 33-55-63,
+missBefore 70, conservative stake 3, payout 120.
+
+2026-06-09 betting day includes 8 wins, including Beijing 2026-06-10 01:06,
+19-28-36, missBefore 32, conservative stake 2, payout 80.
+```
+
+Important interpretation:
+
+```text
+The previous all-red historical rows were not reliable. They came from old-row
+slot reconstruction, not from a prediction-rule change. After the fallback fix,
+6/8, 6/9, and 6/10 are not all-red; 6/11 remains negative but less severe.
+```
