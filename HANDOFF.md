@@ -13,7 +13,8 @@ Current active issue:
 
 ```text
 Production frontend refresh can wait several minutes before C-plan appears,
-especially after supervisor restart.
+especially after supervisor restart. User also reported frontend toast
+`HTTP 504` on C-plan prediction load after pulling commit f96386b.
 ```
 
 User requirement:
@@ -43,6 +44,84 @@ Purpose:
 - Add timing diagnostics to prove where time is spent.
 
 No prediction algorithm/rules were changed.
+
+## 2026-06-12 Production 504 Follow-up
+
+User screenshot showed production shell successfully pulled:
+
+```text
+a998aa1..f96386b main -> origin/main
+HEAD = f96386b
+```
+
+But the screenshot did not show:
+
+```text
+supervisorctl restart cpgame
+```
+
+Important: `git pull` updates files on disk but does not reload an already
+running Python process. If production still returns 504, first confirm that
+supervisor was restarted and that port 8787 is served by the new process.
+
+The screenshot also showed two diagnostic command problems:
+
+```text
+1. `git rev-parse` was prefixed by terminal paste control characters.
+2. `grep -E` pattern was split across lines, so grep got no pattern.
+3. The final `curl ... |` left the shell in a `>` continuation prompt.
+```
+
+If the server shell prompt is still `>`, press Ctrl+C before running more
+commands.
+
+Current assessment:
+
+```text
+Because local is fast and production returns HTTP 504, this is highly likely
+to be production runtime/deployment/proxy contention rather than prediction
+rule logic.
+```
+
+Top checks:
+
+```text
+1. Was supervisor restarted after pull?
+2. Is there exactly one backend process on port 8787?
+3. Does direct backend curl to 127.0.0.1:8787 return fast?
+4. Does the JSON response include the new `performance` object?
+5. If backend is fast but browser shows 504, inspect Nginx/aaPanel upstream
+   timeout logs.
+6. If backend direct curl hangs, inspect CPU, SQLite lock/contention, and
+   auto-tracking overlap.
+```
+
+Claude audit package was rebuilt locally:
+
+```text
+F:\my dev path equivalent\CPGAME\claude
+```
+
+Actual Windows path:
+
+```text
+F:\我的开发\CPGAME\claude
+```
+
+Package contents:
+
+```text
+claude/code/
+claude/docs/
+claude/diagnostics/
+claude/README.md
+claude/PRODUCTION_504_AUDIT_HANDOFF_ASCII.md
+claude/SERVER_PRODUCTION_COMMANDS.md
+```
+
+It includes current key code, handoff docs, git diagnostics, the f96386b patch,
+local auto config snapshot, and the production 504 screenshot. Runtime CSV data,
+SQLite DB files, logs, and cache files were intentionally excluded.
 
 ## Implemented Optimizations
 
