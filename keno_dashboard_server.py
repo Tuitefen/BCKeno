@@ -12800,6 +12800,44 @@ def prediction_tracking_auto_sync_status(
     }
 
 
+def prediction_tracking_pending_sync_status(
+    records: list[dict[str, Any]],
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    latest_ms = max(
+        (parse_int(row.get("drawTimeMs"), 0) for row in rows),
+        default=0,
+    )
+    now_ms = int(time.time() * 1000)
+    grace_ms = prediction_draw_sync_grace_ms(config)
+    pending_targets = sorted(
+        {
+            parse_int(record.get("targetDrawTimeMs"), 0)
+            for record in records
+            if prediction_tracking_game_key(record) == config["key"]
+            and str(record.get("status") or "pending") == "pending"
+            and parse_int(record.get("targetDrawTimeMs"), 0) > 0
+            and latest_ms < parse_int(record.get("targetDrawTimeMs"), 0)
+        }
+    )
+    earliest_target_ms = pending_targets[0] if pending_targets else 0
+    sync_due_ms = earliest_target_ms + grace_ms if earliest_target_ms > 0 else 0
+    return {
+        "hasPendingTarget": earliest_target_ms > 0,
+        "latestDrawTimeMs": latest_ms,
+        "latestDrawTimeUtc": draw_time_utc_from_ms(latest_ms),
+        "earliestPendingTargetTimeMs": earliest_target_ms,
+        "earliestPendingTargetTimeUtc": draw_time_utc_from_ms(earliest_target_ms),
+        "syncDueTimeMs": sync_due_ms,
+        "syncDueTimeUtc": draw_time_utc_from_ms(sync_due_ms),
+        "secondsUntilSyncDue": round((sync_due_ms - now_ms) / 1000, 3) if sync_due_ms else None,
+        "syncDue": bool(sync_due_ms and sync_due_ms <= now_ms),
+        "pendingTargetCount": len(pending_targets),
+        "graceSeconds": round(grace_ms / 1000, 3),
+    }
+
+
 def prediction_history_waiting_for_latest_draw(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     latest_ms = max((parse_int(row.get("drawTimeMs"), 0) for row in rows), default=0)
     interval_ms = prediction_draw_interval_ms(config)
@@ -14776,11 +14814,41 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
         try:
             game_config = LOTTERY_GAMES[key]
             refresh_result: dict[str, Any] | None = None
-            if config.get("sync", True):
+            with DATA_LOCK:
+                tracking_rows = load_history_rows(game_history_path(game_config), game_config)
+            with PREDICTION_TRACKING_LOCK:
+                tracking_records = load_prediction_tracking_for_game(key)
+            pending_sync_before = prediction_tracking_pending_sync_status(tracking_records, tracking_rows, game_config)
+            wait_for_pending_sync_due = bool(
+                config.get("sync", True)
+                and pending_sync_before.get("hasPendingTarget")
+                and not pending_sync_before.get("syncDue")
+            )
+            if config.get("sync", True) and not wait_for_pending_sync_due:
+                refresh_timeout = parse_float(config.get("timeout"), 6)
                 refresh_result = refresh_official_history_only(
                     game_config,
-                    timeout=parse_float(config.get("timeout"), 6),
+                    timeout=refresh_timeout,
                 )
+            elif wait_for_pending_sync_due:
+                refresh_result = {
+                    "ok": True,
+                    "game": game_public_config(game_config),
+                    "mode": "official_only",
+                    "newRows": 0,
+                    "historyFileChanged": False,
+                    "settledPredictions": 0,
+                    "meta": {
+                        "status": "waiting_for_pending_target_sync_due",
+                        "reason": "pending_target_not_due_for_settlement",
+                    },
+                    "predictionPrewarm": {
+                        "scheduled": False,
+                        "reason": "pending_target_not_due_for_settlement",
+                        "game": key,
+                    },
+                    "generatedAt": utc_now_iso(),
+                }
             new_rows = parse_int((refresh_result or {}).get("newRows"), 0)
             settled_from_refresh = parse_int((refresh_result or {}).get("settledPredictions"), 0)
             marker = prediction_auto_history_marker(game_config)
@@ -14790,6 +14858,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
             with PREDICTION_TRACKING_LOCK:
                 tracking_records = load_prediction_tracking_for_game(key)
             tracking_wait = prediction_tracking_auto_sync_status(tracking_records, tracking_rows, game_config)
+            pending_sync = prediction_tracking_pending_sync_status(tracking_records, tracking_rows, game_config)
             history_wait = prediction_history_waiting_for_latest_draw(tracking_rows, game_config)
             refresh_status = str((refresh_result or {}).get("meta", {}).get("status") or "")
             refresh_error = str((refresh_result or {}).get("meta", {}).get("error") or "")
@@ -14881,6 +14950,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "refreshResult": refresh_result,
                     "predictionPrewarm": prediction_prewarm,
                     "trackingWait": tracking_wait if waiting_for_draw else None,
+                    "pendingSync": pending_sync if pending_sync.get("hasPendingTarget") else None,
                     "historyWait": history_wait if history_wait.get("waiting") else None,
                     "telegram": telegram_result,
                     "generatedAt": utc_now_iso(),
@@ -14915,11 +14985,27 @@ def prediction_auto_worker() -> None:
         results, errors = run_prediction_auto_once(config)
         normal_poll_seconds = prediction_auto_effective_poll_seconds(config)
         has_waiting_draw = any(bool(item.get("waitingForDraw")) for item in results if isinstance(item, dict))
+        pending_sync_seconds = [
+            parse_float((item.get("pendingSync") or {}).get("secondsUntilSyncDue"), 0)
+            for item in results
+            if isinstance(item, dict) and isinstance(item.get("pendingSync"), dict)
+        ]
+        due_pending_sync = any(seconds <= 0 for seconds in pending_sync_seconds)
         elapsed_seconds = time.monotonic() - loop_started
-        if has_waiting_draw:
+        if has_waiting_draw or due_pending_sync:
             poll_seconds = prediction_auto_effective_catchup_seconds(config)
         else:
             poll_seconds = normal_poll_seconds
+        future_pending_sync_seconds = [
+            seconds
+            for seconds in pending_sync_seconds
+            if seconds > 0
+        ]
+        if future_pending_sync_seconds:
+            poll_seconds = min(
+                poll_seconds,
+                max(1, math.ceil(min(future_pending_sync_seconds))),
+            )
         if elapsed_seconds >= poll_seconds:
             poll_seconds = prediction_auto_effective_catchup_seconds(config)
         next_run_ts = time.time() + poll_seconds

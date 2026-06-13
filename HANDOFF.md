@@ -974,3 +974,132 @@ GET /api/prediction-auto
 
 This change is scheduling/locking/frontend request behavior only. It does not
 change C-plan number generation, ranking, odds, settlement, or staking formulas.
+
+## 2026-06-13 Session Restart Note
+
+User is restarting the Codex session after the C-plan production 504 / missing
+rows fix. Continue from commit:
+
+```text
+a75a686 Fix C-plan tracking refresh contention
+```
+
+Current local state to remember:
+
+```text
+- The code fix has already been committed and pushed.
+- Local backend was restarted after the fix and verified on PID 49480, started
+  at 2026-06-12 23:20:40.
+- Syntax checks passed:
+  python -m py_compile .\keno_dashboard_server.py
+  node --check .\web\app.js
+- Runtime/local files remain dirty and should not be committed unless the user
+  explicitly asks:
+  data/bc_*_history.csv
+  data/prediction_auto_config.json
+  cpgame_audit_v8_sync.md
+  tmp_current_backtest_full.json
+  启动Claude.bat
+```
+
+Production follow-up expectations:
+
+```text
+- Production must pull to HEAD a75a686 and restart the aaPanel Super/Supervisor
+  process. Do not assume a code change is live until the process PID/start time
+  is checked.
+- If the browser still shows 504, first test the local backend directly on the
+  server with curl against 127.0.0.1:8787 and inspect:
+  performance.totalMs
+  performance.trackingTouchMs
+  predictionTracking.reason
+  prediction-auto.waitingForTarget
+  prediction-auto.pollSeconds
+- Already missed target rows should not be inserted as ordinary pending/live
+  records after the betting cutoff. Only do audit-only reconstruction if the
+  user explicitly asks for it.
+```
+
+Important domain rule repeated by the user:
+
+```text
+Do not calculate a betting day by natural 00:00-00:00 calendar days.
+For Poland Keno, treat one operating day as the first draw of the local game day
+through the next Beijing early-morning close, roughly Europe/Warsaw 06:34-23:54
+and Beijing 12:34-05:54 next day.
+```
+
+Next planned topic after restart:
+
+```text
+Discuss automation. Likely areas:
+- Make production deploy/restart verification harder to miss.
+- Add health checks that detect whether the running backend process actually
+  serves the expected git HEAD.
+- Add observability for the prediction auto worker: last run, last completed,
+  waitingForDraw, waitingForTarget, createdPredictions, lock wait, and current
+  poll interval.
+- Consider a safe admin/status endpoint or script for "pull, compile, restart,
+  verify PID/start time, verify HEAD, smoke-test APIs" without changing C-plan
+  prediction rules.
+```
+
+## 2026-06-13 Auto Sync Gap Fix
+
+Observed issue:
+
+```text
+The auto worker could sleep for 60 seconds even when a pending prediction
+target existed for the next 4-minute draw.
+If the worker woke up after the official result had already moved past the
+betting window, it could skip a whole target period and create the next batch
+too late.
+```
+
+Implemented scheduling-only fix in:
+
+```text
+keno_dashboard_server.py
+```
+
+What changed:
+
+```text
+- Added prediction_tracking_pending_sync_status(...).
+- The auto worker now checks for pending targets before calling the official
+  sync path.
+- If the next target is not yet due, the worker does not start a refresh for
+  that target.
+- If the next target is due or overdue, the worker switches to short catch-up
+  polling.
+- The next sleep is capped by the earliest pending target sync due time, so
+  the worker does not keep sleeping past a near-term target.
+```
+
+What did not change:
+
+```text
+- prediction rules
+- candidate ranking
+- odds
+- settlement
+- ticket labeling
+```
+
+Local verification:
+
+```text
+- Restarted local backend after the edit.
+- Verified /api/prediction-auto now exposes pendingSync when a future target is
+  pending.
+- Verified the 19:42 -> 19:46 sequence on 2026-06-13 created the 19:46 batch
+  after the 19:42 draw settled, without skipping the target period in between.
+- Verified overdue state flips to waitingForDraw=true and pollSeconds=5.
+```
+
+Production follow-up:
+
+```text
+Pull latest main, restart the aaPanel Supervisor-managed cpgame process, then
+confirm the running PID/start time changed before trusting the fix.
+```
