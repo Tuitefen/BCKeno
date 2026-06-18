@@ -3071,6 +3071,7 @@ function renderStakingBacktest(data) {
 }
 
 function buildCurrentBacktestQuery() {
+  syncCurrentBacktestSlotOptions();
   const params = new URLSearchParams({
     game: currentGameKey(),
     source: els.currentBacktestSource?.value || "m",
@@ -3101,6 +3102,51 @@ function buildCurrentBacktestQuery() {
     params.set("dailyEnd", els.currentBacktestDailyEnd.value);
   }
   return params;
+}
+
+const CURRENT_BACKTEST_SLOT_OPTIONS = {
+  m: [
+    ["p3_1", "3码候选#3"],
+    ["p3_2", "3码候选#4"],
+    ["p3_all", "全部3码候选"],
+    ["p2_1", "2码候选#1"],
+    ["p2_2", "2码候选#2"],
+    ["p2_all", "全部2码候选"],
+    ["all", "全部候选"],
+  ],
+  d: [
+    ["p2_1", "2码候选#1"],
+    ["p2_2", "2码候选#2"],
+    ["p2_3", "2码候选#3"],
+    ["p2_4", "2码候选#4"],
+    ["p2_all", "全部2码候选#1-#4"],
+    ["p3_1", "3码候选#5"],
+    ["p3_2", "3码候选#6"],
+    ["p3_3", "3码候选#7"],
+    ["p3_4", "3码候选#8"],
+    ["p3_all", "全部3码候选#5-#8"],
+    ["all", "全部候选"],
+  ],
+};
+
+function syncCurrentBacktestSlotOptions() {
+  if (!els.currentBacktestSource || !els.currentBacktestSlot) return;
+  const source = els.currentBacktestSource.value === "d" ? "d" : "m";
+  const options = CURRENT_BACKTEST_SLOT_OPTIONS[source] || CURRENT_BACKTEST_SLOT_OPTIONS.m;
+  const previous = els.currentBacktestSlot.value;
+  const allowed = new Set(options.map(([value]) => value));
+  if (els.currentBacktestSlot.dataset.source === source && allowed.has(previous)) {
+    return;
+  }
+  els.currentBacktestSlot.innerHTML = "";
+  for (const [value, label] of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    els.currentBacktestSlot.appendChild(option);
+  }
+  els.currentBacktestSlot.value = allowed.has(previous) ? previous : "p3_1";
+  els.currentBacktestSlot.dataset.source = source;
 }
 
 async function loadCurrentBacktest() {
@@ -7537,6 +7583,10 @@ for (const input of [
   });
 }
 
+if (els.currentBacktestSource) {
+  els.currentBacktestSource.addEventListener("change", syncCurrentBacktestSlotOptions);
+}
+
 for (const input of [
   els.fixedTripleObservationPickCount,
   els.fixedTripleObservationDays,
@@ -7616,6 +7666,7 @@ for (const input of [
 
 async function init() {
   try {
+    syncCurrentBacktestSlotOptions();
     await loadGames();
     await refreshCurrentView();
     await loadPredictionAutoStatus({ silent: true, refreshTracking: false });

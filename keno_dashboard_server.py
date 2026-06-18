@@ -3864,21 +3864,37 @@ def current_backtest_source_panel(value: Any) -> tuple[str, str]:
     return PREDICTION_PANEL_M, "C计划"
 
 
-def current_backtest_slot_selection(value: Any) -> tuple[set[str], str]:
+def current_backtest_slot_selection(value: Any, source_panel: str | None = None) -> tuple[set[str], str]:
     slot = str(value or "p3_1").strip().lower()
-    labels = {
-        "p2_1": "2码候选#1",
-        "p2_2": "2码候选#2",
-        "p2_3": "2码候选#3",
-        "p2_4": "2码候选#4",
-        "p2_all": "全部2码候选",
-        "p3_1": "3码候选#3",
-        "p3_2": "3码候选#4",
-        "p3_3": "3码候选#5",
-        "p3_4": "3码候选#6",
-        "p3_all": "全部3码候选",
-        "all": "全部候选",
-    }
+    panel = prediction_panel_from_value(source_panel)
+    if panel == PREDICTION_PANEL_D:
+        labels = {
+            "p2_1": "2码候选#1",
+            "p2_2": "2码候选#2",
+            "p2_3": "2码候选#3",
+            "p2_4": "2码候选#4",
+            "p2_all": "全部2码候选#1-#4",
+            "p3_1": "3码候选#5",
+            "p3_2": "3码候选#6",
+            "p3_3": "3码候选#7",
+            "p3_4": "3码候选#8",
+            "p3_all": "全部3码候选#5-#8",
+            "all": "全部候选",
+        }
+    else:
+        labels = {
+            "p2_1": "2码候选#1",
+            "p2_2": "2码候选#2",
+            "p2_3": "2码候选#3",
+            "p2_4": "2码候选#4",
+            "p2_all": "全部2码候选",
+            "p3_1": "3码候选#3",
+            "p3_2": "3码候选#4",
+            "p3_3": "3码候选#5",
+            "p3_4": "3码候选#6",
+            "p3_all": "全部3码候选",
+            "all": "全部候选",
+        }
     if slot == "p2_all":
         return {"p2_1", "p2_2", "p2_3", "p2_4"}, labels[slot]
     if slot == "p3_all":
@@ -4201,7 +4217,7 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
     time_filter = staking_backtest_time_filter_from_query(query)
     max_records = staking_backtest_query_int(query, "maxRecords", 100000, min_value=100, max_value=300000)
     source_panel, source_label = current_backtest_source_panel(query.get("source", [PREDICTION_PANEL_M])[0])
-    selected_slots, selection_label = current_backtest_slot_selection(query.get("slot", ["p3_1"])[0])
+    selected_slots, selection_label = current_backtest_slot_selection(query.get("slot", ["p3_1"])[0], source_panel)
     records = load_current_backtest_tracking_records(config, time_filter, panel=source_panel, max_records=max_records)
     entries, coverage = current_backtest_group_entries(records, selected_slots, select_all=not selected_slots)
     game_day_tz = telegram_game_day_timezone(config)
