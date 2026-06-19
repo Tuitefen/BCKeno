@@ -447,16 +447,6 @@ const BACKTEST_SHAPE_OPTION_LABELS = {
 };
 
 const MARTINGALE_DEFAULT_ODDS = {
-  spain_l_express_20_70: {
-    1: 3.2,
-    2: 11,
-    3: 40,
-    4: 150,
-    5: 500,
-    6: 2000,
-    7: 6500,
-    8: 18000,
-  },
   poland_keno_20_70: {
     1: 3.2,
     2: 11,
@@ -467,48 +457,9 @@ const MARTINGALE_DEFAULT_ODDS = {
     7: 6500,
     8: 18000,
   },
-  italy_win_for_life_10_20: {
-    1: 1.8,
-    2: 3.8,
-    3: 9,
-    4: 20,
-    5: 50,
-    6: 150,
-    7: 500,
-    8: 1650,
-  },
-  russia_rapido_8_20: {
-    1: 2.2,
-    2: 6,
-    3: 18,
-    4: 60,
-    5: 220,
-    6: 1000,
-    7: 5000,
-  },
 };
 
-const MARTINGALE_BONUS_ODDS = {
-  russia_rapido_8_20: {
-    1: 9,
-    2: 25,
-    3: 70,
-    4: 200,
-    5: 700,
-    6: 2000,
-    7: 8000,
-  },
-  italy_win_for_life_10_20: {
-    1: 35,
-    2: 75,
-    3: 150,
-    4: 300,
-    5: 600,
-    6: 1500,
-    7: 3000,
-    8: 10000,
-  },
-};
+const MARTINGALE_BONUS_ODDS = {};
 
 function fmtPct(value, digits = 2) {
   if (!Number.isFinite(value)) return "--";

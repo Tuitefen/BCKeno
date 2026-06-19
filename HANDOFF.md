@@ -1149,3 +1149,11 @@ What did not change:
 - Browser-extension / auto-bet work remains local and is not part of this
   production fix.
 ```
+
+## 2026-06-19 Remove Retired Games
+
+User requested Spain, Russia, and Italy be removed. Production is now limited to
+Poland only. The cleanup removes the old game entries from backend/frontend
+configuration and removes the three old history CSV files from git tracking.
+
+D-plan remains active and was not disabled.

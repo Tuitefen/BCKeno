@@ -145,22 +145,6 @@ LEGACY_VOID_REASONS = {
 }
 
 LOTTERY_GAMES: dict[str, dict[str, Any]] = {
-    "spain_l_express_20_70": {
-        "key": "spain_l_express_20_70",
-        "lotteryId": "115889",
-        "name": "西班牙快车 L Express",
-        "shortName": "西班牙快车 20/70",
-        "country": "Spain",
-        "drawnNumbers": 20,
-        "totalNumbers": 70,
-        "drawIntervalMinutes": 4,
-        "historyPath": DATA_ROOT / "bc_spain_l_express_20_70_history.csv",
-        "supportsAnalysis": True,
-        "supportsPredictions": True,
-        "officialSupplement": "lotodate",
-        "supplementUrl": "https://lotodate.ro/en/Extrageri/5-spain-l-express-20-70",
-        "operatingHours": {"timezone": "Europe/Madrid", "start": "07:06", "end": "23:58"},
-    },
     "poland_keno_20_70": {
         "key": "poland_keno_20_70",
         "lotteryId": "79830",
@@ -176,45 +160,6 @@ LOTTERY_GAMES: dict[str, dict[str, Any]] = {
         "officialSupplement": "lotodate",
         "supplementUrl": "https://lotodate.ro/en/Extrageri/4-poland-keno-20-70",
         "operatingHours": {"timezone": "Europe/Warsaw", "start": "06:34", "end": "23:54"},
-    },
-    "russia_rapido_8_20": {
-        "key": "russia_rapido_8_20",
-        "lotteryId": "56526",
-        "name": "快速俄罗斯 Rapido",
-        "shortName": "快速俄罗斯 8/20",
-        "country": "Russia",
-        "drawnNumbers": 8,
-        "totalNumbers": 20,
-        "drawIntervalMinutes": 15,
-        "historyPath": DATA_ROOT / "bc_russia_rapido_8_20_history.csv",
-        "supportsAnalysis": True,
-        "supportsPredictions": True,
-        "officialSupplement": "yesplay",
-        "supplementUrl": "https://yesplay.bet/lucky-numbers/russia_rapido/results",
-        "hasBonusBall": True,
-        "bonusBallTotalNumbers": 4,
-        "bonusBallPredictionCount": 2,
-        "bonusBallPredictionLabel": "1主1辅",
-    },
-    "italy_win_for_life_10_20": {
-        "key": "italy_win_for_life_10_20",
-        "lotteryId": "69692",
-        "name": "意大利 Win for Life 经典版",
-        "shortName": "意大利终身赢 10/20",
-        "country": "Italy",
-        "drawnNumbers": 10,
-        "totalNumbers": 20,
-        "drawIntervalMinutes": 60,
-        "historyPath": DATA_ROOT / "bc_italy_win_for_life_10_20_history.csv",
-        "supportsAnalysis": True,
-        "supportsPredictions": True,
-        "officialSupplement": "lotodate",
-        "supplementUrl": "https://lotodate.ro/en/Extrageri/11-italy-win-for-life-classico-10-20",
-        "hasBonusBall": True,
-        "bonusBallTotalNumbers": 20,
-        "bonusBallPredictionCount": 3,
-        "bonusBallPredictionLabel": "1主2辅",
-        "operatingHours": {"timezone": "Europe/Rome", "start": "07:00", "end": "23:00"},
     },
 }
 SUM_RANGES = [
@@ -249,38 +194,6 @@ SUM_RANGES_20_70 = [
     ("861-890", 861, 890),
     ("891-1210", 891, 1210),
 ]
-SUM_RANGES_8_20 = [
-    ("36-53", 36, 53),
-    ("54-58", 54, 58),
-    ("59-64", 59, 64),
-    ("65-69", 65, 69),
-    ("70-73", 70, 73),
-    ("74-78", 74, 78),
-    ("79-83", 79, 83),
-    ("84-89", 84, 89),
-    ("90-94", 90, 94),
-    ("95-98", 95, 98),
-    ("99-103", 99, 103),
-    ("104-109", 104, 109),
-    ("110-114", 110, 114),
-    ("115-132", 115, 132),
-]
-SUM_RANGES_10_20 = [
-    ("55-77", 55, 77),
-    ("78-83", 78, 83),
-    ("84-89", 84, 89),
-    ("90-95", 90, 95),
-    ("96-101", 96, 101),
-    ("102-107", 102, 107),
-    ("108-113", 108, 113),
-    ("114-119", 114, 119),
-    ("120-125", 120, 125),
-    ("126-131", 126, 131),
-    ("132-137", 132, 137),
-    ("138-143", 138, 143),
-    ("144-149", 144, 149),
-    ("150-155", 150, 155),
-]
 LOTTERY_GAMES["poland_keno_20_70"]["sumRanges"] = SUM_RANGES_20_70
 RUN_CONDITIONS = [
     ("all", "全部开奖"),
@@ -299,27 +212,6 @@ RUN_CONDITIONS = [
     ("hasSix", "含六连"),
 ]
 RUN_CONDITION_LABELS = dict(RUN_CONDITIONS)
-RUSSIA_ITALY_RUN_CONDITION_KEYS = [
-    "hasPair",
-    "hasDoublePair",
-    "hasTriplePairSet",
-    "hasTriple",
-    "hasPairTriple",
-    "hasTripleDoublePair",
-    "hasQuad",
-    "hasQuadPair",
-    "hasFive",
-    "hasSix",
-]
-LOTTERY_GAMES["russia_rapido_8_20"]["runConditionKeys"] = RUSSIA_ITALY_RUN_CONDITION_KEYS
-LOTTERY_GAMES["russia_rapido_8_20"]["predictionConditionKeys"] = LOTTERY_GAMES[
-    "russia_rapido_8_20"
-]["runConditionKeys"]
-LOTTERY_GAMES["italy_win_for_life_10_20"]["runConditionKeys"] = RUSSIA_ITALY_RUN_CONDITION_KEYS
-LOTTERY_GAMES["italy_win_for_life_10_20"]["predictionConditionKeys"] = LOTTERY_GAMES[
-    "italy_win_for_life_10_20"
-]["runConditionKeys"]
-
 ACTIVE_GAME_KEYS = ("poland_keno_20_70",)
 LOTTERY_GAMES = {key: LOTTERY_GAMES[key] for key in ACTIVE_GAME_KEYS}
 DEFAULT_HISTORY = LOTTERY_GAMES[DEFAULT_GAME_KEY]["historyPath"]
@@ -414,28 +306,11 @@ BACKTEST_SCAN_MAX_RESULTS = 80
 BACKTEST_SHAPE_GROUP_LIMIT = 20000
 BACKTEST_SHAPE_FIXED_SCAN_LIMIT = 10000
 DEFAULT_MAIN_ODDS_BY_GAME = {
-    "spain_l_express_20_70": {1: 3.2, 2: 11, 3: 40, 4: 150, 5: 500, 6: 2000, 7: 6500, 8: 18000},
     "poland_keno_20_70": {1: 3.2, 2: 11, 3: 40, 4: 150, 5: 500, 6: 2000, 7: 6500, 8: 18000},
-    "italy_win_for_life_10_20": {1: 1.8, 2: 3.8, 3: 9, 4: 20, 5: 50, 6: 150, 7: 500, 8: 1650},
-    "russia_rapido_8_20": {1: 2.2, 2: 6, 3: 18, 4: 60, 5: 220, 6: 1000, 7: 5000},
 }
 DEFAULT_BONUS_ODDS_BY_GAME = {
-    "russia_rapido_8_20": {1: 9, 2: 25, 3: 70, 4: 200, 5: 700, 6: 2000, 7: 8000},
-    "italy_win_for_life_10_20": {1: 35, 2: 75, 3: 150, 4: 300, 5: 600, 6: 1500, 7: 3000, 8: 10000},
 }
 PREDICTION_TICKET_STRATEGIES = {
-    "italy_win_for_life_10_20": [
-        {"mode": "main", "pickCount": 3, "label": "意大利 3球候选票"},
-        {"mode": "main", "pickCount": 2, "label": "意大利 2球候选票"},
-    ],
-    "russia_rapido_8_20": [
-        {"mode": "main", "pickCount": 2, "label": "俄罗斯 2球候选票"},
-        {"mode": "bonus", "pickCount": 2, "label": "俄罗斯 2+1特殊球候选票"},
-    ],
-    "spain_l_express_20_70": [
-        {"mode": "main", "pickCount": 1, "label": "西班牙 1球候选票"},
-        {"mode": "main", "pickCount": 2, "label": "西班牙 2球候选票"},
-    ],
     "poland_keno_20_70": [
         {"mode": "main", "pickCount": 1, "label": "波兰 1球候选票"},
         {"mode": "main", "pickCount": 2, "label": "波兰 2球候选票"},
@@ -597,23 +472,6 @@ PREDICTION_PANEL_D_RULE_PRIORITY = {
     "c_mirror": 0.76,
 }
 PREDICTION_PANEL_D_DISABLED_STRUCTURE_TYPES_BY_GAME = {
-    "spain_l_express_20_70": {
-        "d_ab_mirror",
-        "d_ab_pm_1",
-        "d_ab_pm_3",
-        "d_ab_pm_4",
-        "d_ab_pm_7",
-        "d_ab_pm_9",
-        "d_ab_shift_minus_2",
-        "d_ab_shift_minus_4",
-        "d_ab_shift_minus_6",
-        "d_ab_shift_minus_8",
-        "d_ab_shift_plus_1",
-        "d_ab_shift_plus_3",
-        "d_ab_shift_plus_7",
-        "d_ab_tail_plus_10",
-        "d_c_original_offset_d",
-    },
     "poland_keno_20_70": {
         "d_ab_interval_mid_pm1",
         "d_ab_pm_3",
@@ -640,17 +498,6 @@ PREDICTION_PANEL_D_DISABLED_STRUCTURE_TYPES_BY_GAME = {
         "d_c_shift_plus_10_band_5_10",
         "d_c_shift_plus_10_cohit_free",
     },
-    "russia_rapido_8_20": {
-        "d_ab_shift_minus_1",
-        "d_ab_shift_minus_3",
-        "d_ab_shift_minus_4",
-        "d_ab_shift_plus_3",
-        "d_c_shift_minus_1_cohit_free",
-        "d_c_shift_plus_1_cohit_free",
-    },
-    "italy_win_for_life_10_20": {
-        "d_c_shift_minus_1_cohit_free",
-    },
 }
 PREDICTION_PANEL_E_TOP_COUNT = 32
 PREDICTION_PANEL_E_D_SOURCE_LIMIT = 48
@@ -660,30 +507,6 @@ PREDICTION_PANEL_E_SOURCE_MIN_SETTLED = 30
 PREDICTION_PANEL_E_SOURCE_CACHE_TTL_SECONDS = 60
 PREDICTION_PANEL_E_SOURCE_CACHE: dict[str, tuple[float, set[str]]] = {}
 PREDICTION_PANEL_E_FALLBACK_SOURCE_STRUCTURE_TYPES_BY_GAME = {
-    "spain_l_express_20_70": {
-        "d_c_shift_minus_10_cohit_free",
-        "d_c_shift_plus_1_cohit_free",
-        "d_c_original_band_5_10",
-        "d_c_original_cohit_free",
-        "d_ab_shift_plus_2",
-        "d_ab_shift_minus_1",
-        "d_ab_tail_minus_10",
-        "d_ab_tail_minus_20",
-        "d_ab_pm_2",
-        "d_ab_shift_minus_9",
-        "d_ab_interval_mid_pm1",
-        "d_ab_shift_plus_5",
-        "d_c_shift_minus_1_cohit_free",
-        "d_c_shift_minus_10_band_5_10",
-        "d_ab_shift_plus_9",
-        "d_c_mirror_cohit_free",
-        "d_ab_shift_plus_4",
-        "d_c_shift_minus_1_band_5_10",
-        "d_c_mirror_band_5_10",
-        "d_ab_shift_minus_3",
-        "d_ab_shift_plus_6",
-        "d_c_shift_plus_10_cohit_free",
-    },
     "poland_keno_20_70": {
         "d_ab_shift_minus_9",
         "d_c_shift_minus_10_cohit_free",
@@ -707,45 +530,21 @@ PREDICTION_PANEL_E_FALLBACK_SOURCE_STRUCTURE_TYPES_BY_GAME = {
         "d_ab_pm_9",
         "d_c_shift_minus_10_band_5_10",
     },
-    "russia_rapido_8_20": {
-        "d_ab_pm_1",
-        "d_c_mirror_cohit_free",
-        "d_ab_shift_plus_1",
-        "d_c_original_cohit_free",
-        "d_c_original_band_5_10",
-        "d_ab_shift_minus_2",
-        "d_ab_pm_3",
-        "d_ab_interval_mid_pm1",
-        "d_ab_shift_plus_2",
-    },
-    "italy_win_for_life_10_20": {
-        "d_c_mirror_cohit_free",
-    },
 }
 PREDICTION_PANEL_E_GAME_KEYS = {
-    "spain_l_express_20_70",
     "poland_keno_20_70",
-    "russia_rapido_8_20",
-    "italy_win_for_life_10_20",
 }
 PREDICTION_PANEL_F_TOP_COUNT = 1
 PREDICTION_PANEL_G_TOP_COUNT = 1
 PREDICTION_PREWARM_GAME_KEYS = (
-    "spain_l_express_20_70",
     "poland_keno_20_70",
 )
 PREDICTION_PREWARM_PANELS = (
     PREDICTION_PANEL_M,
 )
-PREDICTION_PANEL_D_KILL_C_ONLY_GAME_KEYS = {
-    "russia_rapido_8_20",
-    "italy_win_for_life_10_20",
-}
+PREDICTION_PANEL_D_KILL_C_ONLY_GAME_KEYS = set()
 ADJACENT_DERIVED_STATS_GAME_KEYS = {
-    "spain_l_express_20_70",
     "poland_keno_20_70",
-    "italy_win_for_life_10_20",
-    "russia_rapido_8_20",
 }
 ADJACENT_DERIVED_SOURCE_PICK_COUNTS = {1, 2, 4}
 ADJACENT_DERIVED_EXAMPLE_LIMIT = 4

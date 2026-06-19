@@ -32,3 +32,6 @@ wechat_longscreenshot_*.png
 *.log
 .DS_Store
 Thumbs.db
+data/bc_spain_l_express_20_70_history.csv
+data/bc_russia_rapido_8_20_history.csv
+data/bc_italy_win_for_life_10_20_history.csv
