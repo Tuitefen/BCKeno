@@ -1103,3 +1103,49 @@ Production follow-up:
 Pull latest main, restart the aaPanel Supervisor-managed cpgame process, then
 confirm the running PID/start time changed before trusting the fix.
 ```
+
+## 2026-06-19 Prediction Auto Gap Optimization
+
+User correction:
+
+```text
+D-plan is currently performing well. Do not stop or disable the current D-plan.
+```
+
+Production symptom:
+
+```text
+The server process kept running, but current backtest still showed severe
+missing candidate periods. This can happen when the auto worker is delayed and
+the official sync advances history by multiple draws in one loop. The worker can
+only create true live candidates for the next not-yet-drawn target after the
+latest synced draw; intermediate targets that are already in the past must not
+be inserted as normal live/pending rows.
+```
+
+Implemented in `keno_dashboard_server.py`:
+
+```text
+- Kept A/B/C/D auto generation active; D-plan remains in the auto loop.
+- Auto sync checks, settlement, and tracking touch now load only pending
+  prediction rows instead of scanning the full tracking DB.
+- Tracking summaries and grouping now use SQLite aggregate queries instead of
+  Python-side full-record scans.
+- Candidate creation checks candidate IDs against the DB before inserting, so
+  loading only pending rows cannot overwrite settled records back to pending.
+- Auto worker no longer schedules redundant prediction prewarm after generating
+  candidates; startup prewarm is skipped when auto tracking is enabled.
+- `/api/prediction-auto` now reports `skippedTargetAudit` and
+  `missedCandidateTargets` when a loop observes that history advanced by
+  multiple operating draws.
+```
+
+What did not change:
+
+```text
+- D-plan was not disabled.
+- Prediction rules, ticket ranking, odds, settlement formulas, and staking
+  backtest math were not changed.
+- Browser-extension / auto-bet work remains local and is not part of this
+  production fix.
+```
