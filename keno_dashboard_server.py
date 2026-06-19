@@ -50,18 +50,16 @@ WEB_ROOT = ROOT / "web"
 DATA_ROOT = Path(os.environ.get("BCKENO_DATA_DIR", ROOT / "data")).resolve()
 LOG_ROOT = Path(os.environ.get("BCKENO_LOG_DIR", ROOT / "logs")).resolve()
 BACKUP_ROOT = Path(os.environ.get("BCKENO_BACKUP_DIR", ROOT / "backups")).resolve()
-DEFAULT_HISTORY = DATA_ROOT / "bc_spain_l_express_20_70_history.csv"
+DEFAULT_HISTORY = DATA_ROOT / "bc_poland_keno_20_70_history.csv"
 DEFAULT_PREDICTION_TRACKING = DATA_ROOT / "prediction_tracking.json"
 DEFAULT_PREDICTION_TRACKING_DB = DATA_ROOT / "prediction_tracking.sqlite3"
 DEFAULT_PREDICTION_AUTO_CONFIG = DATA_ROOT / "prediction_auto_config.json"
 DEFAULT_TELEGRAM_CONFIG = DATA_ROOT / "telegram_bot_config.local.json"
 DEFAULT_TELEGRAM_STATE = DATA_ROOT / "telegram_bot_state.local.json"
-DEFAULT_LOTTERY_ID = "115889"
-DEFAULT_GAME_KEY = "spain_l_express_20_70"
+DEFAULT_LOTTERY_ID = "79830"
+DEFAULT_GAME_KEY = "poland_keno_20_70"
 TELEGRAM_DEFAULT_DRAW_LINKS_BY_GAME = {
-    "spain_l_express_20_70": "https://lotodate.ro/Extrageri/5-l-express-spania-20-70",
     "poland_keno_20_70": "https://lotodate.ro/Extrageri/4-keno-polonia-20-70",
-    "italy_win_for_life_10_20": "https://lotodate.ro/Extrageri/11-win-for-life-classico-italia-10-20",
 }
 TELEGRAM_ROOT_DRAW_LINKS = {"https://lotodate.ro", "https://lotodate.ro/"}
 HOST = "127.0.0.1"
@@ -283,10 +281,7 @@ SUM_RANGES_10_20 = [
     ("144-149", 144, 149),
     ("150-155", 150, 155),
 ]
-LOTTERY_GAMES["spain_l_express_20_70"]["sumRanges"] = SUM_RANGES_20_70
 LOTTERY_GAMES["poland_keno_20_70"]["sumRanges"] = SUM_RANGES_20_70
-LOTTERY_GAMES["russia_rapido_8_20"]["sumRanges"] = SUM_RANGES_8_20
-LOTTERY_GAMES["italy_win_for_life_10_20"]["sumRanges"] = SUM_RANGES_10_20
 RUN_CONDITIONS = [
     ("all", "全部开奖"),
     ("hasPair", "含两连"),
@@ -324,6 +319,10 @@ LOTTERY_GAMES["italy_win_for_life_10_20"]["runConditionKeys"] = RUSSIA_ITALY_RUN
 LOTTERY_GAMES["italy_win_for_life_10_20"]["predictionConditionKeys"] = LOTTERY_GAMES[
     "italy_win_for_life_10_20"
 ]["runConditionKeys"]
+
+ACTIVE_GAME_KEYS = ("poland_keno_20_70",)
+LOTTERY_GAMES = {key: LOTTERY_GAMES[key] for key in ACTIVE_GAME_KEYS}
+DEFAULT_HISTORY = LOTTERY_GAMES[DEFAULT_GAME_KEY]["historyPath"]
 PREDICTION_HORIZONS = 5
 PREDICTION_TRACKING_LEAD_SECONDS = 90
 PREDICTION_TRACKING_AUTO_SYNC_COOLDOWN_SECONDS = 45
@@ -4007,6 +4006,45 @@ def load_current_backtest_tracking_records(
     ]
 
 
+def current_backtest_history_day_counts(
+    config: dict[str, Any],
+    time_filter: dict[str, Any],
+) -> dict[str, int]:
+    game_day_tz = telegram_game_day_timezone(config)
+    schedule = config.get("operatingHours") if isinstance(config.get("operatingHours"), dict) else {}
+    start_minute = staking_backtest_time_minutes(schedule.get("start"))
+    end_minute = staking_backtest_time_minutes(schedule.get("end"))
+    query_start = time_filter.get("dailyStartMinute")
+    query_end = time_filter.get("dailyEndMinute")
+    if query_start is not None:
+        start_minute = query_start
+    if query_end is not None:
+        end_minute = query_end
+
+    with DATA_LOCK:
+        rows = valid_draw_rows(load_history_rows(game_history_path(config), config), config)
+    rows = staking_backtest_filter_absolute_rows(
+        rows,
+        start_ms=parse_int(time_filter.get("startMs"), 0),
+        end_ms=parse_int(time_filter.get("endMs"), 0),
+    )
+    rows = staking_backtest_filter_daily_rows(
+        rows,
+        tz=game_day_tz,
+        start_minute=start_minute,
+        end_minute=end_minute,
+    )
+
+    counts: dict[str, int] = {}
+    for row in rows:
+        draw_ms = parse_int(row.get("drawTimeMs"), 0)
+        if draw_ms <= 0:
+            continue
+        day_key = staking_backtest_local_date_key(draw_ms, game_day_tz)
+        counts[day_key] = counts.get(day_key, 0) + 1
+    return counts
+
+
 def current_backtest_group_entries(
     records: list[dict[str, Any]],
     selected_slots: set[str],
@@ -4220,6 +4258,7 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
     selected_slots, selection_label = current_backtest_slot_selection(query.get("slot", ["p3_1"])[0], source_panel)
     records = load_current_backtest_tracking_records(config, time_filter, panel=source_panel, max_records=max_records)
     entries, coverage = current_backtest_group_entries(records, selected_slots, select_all=not selected_slots)
+    history_day_counts = current_backtest_history_day_counts(config, time_filter)
     game_day_tz = telegram_game_day_timezone(config)
     policies = staking_backtest_policy_profiles(query)
     include_ledger = query_bool(query, "ledger", False) or query_bool(query, "debugLedger", False)
@@ -4231,10 +4270,22 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
             continue
         day_entries.setdefault(day_key, []).append(entry)
 
+    coverage_start = parse_int(entries[0].get("targetDrawTimeMs"), 0) if entries else 0
+    coverage_end = parse_int(entries[-1].get("targetDrawTimeMs"), 0) if entries else 0
+    day_keys = set(day_entries)
+    if coverage_start > 0 and coverage_end > 0:
+        start_day_key = staking_backtest_local_date_key(coverage_start, game_day_tz)
+        end_day_key = staking_backtest_local_date_key(coverage_end, game_day_tz)
+        day_keys.update(
+            key
+            for key in history_day_counts
+            if start_day_key <= key <= end_day_key
+        )
+
     days: list[dict[str, Any]] = []
     summary_policy_lists: dict[str, list[dict[str, Any]]] = {str(policy.get("key") or ""): [] for policy in policies}
-    for day_key in sorted(day_entries):
-        rows = sorted(day_entries[day_key], key=lambda item: parse_int(item.get("targetDrawTimeMs"), 0))
+    for day_key in sorted(day_keys):
+        rows = sorted(day_entries.get(day_key) or [], key=lambda item: parse_int(item.get("targetDrawTimeMs"), 0))
         policy_results = {
             str(policy["key"]): current_backtest_policy_simulation(rows, policy, include_ledger=include_ledger)
             for policy in policies
@@ -4242,10 +4293,15 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
         for key, item in policy_results.items():
             summary_policy_lists.setdefault(key, []).append(item)
         ticket_count = sum(len(entry.get("tickets") or []) for entry in rows)
+        history_draws = parse_int(history_day_counts.get(day_key), 0)
+        missing_tracking_draws = max(0, history_draws - len(rows))
         day = {
             "date": day_key,
             "rounds": len(rows),
             "bets": ticket_count,
+            "historyDraws": history_draws,
+            "missingTrackingDraws": missing_tracking_draws,
+            "trackingCoverageRate": len(rows) / history_draws if history_draws else 0,
             "startTimeMs": parse_int(rows[0].get("targetDrawTimeMs"), 0) if rows else 0,
             "endTimeMs": parse_int(rows[-1].get("targetDrawTimeMs"), 0) if rows else 0,
             "startTimeUtc": staking_backtest_ms_iso(parse_int(rows[0].get("targetDrawTimeMs"), 0)) if rows else "",
@@ -4285,8 +4341,13 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
             "peakDayProfit": round(parse_float(peak_day.get("peakProfit"), 0), 4),
         }
 
-    coverage_start = parse_int(entries[0].get("targetDrawTimeMs"), 0) if entries else 0
-    coverage_end = parse_int(entries[-1].get("targetDrawTimeMs"), 0) if entries else 0
+    tracked_day_keys = {str(day.get("date") or "") for day in days if str(day.get("date") or "")}
+    if not tracked_day_keys and history_day_counts:
+        tracked_day_keys = set(history_day_counts)
+    history_draws = sum(history_day_counts.get(key, 0) for key in tracked_day_keys)
+    tracked_draws = sum(parse_int(day.get("rounds"), 0) for day in days)
+    missing_tracking_draws = max(0, history_draws - tracked_draws)
+
     warnings: list[str] = []
     if not records:
         warnings.append(f"当前没有 {source_label} 已结算追踪记录；只能从追踪库存在的日期开始回放。")
@@ -4294,6 +4355,10 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
         warnings.append("真实逐期推荐样本少于300期，只能观察，不能定自动投注参数。")
     if coverage.get("missingTargets"):
         warnings.append(f"有 {coverage['missingTargets']} 个目标开奖没有匹配到所选槽位。")
+    if missing_tracking_draws > 0:
+        warnings.append(
+            f"开奖历史有 {history_draws} 期，追踪库只覆盖 {tracked_draws} 期，缺 {missing_tracking_draws} 期；当前回测只能回放已生成并结算的候选。"
+        )
 
     return {
         "ok": True,
@@ -4323,6 +4388,10 @@ def current_staking_backtest_payload(query: dict[str, list[str]]) -> dict[str, A
             **coverage,
             "records": len(records),
             "days": len(days),
+            "historyDraws": history_draws,
+            "trackingDraws": tracked_draws,
+            "missingTrackingDraws": missing_tracking_draws,
+            "trackingCoverageRate": tracked_draws / history_draws if history_draws else 0,
             "startTimeMs": coverage_start,
             "endTimeMs": coverage_end,
             "startTimeUtc": staking_backtest_ms_iso(coverage_start),
@@ -7601,13 +7670,13 @@ def prediction_payload(
         method = (
             f"预测面板F：从A/B/C/D/E排除链路的 {len(excluded_numbers)} 个候选号码中按来源强度、综合分、遗漏和近窗表现召回，生成1张4码预测票"
             if e_supported
-            else "预测面板F：当前仅用于西班牙和波兰，俄罗斯/意大利先使用原预测面板"
+            else "预测面板F：当前仅用于波兰"
         )
     if panel == PREDICTION_PANEL_G:
         method = (
             f"预测面板G：统计面板C/D/E候选票里的唯一主球 {len(excluded_numbers)} 个并杀掉，再从剩余号码生成1张4码预测票"
             if e_supported
-            else "预测面板G：当前仅用于西班牙和波兰，俄罗斯/意大利先使用原预测面板"
+            else "预测面板G：当前仅用于波兰"
         )
     source_panel = ""
     source_panels: list[str] = []
@@ -8630,10 +8699,7 @@ def schedule_startup_prediction_prewarm() -> list[dict[str, Any]]:
     return results
 
 
-CDE_KILL_BACKTEST_GAME_KEYS = {
-    "spain_l_express_20_70",
-    "poland_keno_20_70",
-}
+CDE_KILL_BACKTEST_GAME_KEYS = {"poland_keno_20_70"}
 CDE_KILL_BACKTEST_MAX_WINDOW = 60
 CDE_KILL_BACKTEST_MAX_TRAIN_WINDOW = 360
 CDE_KILL_BACKTEST_MAX_DETAIL_LIMIT = 60
@@ -9045,7 +9111,7 @@ def cde_kill_backtest_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     config = game_from_query(query)
     ensure_predictions_supported(config)
     if str(config["key"]) not in CDE_KILL_BACKTEST_GAME_KEYS:
-        raise ValueError("C 杀号回测当前只支持西班牙和波兰")
+        raise ValueError("C 杀号回测当前只支持波兰")
     history_path = game_history_path(config)
     window = max(10, min(parse_int(query.get("window", ["30"])[0], 30), CDE_KILL_BACKTEST_MAX_WINDOW))
     train_window = max(80, min(parse_int(query.get("trainWindow", ["240"])[0], 240), CDE_KILL_BACKTEST_MAX_TRAIN_WINDOW))
@@ -9180,12 +9246,7 @@ def cde_kill_backtest_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     return payload
 
 
-STRATEGY_SIGNAL_AUDIT_GAME_KEYS = {
-    "spain_l_express_20_70",
-    "poland_keno_20_70",
-    "russia_rapido_8_20",
-    "italy_win_for_life_10_20",
-}
+STRATEGY_SIGNAL_AUDIT_GAME_KEYS = {"poland_keno_20_70"}
 STRATEGY_SIGNAL_AUDIT_MAX_WINDOW = 360
 STRATEGY_SIGNAL_AUDIT_MAX_TRAIN_WINDOW = 600
 STRATEGY_SIGNAL_AUDIT_MIN_TRAIN_WINDOW = 120
@@ -10023,8 +10084,7 @@ def strategy_signal_audit_payload(query: dict[str, list[str]]) -> dict[str, Any]
     ensure_predictions_supported(config)
     game_key = str(config["key"])
     if game_key not in STRATEGY_SIGNAL_AUDIT_GAME_KEYS:
-        raise ValueError("该彩种当前不支持策略审计")
-        raise ValueError("策略信号审计当前只支持西班牙和波兰")
+        raise ValueError("策略信号审计当前只支持波兰")
     history_path = game_history_path(config)
     window = max(30, min(parse_int(query.get("window", ["180"])[0], 180), STRATEGY_SIGNAL_AUDIT_MAX_WINDOW))
     train_window = max(
@@ -16819,8 +16879,8 @@ def refresh_history(options: dict[str, Any]) -> dict[str, Any]:
 
 
 def refresh_all_games(options: dict[str, Any]) -> dict[str, Any]:
-    current_key = game_key_from_value(options.get("game"))
-    ordered_keys = [current_key] + [key for key in LOTTERY_GAMES if key != current_key]
+    current_key = DEFAULT_GAME_KEY
+    ordered_keys = [DEFAULT_GAME_KEY]
     mode = str(options.get("mode") or "incremental")
     results: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []

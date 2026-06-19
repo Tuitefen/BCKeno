@@ -425,13 +425,8 @@ const PREDICTION_PANEL_E = "e";
 const PREDICTION_PANEL_M = "m";
 const PREDICTION_PANEL_F = "f";
 const PREDICTION_PANEL_G = "g";
-const CDE_KILL_BACKTEST_GAMES = new Set(["spain_l_express_20_70", "poland_keno_20_70"]);
-const STRATEGY_AUDIT_STABILITY_GAMES = [
-  "spain_l_express_20_70",
-  "poland_keno_20_70",
-  "russia_rapido_8_20",
-  "italy_win_for_life_10_20",
-];
+const CDE_KILL_BACKTEST_GAMES = new Set(["poland_keno_20_70"]);
+const STRATEGY_AUDIT_STABILITY_GAMES = ["poland_keno_20_70"];
 const STRATEGY_AUDIT_STABILITY_WINDOW = 360;
 const CDE_BACKTEST_PAGE_SIZE = 25;
 const BACKTEST_DUPLICATE_SHAPE_OPTIONS = new Set(["hasPair", "hasTriple", "hasQuad"]);
@@ -1092,7 +1087,7 @@ function currentSyncGapWarning() {
 }
 
 function syncGapWarningTitle(warning) {
-  const parts = ["最近一次增量同步未命中本地已有记录，建议执行全量同步确认历史连续性。"];
+  const parts = ["最近一次同步未命中本地已有记录，建议到服务器确认历史连续性。"];
   if (warning?.pagesFetched) parts.push(`抓取 ${warning.pagesFetched} 页`);
   if (warning?.oldestFetchedUtc) parts.push(`最旧抓取 ${fmtDate(warning.oldestFetchedUtc)}`);
   if (warning?.newestExistingUtc) parts.push(`原本地最新 ${fmtDate(warning.newestExistingUtc)}`);
@@ -1939,7 +1934,7 @@ function setLoading(isLoading, label = "") {
 function renderAllGamesSyncLog(payload) {
   state.lastSync = payload;
   updateSyncGapWarnings(payload);
-  const modeLabel = payload.mode === "full" ? "全量同步" : "增量同步";
+  const modeLabel = payload.mode === "full" ? "同步" : "同步";
   const current = payload.currentResult;
   const currentLabel = current?.game?.shortName || payload.game?.shortName || "";
   const currentRows = Number(current?.newRows || 0);
@@ -1947,7 +1942,7 @@ function renderAllGamesSyncLog(payload) {
   const bcRows = Number(payload.bcNewRows || 0);
   const etiposRows = Number(payload.etiposNewRows || 0);
   const settledPredictions = Number(payload.settledPredictions || 0);
-  els.lastSyncSummary.textContent = `全彩种${modeLabel} · 当前优先 ${currentLabel} +${currentRows} 期 · 总新增 ${newRows} 期 · ${payload.successCount}/${payload.totalCount} 成功`;
+  els.lastSyncSummary.textContent = `${modeLabel} · 当前 ${currentLabel} +${currentRows} 期 · 总新增 ${newRows} 期 · ${payload.successCount}/${payload.totalCount} 成功`;
   els.lastSyncTime.textContent = fmtDate(payload.generatedAt);
   els.lastBcRows.textContent = bcRows.toLocaleString("zh-CN");
   els.lastEtiposRows.textContent = etiposRows.toLocaleString("zh-CN");
@@ -1957,7 +1952,7 @@ function renderAllGamesSyncLog(payload) {
 
   const warnings = [];
   if (payload.possibleGapGames?.length) {
-    warnings.push(`这些彩种本次增量未命中已有记录，建议全量确认：${payload.possibleGapGames.join("、")}。`);
+    warnings.push(`这些彩种本次同步未命中已有记录，请确认历史连续性：${payload.possibleGapGames.join("、")}。`);
   }
   if (payload.integrityIssueGames?.length) {
     warnings.push(`历史数据未和 BC 对齐：${payload.integrityIssueGames.join("、")}。`);
@@ -1973,7 +1968,7 @@ function renderAllGamesSyncLog(payload) {
     els.lastSyncError.classList.remove("hidden");
     els.lastSyncError.classList.remove("info");
   } else {
-    els.lastSyncError.textContent = "全彩种同步完成，当前彩种已优先刷新。";
+    els.lastSyncError.textContent = "同步完成，当前彩种已刷新。";
     els.lastSyncError.classList.remove("hidden");
     els.lastSyncError.classList.add("info");
   }
@@ -1989,12 +1984,12 @@ function allGamesSyncToastText(payload) {
     .filter((item) => item.newRows > 0);
   const successText = `${payload.successCount || 0}/${payload.totalCount || 0} 成功`;
   if (!changedGames.length) {
-    return `全彩种同步完成：无新增开奖号，${successText}`;
+    return `同步完成：无新增开奖号，${successText}`;
   }
   const detailText = changedGames
     .map((item) => `${item.label}新增${item.newRows.toLocaleString("zh-CN")}期开奖号`)
     .join("；");
-  return `全彩种同步完成：${detailText}，${successText}`;
+  return `同步完成：${detailText}，${successText}`;
 }
 
 function renderSyncLog(payload) {
@@ -2006,7 +2001,7 @@ function renderSyncLog(payload) {
   state.lastSync = payload;
   updateSyncGapWarnings(payload);
   const gameLabel = payload.game?.shortName || state.currentGame?.shortName || "";
-  const modeLabel = payload.mode === "full" ? "全量同步" : "增量同步";
+  const modeLabel = "同步";
   const newRows = Number(payload.newRows || 0);
   const bcRows = Number(payload.bcNewRows || 0);
   const etiposRows = Number(payload.etiposNewRows || 0);
@@ -2035,7 +2030,7 @@ function renderSyncLog(payload) {
     const oldestFetched = fmtDate(syncMeta.oldestFetchedUtc || payload.oldestFetchedUtc);
     const newestExisting = fmtDate(syncMeta.newestExistingUtc || payload.newestExistingUtc);
     warnings.push(
-      `本次增量同步未命中本地已有记录：抓取 ${syncMeta.pagesFetched || "--"} 页，最旧抓取 ${oldestFetched}，本地原最新 ${newestExisting}。建议执行全量同步确认。`,
+      `本次同步未命中本地已有记录：抓取 ${syncMeta.pagesFetched || "--"} 页，最旧抓取 ${oldestFetched}，本地原最新 ${newestExisting}。请确认历史连续性。`,
     );
   } else if (syncMeta.catchUpTriggered) {
     noticeLevel = "info";
@@ -2449,7 +2444,7 @@ async function loadAnalysis(options = {}) {
   showToast("C回测已停用；当前只保留 A/B/C计划 和策略审计。", true);
   return;
   if (!currentGameSupportsAnalysis()) {
-    showToast("C 杀号回测当前只支持西班牙和波兰", true);
+    showToast("C 杀号回测当前只支持波兰", true);
     return;
   }
   if (!options.keepPage) {
@@ -2483,7 +2478,7 @@ async function loadStrategyAudit(options = {}) {
   if (!currentGameSupportsStrategyAudit()) {
     showToast("该彩种当前不支持策略审计", true);
     return;
-    showToast("策略信号审计当前只支持西班牙和波兰", true);
+    showToast("策略信号审计当前只支持波兰", true);
     return;
   }
   setLoading(true, "策略审计中");
@@ -2519,7 +2514,7 @@ async function loadStrategyAuditStability(options = {}) {
   const selectedGame = currentGameKey();
   const trainWindow = String(els.strategyAuditTrain?.value || "360");
   if (els.strategyAuditStabilityMeta) {
-    els.strategyAuditStabilityMeta.textContent = "跨 60/180/360 与西班牙/波兰稳定性计算中";
+    els.strategyAuditStabilityMeta.textContent = "波兰 60/180/360 稳定性计算中";
   }
   if (els.strategyAuditStabilityRows) {
     els.strategyAuditStabilityRows.innerHTML = '<tr><td colspan="8"><span class="muted">多窗口稳定性对照计算中</span></td></tr>';
@@ -3182,6 +3177,8 @@ function renderCurrentBacktest(data) {
   const days = Array.isArray(data.days) ? data.days : [];
   const summary = data.summary || {};
   const coverage = data.coverage || {};
+  const missingTracking = Number(coverage.missingTrackingDraws || 0);
+  const historyDraws = Number(coverage.historyDraws || 0);
   const policies = summary.policies || {};
   const conservative = policies.conservative || {};
   const selectionText = `${data.selection?.sourceLabel || "C计划"} · ${data.selection?.label || "--"}`;
@@ -3189,9 +3186,10 @@ function renderCurrentBacktest(data) {
     els.currentBacktestMeta.textContent = `${selectionText} · ${fmtInt(coverage.selectedDraws || 0)}期 · ${fmtDate(data.generatedAt)}`;
   }
   if (els.currentBacktestResultMeta) {
+    const coverageText = historyDraws ? ` · 追踪覆盖 ${fmtInt(summary.rounds || 0)}/${fmtInt(historyDraws)}期` : "";
     els.currentBacktestResultMeta.textContent = `${selectionText} · ${fmtInt(summary.rounds || 0)}期 / ${fmtInt(
       summary.bets || 0,
-    )}票 · ${fmtTime(coverage.startTimeUtc)} - ${fmtTime(coverage.endTimeUtc)} · ${stakingTimeFilterText(data)}`;
+    )}票${coverageText} · ${fmtTime(coverage.startTimeUtc)} - ${fmtTime(coverage.endTimeUtc)} · ${stakingTimeFilterText(data)}`;
   }
   const warnings = Array.isArray(data.warnings) ? data.warnings : [];
   if (els.currentBacktestWarnings) {
@@ -3205,10 +3203,10 @@ function renderCurrentBacktest(data) {
         <strong>${fmtInt(summary.days || days.length)}</strong>
         <small>${escapeHtml(selectionText)}</small>
       </article>
-      <article class="stat-card">
-        <span>真实推荐期</span>
-        <strong>${fmtInt(summary.rounds || 0)}</strong>
-        <small>追踪库已结算</small>
+      <article class="stat-card ${missingTracking > 0 ? "warn" : ""}">
+        <span>追踪覆盖</span>
+        <strong>${historyDraws ? `${fmtInt(summary.rounds || 0)}/${fmtInt(historyDraws)}` : fmtInt(summary.rounds || 0)}</strong>
+        <small>${missingTracking > 0 ? `缺 ${fmtInt(missingTracking)} 期候选` : "追踪库已结算"}</small>
       </article>
       <article class="stat-card accent">
         <span>保守净利</span>
@@ -3242,6 +3240,11 @@ function renderCurrentBacktest(data) {
           <div class="staking-miss-cell">
             <strong>${fmtInt(day.rounds || 0)}期</strong>
             <span>${fmtInt(day.bets || 0)}张票</span>
+            <small>${
+              day.historyDraws
+                ? `开奖 ${fmtInt(day.historyDraws)}期 · 缺 ${fmtInt(day.missingTrackingDraws || 0)}期候选`
+                : "未取到开奖覆盖"
+            }</small>
           </div>
         </td>
         <td>${stakingSegmentPolicyCell(dayPolicies.flat)}</td>
@@ -3504,18 +3507,13 @@ function renderFixedTripleOmission(data) {
     .join("");
 }
 
-async function syncData(mode) {
-  const isFull = mode === "full";
-  if (isFull) {
-    const ok = window.confirm(
-      "全量同步会抓取全部历史数据，预计 1-3 分钟。期间不要重复点击。是否继续？",
-    );
-    if (!ok) return;
-  }
+async function syncData(mode = "incremental") {
+  const isFull = false;
+  mode = "incremental";
 
-  setLoading(true, isFull ? "全量同步中" : "全彩种同步中");
+  setLoading(true, "同步中");
   try {
-    const endpoint = isFull ? "/api/refresh" : "/api/refresh-all";
+    const endpoint = "/api/refresh";
     const response = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -3530,11 +3528,9 @@ async function syncData(mode) {
     if (!response.ok || !payload.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     const text = payload.allGames
       ? allGamesSyncToastText(payload)
-      : payload.mode === "full"
-        ? `全量同步完成：本地 ${payload.writtenRows} 期`
-        : `同步完成：新增 ${payload.newRows} 期，BC ${payload.bcNewRows || 0} 期，官网补齐 ${
-            payload.etiposNewRows || 0
-          } 期，本地 ${payload.writtenRows} 期`;
+      : `同步完成：新增 ${payload.newRows} 期，BC ${payload.bcNewRows || 0} 期，官网补齐 ${
+          payload.etiposNewRows || 0
+        } 期，本地 ${payload.writtenRows} 期`;
     const settledText = payload.settledPredictions ? `，结算预测 ${payload.settledPredictions} 条` : "";
     const gapText = payload.possibleGap ? "，增量未命中已有记录，请查看同步日志" : "";
     showToast(`${text}${settledText}${gapText}`);
@@ -3625,7 +3621,7 @@ function renderStrategyAuditLoading() {
     els.strategyAuditMixedRows.innerHTML = '<tr><td colspan="8"><span class="muted">逐期混合回测计算中</span></td></tr>';
   }
   if (els.strategyAuditStabilityMeta) {
-    els.strategyAuditStabilityMeta.textContent = "跨 60/180/360 与西班牙/波兰稳定性计算中";
+    els.strategyAuditStabilityMeta.textContent = "波兰 60/180/360 稳定性计算中";
   }
   if (els.strategyAuditStabilityRows) {
     els.strategyAuditStabilityRows.innerHTML = '<tr><td colspan="8"><span class="muted">多窗口稳定性对照计算中</span></td></tr>';
@@ -7332,8 +7328,8 @@ if (els.strategyAuditRunBtn) {
   els.strategyAuditRunBtn.addEventListener("click", () => loadStrategyAudit({ force: true }));
 }
 els.refreshPageBtn.addEventListener("click", () => refreshCurrentView({ force: true }));
-els.syncBtn.addEventListener("click", () => syncData("incremental"));
-els.fullSyncBtn.addEventListener("click", () => syncData("full"));
+els.syncBtn?.addEventListener("click", () => syncData("incremental"));
+els.fullSyncBtn?.classList.add("hidden");
 els.gameSelect.addEventListener("change", () => {
   selectGame(els.gameSelect.value);
 });
