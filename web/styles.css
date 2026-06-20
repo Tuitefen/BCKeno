@@ -1101,7 +1101,8 @@ body.tool-modal-open {
   justify-content: flex-end;
 }
 
-.tracking-controls select {
+.tracking-controls select,
+.tracking-controls input[type="date"] {
   width: 168px;
   min-height: 30px;
   border: 1px solid var(--line);
@@ -1690,6 +1691,11 @@ body.tool-modal-open {
 .tracking-miss-note span {
   color: var(--muted);
   font-weight: 800;
+}
+
+.ticket-miss-badge.current {
+  border-color: rgba(250, 204, 21, 0.28);
+  background: rgba(250, 204, 21, 0.08);
 }
 
 .loading-inline {
@@ -3555,7 +3561,8 @@ th {
     align-items: center;
   }
 
-  .tracking-nav select {
+  .tracking-nav select,
+  .tracking-nav input[type="date"] {
     width: 100%;
     min-width: 0;
   }

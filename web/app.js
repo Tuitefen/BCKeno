@@ -6,6 +6,8 @@ const state = {
   predictionTracking: null,
   predictionTrackingPage: 1,
   predictionTrackingStatus: "all",
+  predictionTrackingSlot: "all",
+  predictionTrackingDay: "",
   adjacentStats: null,
   adjacentHitPage: 1,
   adjacentHitQuery: "",
@@ -23,6 +25,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -33,6 +37,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -43,6 +49,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -53,6 +61,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -63,6 +73,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -73,6 +85,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -83,6 +97,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -93,6 +109,8 @@ const state = {
       predictionTracking: null,
       predictionTrackingPage: 1,
       predictionTrackingStatus: "all",
+      predictionTrackingSlot: "all",
+      predictionTrackingDay: "",
       adjacentStats: null,
       adjacentHitPage: 1,
       adjacentHitQuery: "",
@@ -214,6 +232,8 @@ const els = {
   predictionAdjacentStats: document.querySelector("#predictionAdjacentStats"),
   predictionTrackingRows: document.querySelector("#predictionTrackingRows"),
   predictionTrackingStatusFilter: document.querySelector("#predictionTrackingStatusFilter"),
+  predictionTrackingSlotFilter: document.querySelector("#predictionTrackingSlotFilter"),
+  predictionTrackingDayFilter: document.querySelector("#predictionTrackingDayFilter"),
   predictionTrackingPrevBtn: document.querySelector("#predictionTrackingPrevBtn"),
   predictionTrackingNextBtn: document.querySelector("#predictionTrackingNextBtn"),
   predictionTrackingPageInfo: document.querySelector("#predictionTrackingPageInfo"),
@@ -447,6 +467,16 @@ const BACKTEST_SHAPE_OPTION_LABELS = {
 };
 
 const MARTINGALE_DEFAULT_ODDS = {
+  spain_l_express_20_70: {
+    1: 3.2,
+    2: 11,
+    3: 40,
+    4: 150,
+    5: 500,
+    6: 2000,
+    7: 6500,
+    8: 18000,
+  },
   poland_keno_20_70: {
     1: 3.2,
     2: 11,
@@ -457,9 +487,48 @@ const MARTINGALE_DEFAULT_ODDS = {
     7: 6500,
     8: 18000,
   },
+  italy_win_for_life_10_20: {
+    1: 1.8,
+    2: 3.8,
+    3: 9,
+    4: 20,
+    5: 50,
+    6: 150,
+    7: 500,
+    8: 1650,
+  },
+  russia_rapido_8_20: {
+    1: 2.2,
+    2: 6,
+    3: 18,
+    4: 60,
+    5: 220,
+    6: 1000,
+    7: 5000,
+  },
 };
 
-const MARTINGALE_BONUS_ODDS = {};
+const MARTINGALE_BONUS_ODDS = {
+  russia_rapido_8_20: {
+    1: 9,
+    2: 25,
+    3: 70,
+    4: 200,
+    5: 700,
+    6: 2000,
+    7: 8000,
+  },
+  italy_win_for_life_10_20: {
+    1: 35,
+    2: 75,
+    3: 150,
+    4: 300,
+    5: 600,
+    6: 1500,
+    7: 3000,
+    8: 10000,
+  },
+};
 
 function fmtPct(value, digits = 2) {
   if (!Number.isFinite(value)) return "--";
@@ -747,6 +816,7 @@ function predictionPanelLabel(panel = state.predictionPanel) {
 }
 
 function predictionPanelForView(view) {
+  if (view === "predictionE") return PREDICTION_PANEL_E;
   if (view === "predictionD") return PREDICTION_PANEL_D;
   if (view === "predictionM") return PREDICTION_PANEL_M;
   if (view === "predictionB") return PREDICTION_PANEL_B;
@@ -760,6 +830,8 @@ function syncPredictionPanelMirror(panel = state.predictionPanel) {
   state.predictionTracking = slot.predictionTracking;
   state.predictionTrackingPage = slot.predictionTrackingPage;
   state.predictionTrackingStatus = slot.predictionTrackingStatus;
+  state.predictionTrackingSlot = slot.predictionTrackingSlot || "all";
+  state.predictionTrackingDay = slot.predictionTrackingDay || "";
   state.adjacentStats = slot.adjacentStats;
   state.adjacentHitPage = slot.adjacentHitPage;
   state.adjacentHitQuery = slot.adjacentHitQuery;
@@ -778,11 +850,19 @@ function updatePredictionPanelState(updates, panel = state.predictionPanel) {
 }
 
 function setPredictionPanel(panel) {
-  syncPredictionPanelMirror(normalizePredictionPanel(panel));
+  const panelKey = normalizePredictionPanel(panel);
+  const slot = predictionPanelState(panelKey);
+  const values = new Set(predictionTrackingSlotOptions(panelKey).map(([value]) => value));
+  if (!values.has(slot.predictionTrackingSlot || "all")) {
+    slot.predictionTrackingSlot = "all";
+    slot.predictionTrackingPage = 1;
+  }
+  syncPredictionPanelMirror(panelKey);
 }
 
 function predictionPanelForOptions(options = {}) {
   if (options.panel) return normalizePredictionPanel(options.panel);
+  if (state.activeView === "predictionE") return PREDICTION_PANEL_E;
   if (state.activeView === "predictionM") return PREDICTION_PANEL_M;
   if (state.activeView === "predictionD") return PREDICTION_PANEL_D;
   if (state.activeView === "predictionB") return PREDICTION_PANEL_B;
@@ -821,6 +901,7 @@ function currentGameSupportsView(view) {
     view === "predictionB" ||
     view === "predictionM" ||
     view === "predictionD" ||
+    view === "predictionE" ||
     view === "stakingBacktest" ||
     view === "currentBacktest" ||
     view === "fixedTripleObservation"
@@ -885,7 +966,8 @@ async function hydrateView(view) {
     view === "prediction" ||
     view === "predictionB" ||
     view === "predictionM" ||
-    view === "predictionD"
+    view === "predictionD" ||
+    view === "predictionE"
   ) {
     const panel = predictionPanelForView(view);
     setPredictionPanel(panel);
@@ -1104,6 +1186,8 @@ function resetPageState() {
     slot.predictionTracking = null;
     slot.predictionTrackingPage = 1;
     slot.predictionTrackingStatus = "all";
+    slot.predictionTrackingSlot = "all";
+    slot.predictionTrackingDay = "";
     slot.adjacentStats = null;
     slot.adjacentHitPage = 1;
     slot.adjacentHitQuery = "";
@@ -2016,10 +2100,13 @@ function renderPredictionLoading() {
   if (els.predictionTitle) {
     els.predictionTitle.textContent = predictionPanelLabel(panel);
   }
+  renderPredictionTrackingSlotFilter({ panel });
   els.predictionWindow.textContent = "预测计算中";
   els.predictionMethod.textContent =
     panel === PREDICTION_PANEL_D
       ? "生成共识、拆解、逆向、形态四类2码/3码观察候选"
+      : panel === PREDICTION_PANEL_E
+      ? "生成E4/E5/E6/E7连号结构观察候选"
       : panel === PREDICTION_PANEL_M
       ? "审计低组数2码/3码候选，最多保留4组"
       : panel === PREDICTION_PANEL_B
@@ -2110,6 +2197,8 @@ async function loadPredictionTracking(options = {}) {
       game: currentGameKey(),
       panel,
       status: slot.predictionTrackingStatus || "all",
+      slot: slot.predictionTrackingSlot || "all",
+      day: slot.predictionTrackingDay || "",
       page: String(slot.predictionTrackingPage || 1),
       pageSize: "20",
     });
@@ -2123,6 +2212,8 @@ async function loadPredictionTracking(options = {}) {
     const updates = {
       predictionTracking: data,
       predictionTrackingPage: Number(data.page || 1),
+      predictionTrackingSlot: data.slotFilter || slot.predictionTrackingSlot || "all",
+      predictionTrackingDay: data.dayFilter || slot.predictionTrackingDay || "",
     };
     if (refreshAdjacent) {
       Object.assign(updates, {
@@ -3061,23 +3152,26 @@ const CURRENT_BACKTEST_SLOT_OPTIONS = {
     ["all", "全部候选"],
   ],
   d: [
-    ["p2_1", "2码候选#1"],
     ["p2_2", "2码候选#2"],
-    ["p2_3", "2码候选#3"],
-    ["p2_4", "2码候选#4"],
-    ["p2_all", "全部2码候选#1-#4"],
-    ["p3_1", "3码候选#5"],
-    ["p3_2", "3码候选#6"],
-    ["p3_3", "3码候选#7"],
     ["p3_4", "3码候选#8"],
-    ["p3_all", "全部3码候选#5-#8"],
-    ["all", "全部候选"],
+    ["all", "全部D2+D8"],
+  ],
+  e: [
+    ["p4_all", "全部E4"],
+    ["p5_all", "全部E5"],
+    ["p6_all", "全部E6"],
+    ["p7_all", "全部E7"],
+    ["all", "全部E计划"],
+    ...Array.from({ length: 6 }, (_, index) => [`p4_${index + 1}`, `E4候选#${index + 1}`]),
+    ...Array.from({ length: 8 }, (_, index) => [`p5_${index + 1}`, `E5候选#${index + 1}`]),
+    ...Array.from({ length: 10 }, (_, index) => [`p6_${index + 1}`, `E6候选#${index + 1}`]),
+    ...Array.from({ length: 8 }, (_, index) => [`p7_${index + 1}`, `E7候选#${index + 1}`]),
   ],
 };
 
 function syncCurrentBacktestSlotOptions() {
   if (!els.currentBacktestSource || !els.currentBacktestSlot) return;
-  const source = els.currentBacktestSource.value === "d" ? "d" : "m";
+  const source = els.currentBacktestSource.value === "e" ? "e" : els.currentBacktestSource.value === "d" ? "d" : "m";
   const options = CURRENT_BACKTEST_SLOT_OPTIONS[source] || CURRENT_BACKTEST_SLOT_OPTIONS.m;
   const previous = els.currentBacktestSlot.value;
   const allowed = new Set(options.map(([value]) => value));
@@ -3091,7 +3185,7 @@ function syncCurrentBacktestSlotOptions() {
     option.textContent = label;
     els.currentBacktestSlot.appendChild(option);
   }
-  els.currentBacktestSlot.value = allowed.has(previous) ? previous : "p3_1";
+  els.currentBacktestSlot.value = allowed.has(previous) ? previous : source === "d" ? "p3_4" : source === "e" ? "p4_all" : "p3_1";
   els.currentBacktestSlot.dataset.source = source;
 }
 
@@ -3498,6 +3592,8 @@ async function syncData(mode = "incremental") {
       slot.predictionTracking = null;
       slot.predictionTrackingPage = 1;
       slot.predictionTrackingStatus = "all";
+      slot.predictionTrackingSlot = "all";
+      slot.predictionTrackingDay = "";
       slot.adjacentStats = null;
       slot.adjacentHitPage = 1;
       slot.adjacentHitQuery = "";
@@ -5940,6 +6036,58 @@ function rankedStrategyLabel(item, fallbackIndex = 0, panel = state.predictionPa
   return `#${rank} ${compactStrategyLabel(item?.label || item?.strategyLabel, panel)}`;
 }
 
+function predictionTrackingSlotOptions(panel = state.predictionPanel) {
+  const panelKey = normalizePredictionPanel(panel);
+  if (panelKey === PREDICTION_PANEL_D) {
+    return [
+      ["all", "全部候选"],
+      ["rank:2", "#2"],
+      ["rank:8", "#8"],
+    ];
+  }
+  if (panelKey === PREDICTION_PANEL_E) {
+    return [
+      ["all", "全部E计划"],
+      ["pick:4", "全部E4"],
+      ["pick:5", "全部E5"],
+      ["pick:6", "全部E6"],
+      ["pick:7", "全部E7"],
+      ...Array.from({ length: 32 }, (_, index) => [`rank:${index + 1}`, `#${index + 1}`]),
+    ];
+  }
+  if (panelKey === PREDICTION_PANEL_M) {
+    return [
+      ["all", "全部候选"],
+      ["rank:1", "2码 #1"],
+      ["rank:2", "2码 #2"],
+      ["rank:3", "3码 #3"],
+      ["rank:4", "3码 #4"],
+    ];
+  }
+  return [
+    ["all", "全部候选"],
+    ["rank:1", "#1"],
+    ["rank:2", "#2"],
+    ["rank:3", "#3"],
+  ];
+}
+
+function renderPredictionTrackingSlotFilter(data) {
+  if (!els.predictionTrackingSlotFilter) return;
+  const panel = normalizePredictionPanel(data?.panel || state.predictionPanel);
+  const options = predictionTrackingSlotOptions(panel);
+  const selected = data?.slotFilter || predictionPanelState(panel).predictionTrackingSlot || "all";
+  const validValues = new Set(options.map(([value]) => value));
+  const value = validValues.has(selected) ? selected : "all";
+  els.predictionTrackingSlotFilter.innerHTML = options
+    .map(
+      ([optionValue, label]) =>
+        `<option value="${escapeHtml(optionValue)}"${optionValue === value ? " selected" : ""}>${escapeHtml(label)}</option>`,
+    )
+    .join("");
+  els.predictionTrackingSlotFilter.value = value;
+}
+
 function predictionMissCount(item) {
   if (!item) return null;
   const status = String(item.status || "").toLowerCase();
@@ -5960,9 +6108,30 @@ function predictionMissText(item) {
   return displayMiss ? `当前第${fmtInt(displayMiss)}期未中` : "";
 }
 
+function predictionTrackingCurrentMissText(item) {
+  if (!item) return "";
+  const status = String(item.status || "").toLowerCase();
+  if (status === "won" || status === "cancelled" || status === "void") return "";
+  const raw = item.currentMissDisplayStreak ?? item.currentMissStreak;
+  const miss = Number(raw);
+  if (!Number.isFinite(miss) || miss <= 0) return "";
+  const displayMiss =
+    item.currentMissDisplayStreak !== undefined && item.currentMissDisplayStreak !== null
+      ? miss
+      : status === "pending"
+        ? miss + 1
+        : miss;
+  return displayMiss > 0 ? `跨天当前第${fmtInt(displayMiss)}期未中` : "";
+}
+
 function predictionMissLine(item, className) {
   const missText = predictionMissText(item);
   return missText ? `<div class="${className}">${escapeHtml(missText)}</div>` : "";
+}
+
+function predictionCurrentMissLine(item, className) {
+  const missText = predictionTrackingCurrentMissText(item);
+  return missText ? `<div class="${className} current">${escapeHtml(missText)}</div>` : "";
 }
 
 function trackingTicketNumberKey(record) {
@@ -6135,6 +6304,7 @@ function renderPredictionStrategyTickets(tickets = []) {
           <span>${escapeHtml(ticket.mode === "bonus" ? `${ticket.pickCount}+1特殊` : `${ticket.pickCount}球`)} · ${fmtNumber(Number(ticket.odds || 0), 2)}x</span>
         </div>
         ${predictionMissLine(ticket, "ticket-miss-badge")}
+        ${panelKey === PREDICTION_PANEL_E ? predictionCurrentMissLine(ticket, "ticket-miss-badge") : ""}
         <div class="ticket-balls" title="${escapeHtml(ticket.ticketLabel || "")}">${ticketNumberBalls(ticket)}</div>
         ${structureNote}
         <div class="ticket-metric-grid">
@@ -6304,6 +6474,10 @@ function renderPredictionTracking() {
     els.predictionTrackingStatusFilter.value =
       data?.statusFilter || predictionPanelState().predictionTrackingStatus || "all";
   }
+  renderPredictionTrackingSlotFilter(data);
+  if (els.predictionTrackingDayFilter) {
+    els.predictionTrackingDayFilter.value = data?.dayFilter || predictionPanelState().predictionTrackingDay || "";
+  }
   if (els.predictionTrackingPageInfo) {
     els.predictionTrackingPageInfo.textContent = data
       ? `${Number(data.page || 1).toLocaleString("zh-CN")} / ${Number(data.totalPage || 1).toLocaleString("zh-CN")}`
@@ -6471,7 +6645,12 @@ function renderPredictionTracking() {
           )}</td>`;
       const fallbackRank = displayRankByRecord.get(record) || index + 1;
       const missText = predictionMissText(record);
-      const missLine = missText ? `<div class="tracking-miss-note">${escapeHtml(missText)}</div>` : "";
+      const currentMissText = recordPanel === PREDICTION_PANEL_E ? predictionTrackingCurrentMissText(record) : "";
+      const missLine = [missText, currentMissText]
+        .filter(Boolean)
+        .map((text) => `<div class="tracking-miss-note">${escapeHtml(text)}</div>`)
+        .join("");
+      const missMetaText = [missText, currentMissText].filter(Boolean).join(" · ");
       return `<tr>
         <td><strong>${fmtTime(record.targetDrawTimeUtc)}</strong>${
           targetRelative ? ` <span class="${targetClass}">${escapeHtml(targetRelative)}</span>` : ""
@@ -6479,7 +6658,7 @@ function renderPredictionTracking() {
         <td>
           <strong>${escapeHtml(rankedStrategyLabel(record, fallbackRank - 1, recordPanel))}</strong>
           ${missLine}
-          <div class="muted">${escapeHtml(record.methodVersion || "")}${missText ? ` · ${escapeHtml(missText)}` : ""}</div>
+          <div class="muted">${escapeHtml(record.methodVersion || "")}${missMetaText ? ` · ${escapeHtml(missMetaText)}` : ""}</div>
           ${structureMeta}
         </td>
         <td>${trackingTicketContent(record)}</td>
@@ -7172,7 +7351,8 @@ async function refreshCurrentView(options = {}) {
     state.activeView === "prediction" ||
     state.activeView === "predictionB" ||
     state.activeView === "predictionM" ||
-    state.activeView === "predictionD"
+    state.activeView === "predictionD" ||
+    state.activeView === "predictionE"
   ) {
     const panel = predictionPanelForView(state.activeView);
     setPredictionPanel(panel);
@@ -7232,7 +7412,8 @@ async function switchView(view) {
       view === "prediction" ||
       view === "predictionB" ||
       view === "predictionM" ||
-      view === "predictionD",
+      view === "predictionD" ||
+      view === "predictionE",
     );
   document.querySelector("#martingaleView").classList.toggle("active", view === "martingale");
   document.querySelector("#backtestView").classList.toggle("active", view === "backtest");
@@ -7295,6 +7476,24 @@ if (els.predictionTrackingStatusFilter) {
   els.predictionTrackingStatusFilter.addEventListener("change", () => {
     const slot = predictionPanelState();
     slot.predictionTrackingStatus = els.predictionTrackingStatusFilter.value || "all";
+    slot.predictionTrackingPage = 1;
+    syncPredictionPanelMirror();
+    loadPredictionTracking({ silent: true, panel: state.predictionPanel });
+  });
+}
+if (els.predictionTrackingSlotFilter) {
+  els.predictionTrackingSlotFilter.addEventListener("change", () => {
+    const slot = predictionPanelState();
+    slot.predictionTrackingSlot = els.predictionTrackingSlotFilter.value || "all";
+    slot.predictionTrackingPage = 1;
+    syncPredictionPanelMirror();
+    loadPredictionTracking({ silent: true, panel: state.predictionPanel });
+  });
+}
+if (els.predictionTrackingDayFilter) {
+  els.predictionTrackingDayFilter.addEventListener("change", () => {
+    const slot = predictionPanelState();
+    slot.predictionTrackingDay = els.predictionTrackingDayFilter.value || "";
     slot.predictionTrackingPage = 1;
     syncPredictionPanelMirror();
     loadPredictionTracking({ silent: true, panel: state.predictionPanel });

@@ -1,9 +1,243 @@
 # CPGAME Handoff
 
-Updated: 2026-06-12 Asia/Shanghai
+Updated: 2026-06-21 Asia/Shanghai
 
 This handoff is intentionally ASCII-only. Local PowerShell output can garble
 Chinese text, and the next session must be able to read this file reliably.
+
+## 2026-06-21 E Plan Run-Shape Observation
+
+User decision:
+
+```text
+Add a new E plan for connected-number structure observation. This is a
+forward-data collection plan, not a replacement for D. D8 remains locked and
+unchanged.
+```
+
+Implementation completed:
+
+```text
+Panel E is active again under tracking method strategy-ticket-e-runshape-v1.
+The old E profit-five method is no longer used for live E predictions.
+
+E now generates 32 independent strategy tickets per target draw:
+- E4: 6 tickets
+- E5: 8 tickets
+- E6: 10 tickets
+- E7: 8 tickets
+
+Allowed structures:
+- E4: 2+2
+- E5: 3+2, 2+2+1
+- E6: 2+2+2, 2+2+1+1
+- E7: 2+2+2+1, 2+2+1+1+1
+
+Excluded structures:
+- 4-run, 5-run, 6-run, 7-run
+- double 3-runs
+- 3-run + 4-run
+- E7 2+2+3
+```
+
+Strategy design:
+
+```text
+E uses multiple independent strategy groups so weak strategies can be removed
+after several days of tracked data. Some E strategies use D8 as a seed/score
+source, but there are also independent historical run-shape strategies that do
+not depend on D8.
+
+Do not change the D8 algorithm, D8 rank, or D tracking order for E. E only reads
+the full internal D batch to locate the fixed D8 seed.
+```
+
+Tracking/backtest behavior:
+
+```text
+E tracking is enabled in prediction auto mode.
+E supports plan-page filters by pick count:
+- pick:4 / pick:5 / pick:6 / pick:7
+- rank:1 through rank:32
+
+E has daily miss and current cross-day miss:
+- dailyMissStreak resets by game day.
+- currentMissStreak continues across days.
+
+E is available in the current staking backtest with source=e. Supported grouped
+slots include p4_all, p5_all, p6_all, p7_all, and all. Exact slots include
+p4_1..p4_6, p5_1..p5_8, p6_1..p6_10, and p7_1..p7_8.
+```
+
+Frontend behavior:
+
+```text
+The UI now has an E plan tab.
+E plan cards show structure labels, daily miss, and current miss.
+The tracking view can filter all E, E4/E5/E6/E7, or a single E rank.
+The current backtest source selector includes E plan.
+```
+
+Local verification on 2026-06-21:
+
+```text
+python compile check passed for keno_dashboard_server.py.
+node --check passed for web/app.js.
+
+/api/predictions?panel=e generated 32 tickets:
+- E4 6, E5 8, E6 10, E7 8
+- no invalid excluded structures found
+
+/api/prediction-tracking?panel=e&slot=pick:4:
+- E4Total=36, E4Bad=0
+
+/api/prediction-tracking?panel=e&slot=pick:6:
+- E6Total=60, E6Bad=0
+
+/api/prediction-tracking?panel=e&slot=rank:1:
+- Rank1Total=6, Rank1Bad=0
+- Rank1CurrentMiss=6, Rank1DailyMiss=6
+
+/api/current-staking-backtest?source=e&slot=p4_all:
+- BacktestSource=e
+- BacktestSlot=p4_all
+- BacktestRecords=160
+- BacktestRounds=5
+- BacktestBets=30
+```
+
+## 2026-06-19 D Plan #8 Algorithm Lock
+
+User decision:
+
+```text
+D-plan #8 must be kept fixed. Do not change its prediction algorithm,
+slot mapping, ranking rule, or generated structure unless the user explicitly
+reverses this instruction.
+```
+
+Current definition:
+
+```text
+Panel: D plan
+Slot: #8 = p3_4 = ticketRank 8
+Type: 3-number candidate
+Rule: shape
+Stored structure: derivedRule=shape, structureLabel=shape rule 3-number
+Stake/research focus: flat-buy observation and forward data collection
+```
+
+Important interpretation:
+
+```text
+D-plan #8 is not derived from D-plan 2-number candidates.
+It is the D-plan 3-number shape slot generated in the same D batch.
+It uses historical draw statistics and upstream A/B/current-C(M) source context.
+The user considers this the best-performing and most promising candidate.
+Preserve it and collect as much forward tracking data as possible.
+```
+
+## 2026-06-20 D Plan Focus
+
+User decision:
+
+```text
+For D-plan, only D2 and D8 are useful enough to watch now.
+Do not show or newly track other D slots unless the user explicitly changes
+this decision.
+```
+
+Implementation rule:
+
+```text
+D2 = ticketRank 2 = 2-number decompose slot.
+D8 = ticketRank 8 = 3-number shape slot.
+
+Keep the full 8-slot D generation order internally so D2/D8 keep their fixed
+slot meaning and algorithm. Filter only the presentation, tracking query, and
+new tracking output to ranks 2 and 8.
+```
+
+Current D8 read:
+
+```text
+The D8 edge is not from one single factor. Local merged tracking data points to
+a stack: shape slot + strong high/low zone behavior + especially +/-10 interval
+patterns + moderate source overlap. Plain consecutive shape is positive but
+weaker; middle-zone and over-consensus sourceCount=3 drag results.
+```
+
+Local implementation completed on 2026-06-20:
+
+```text
+Files changed for this focus:
+- keno_dashboard_server.py
+- web/app.js
+- HANDOFF.md
+
+Backend behavior:
+- /api/predictions?panel=d still internally generates the full 8 D slots.
+- The API response only exposes D2 and D8 in predictions.strategyTickets.
+- New D tracking records are created only for D2 and D8.
+- D tracking list, D tracking summary/groups, daily tracking windows, and
+  current backtest SQL queries are filtered to D2/D8 only.
+- Existing historical D records for other slots remain in SQLite but are hidden
+  from D panel pages and summaries by query filtering.
+
+Frontend behavior:
+- Current backtest source=D only offers:
+  p2_2 = 2-number candidate #2
+  p3_4 = 3-number candidate #8
+  all = D2 + D8 only
+
+Important: Do not remove the internal 8-slot D generation. The filter must stay
+at the output/query layer so D2 and D8 keep the same slot mapping and algorithm.
+```
+
+Verification already run locally:
+
+```text
+python compile check for keno_dashboard_server.py: passed
+node --check web/app.js: passed
+
+Direct Python prediction_payload(panel=d):
+count=2, ranks=[2,8], pickCounts=[2,3], rules=[decompose,shape],
+strategyTicketFocus allCount=8, visibleCount=2
+
+Full predictions_payload(panel=d, touch_tracking=False):
+count=2, ranks=[2,8], rules=[decompose,shape],
+strategyTicketFocus allCount=8, visibleCount=2
+
+Local HTTP /api/predictions?game=poland_keno_20_70&panel=d:
+Count=2, Ranks=2,8, Rules=decompose,shape,
+FocusRanks=2,8, AllCount=8, VisibleCount=2
+
+Local HTTP /api/prediction-tracking?game=poland_keno_20_70&panel=d&autoSync=0&pageSize=10:
+Ranks=2,8 only; groups show D shape 3-number and D decompose 2-number only.
+
+Current backtest source=d slot=all:
+slotCounts only p2_2 and p3_4.
+
+Current backtest source=d slot=p3_4:
+slotCounts only p3_4.
+```
+
+Local service state after this change:
+
+```text
+Local server was restarted after edits.
+URL: http://127.0.0.1:8787
+Observed listening Python PID after restart: 26300
+```
+
+Git/worktree note:
+
+```text
+These D2/D8 focus changes are local and not committed/pushed yet.
+The worktree already contains unrelated changes from prior work, including
+auto-bet/plugin and old multi-game cleanup work. Do not blindly commit all
+modified files. Stage only the D2/D8 focus hunks if creating a server patch.
+```
 
 ## Current Production Issue
 
@@ -1104,56 +1338,184 @@ Pull latest main, restart the aaPanel Supervisor-managed cpgame process, then
 confirm the running PID/start time changed before trusting the fix.
 ```
 
-## 2026-06-19 Prediction Auto Gap Optimization
+## 2026-06-16 Browser Extension Auto-Bet Handoff
 
-User correction:
+User is restarting the Codex session while testing BC.GAME browser-extension
+auto betting.
 
-```text
-D-plan is currently performing well. Do not stop or disable the current D-plan.
-```
-
-Production symptom:
+Important user constraints:
 
 ```text
-The server process kept running, but current backtest still showed severe
-missing candidate periods. This can happen when the auto worker is delayed and
-the official sync advances history by multiple draws in one loop. The worker can
-only create true live candidates for the next not-yet-drawn target after the
-latest synced draw; intermediate targets that are already in the past must not
-be inserted as normal live/pending rows.
+- Do not push until user explicitly says it is ready to push.
+- Do not change prediction/backtest strategy logic for auto-bet plumbing.
+- Telegram is independent from betting. Do not wire auto betting to Telegram.
+- User wants full auto execution with take-profit/stop-loss, not a manual
+  "click every period" helper.
+- Default target is Poland Keno 20/70, C-plan panel m, 3-code candidate #3.
+- Keep amount options focused on 0.5, 1, and 5.
 ```
 
-Implemented in `keno_dashboard_server.py`:
+Current browser extension path:
 
 ```text
-- Kept A/B/C/D auto generation active; D-plan remains in the auto loop.
-- Auto sync checks, settlement, and tracking touch now load only pending
-  prediction rows instead of scanning the full tracking DB.
-- Tracking summaries and grouping now use SQLite aggregate queries instead of
-  Python-side full-record scans.
-- Candidate creation checks candidate IDs against the DB before inserting, so
-  loading only pending rows cannot overwrite settled records back to pending.
-- Auto worker no longer schedules redundant prediction prewarm after generating
-  candidates; startup prewarm is skipped when auto tracking is enabled.
-- `/api/prediction-auto` now reports `skippedTargetAudit` and
-  `missedCandidateTargets` when a loop observes that history advanced by
-  multiple operating draws.
+browser_extension/
 ```
 
-What did not change:
+Main extension files:
 
 ```text
-- D-plan was not disabled.
-- Prediction rules, ticket ranking, odds, settlement formulas, and staking
-  backtest math were not changed.
-- Browser-extension / auto-bet work remains local and is not part of this
-  production fix.
+browser_extension/manifest.json
+browser_extension/background.js
+browser_extension/shared/api.js
+browser_extension/content/bcgame_content.js
+browser_extension/popup/popup.html
+browser_extension/popup/popup.js
+browser_extension/popup/popup.css
 ```
 
-## 2026-06-19 Remove Retired Games
+Current local auto-bet backend files and runtime state:
 
-User requested Spain, Russia, and Italy be removed. Production is now limited to
-Poland only. The cleanup removes the old game entries from backend/frontend
-configuration and removes the three old history CSV files from git tracking.
+```text
+keno_dashboard_server.py
+data/auto_bet_config.json
+data/auto_bet.sqlite3
+```
 
-D-plan remains active and was not disabled.
+Implemented auto-bet backend:
+
+```text
+- /api/auto-bet/status
+- /api/auto-bet/config
+- /api/auto-bet/session/start
+- /api/auto-bet/session/stop
+- /api/auto-bet/order/claim
+- /api/auto-bet/order/submit-result
+```
+
+Auto-bet backend behavior:
+
+```text
+- Session starts from session miss = 0, regardless of previous global miss.
+- Open order is generated from pending prediction tracking rows for
+  poland_keno_20_70, panel m.
+- Slot keys:
+  p3_1 = 3-code candidate #3
+  p3_2 = 3-code candidate #4
+- Stake ladder uses baseStake, stepMisses, stepStake, maxStake.
+- Risk checks include take profit, stop loss, daily loss, daily stake, session
+  miss, and minLeadSeconds.
+- Unknown/rejected/too-close submit status pauses the session.
+- Settled accepted orders update session profit/miss from tracking settlement.
+```
+
+Important: this auto-bet work is plumbing/risk/session logic only. It should not
+change C-plan prediction generation, candidate ranking, settlement, odds, or
+backtest strategy rules.
+
+Prediction-auto linkage:
+
+```text
+- The browser extension background runner now ensures /api/prediction-auto is
+  running for poland_keno_20_70 when auto-run starts.
+- If an active auto-bet session has no nextOrder, background.js triggers a
+  prediction-auto runonce and then reloads /api/auto-bet/status.
+- For runonce triggered by auto betting, config includes notifyTelegram=false.
+- keno_dashboard_server.py honors notifyTelegram=false inside
+  run_prediction_auto_once(...) by skipping telegram_notify_game(...).
+- Normal prediction-auto behavior still defaults to notifyTelegram=true.
+```
+
+Extension current behavior:
+
+```text
+- Content script can select "3 selected balls", click the 3 target numbers,
+  choose fixed stake amount from the BC dropdown, click "add to bet", open the
+  cart/bet slip, verify numbers and stake, and attempt final submit.
+- Popup no longer shows the old mode dropdown
+  assist/observe/confirm_first/live because those labels did not control real
+  execution and confused the user.
+- Popup has amount options 0.5, 1, and 5.
+- "Start auto execution" starts the local auto-bet session and background
+  auto-runner.
+- Manual "auto bet" button uses CPGAME_PREPARE_ACTIVE_TAB, which currently
+  calls prepareOrder({ addToBet: true, finalSubmit: true }).
+```
+
+Current final-submit issue and latest fix:
+
+```text
+User showed screenshot:
+F:\我的开发\CPGAME\ScreenShot_2026-06-14_155753_970.png
+
+The final green "下注" button is not inside the upper ticket card. It is in the
+right-side bet-slip drawer bottom fixed checkout area.
+
+content/bcgame_content.js was updated to:
+- SCRIPT_VERSION = "2026-06-15-final-click-v3"
+- Add rightDrawerFinalBetScore(...)
+- Add findRightDrawerFinalBetButton(...)
+- In clickFinalBet(), try findRightDrawerFinalBetButton() first before old
+  panel/document fallback.
+- Right-drawer final button scoring requires page right side, page lower half,
+  enough width/height, and text such as "下注", "确认下注", "Place Bet",
+  "Submit Bet", or "Bet".
+- Green background receives extra score, matching the BC.GAME bottom button.
+- finalBetDiagnostics now includes rightDrawerScore for debugging.
+```
+
+The latest code was syntax-checked locally:
+
+```powershell
+node --check .\browser_extension\background.js
+node --check .\browser_extension\content\bcgame_content.js
+node --check .\browser_extension\popup\popup.js
+node --check .\browser_extension\shared\api.js
+python -m py_compile .\keno_dashboard_server.py
+```
+
+All passed in the current session.
+
+Required user action after this handoff:
+
+```text
+1. If keno_dashboard_server.py changed and the server is already running,
+   restart the local server process.
+2. In browser extension management, reload the unpacked browser_extension.
+3. Refresh the BC.GAME page so the new content script version is injected.
+4. Test again from the state where the bet slip is open and the green bottom
+   "下注" button is visible.
+```
+
+If the final "下注" still is not clicked:
+
+```text
+- Ask user for the popup error/last action text.
+- Inspect the submitted raw/finalBetDiagnostics from auto_bet.sqlite3 or the
+  extension result.
+- Check whether diagnostics show the bottom "下注" element, its rect, match,
+  score, and rightDrawerScore.
+- If diagnostics does not show it, add a temporary page snapshot command or
+  content-script debug action to return visible right-bottom clickables.
+- Do not solve this by blind repeated clicking; final submit can double-bet.
+```
+
+Current local git state at handoff included unrelated/runtime dirty files:
+
+```text
+M .gitignore
+M data/bc_italy_win_for_life_10_20_history.csv
+M data/bc_poland_keno_20_70_history.csv
+M data/bc_russia_rapido_8_20_history.csv
+M data/bc_spain_l_express_20_70_history.csv
+M data/prediction_auto_config.json
+M keno_dashboard_server.py
+M web/app.js
+M web/index.html
+?? browser_extension/
+?? cpgame_audit_v8_sync.md
+?? tmp_current_backtest_full.json
+?? startup helper bat file with Chinese filename
+```
+
+Do not commit or push anything unless user explicitly instructs it. If user asks
+to commit later, carefully separate runtime data from code changes.

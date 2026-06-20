@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>基诺分析面板</title>
-    <link rel="stylesheet" href="/styles.css?v=20260612-miss-visible" />
+    <link rel="stylesheet" href="/styles.css?v=20260621-e-plan" />
   </head>
   <body>
     <div class="app-shell">
@@ -27,6 +27,7 @@
           <button class="tab-btn" type="button" data-view="predictionB">B计划</button>
           <button class="tab-btn" type="button" data-view="predictionM">C计划</button>
           <button class="tab-btn" type="button" data-view="predictionD">D计划</button>
+          <button class="tab-btn" type="button" data-view="predictionE">E计划</button>
           <button class="tab-btn" type="button" data-view="martingale">倍投计算</button>
           <button class="tab-btn" type="button" data-view="stakingBacktest">固定回测</button>
           <button class="tab-btn" type="button" data-view="currentBacktest">当前回测</button>
@@ -162,6 +163,10 @@
                       <option value="cancelled">已取消</option>
                       <option value="void">已作废</option>
                     </select>
+                    <select id="predictionTrackingSlotFilter" title="候选筛选">
+                      <option value="all">全部候选</option>
+                    </select>
+                    <input id="predictionTrackingDayFilter" type="date" title="开奖日筛选" />
                   </div>
                   <div class="tracking-ops">
                     <span id="predictionAutoStatus" class="muted">追踪关闭</span>
@@ -586,6 +591,7 @@
                 <select id="currentBacktestSource">
                   <option value="m" selected>C计划</option>
                   <option value="d">D计划</option>
+                  <option value="e">E计划</option>
                 </select>
               </label>
               <label>
@@ -1558,6 +1564,6 @@
     </div>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js?v=20260612-miss-visible"></script>
+    <script src="/app.js?v=20260621-e-plan"></script>
   </body>
 </html>

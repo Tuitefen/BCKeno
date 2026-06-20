@@ -54,6 +54,8 @@ DEFAULT_HISTORY = DATA_ROOT / "bc_poland_keno_20_70_history.csv"
 DEFAULT_PREDICTION_TRACKING = DATA_ROOT / "prediction_tracking.json"
 DEFAULT_PREDICTION_TRACKING_DB = DATA_ROOT / "prediction_tracking.sqlite3"
 DEFAULT_PREDICTION_AUTO_CONFIG = DATA_ROOT / "prediction_auto_config.json"
+DEFAULT_AUTO_BET_CONFIG = DATA_ROOT / "auto_bet_config.json"
+DEFAULT_AUTO_BET_DB = DATA_ROOT / "auto_bet.sqlite3"
 DEFAULT_TELEGRAM_CONFIG = DATA_ROOT / "telegram_bot_config.local.json"
 DEFAULT_TELEGRAM_STATE = DATA_ROOT / "telegram_bot_state.local.json"
 DEFAULT_LOTTERY_ID = "79830"
@@ -82,6 +84,8 @@ STRATEGY_AUDIT_CACHE_LOCK = threading.Lock()
 HISTORY_CACHE_LOCK = threading.Lock()
 PREDICTION_TRACKING_LOCK = threading.Lock()
 PREDICTION_TRACKING_AUTO_SYNC_LOCK = threading.Lock()
+AUTO_BET_LOCK = threading.Lock()
+AUTO_BET_DB_INIT_LOCK = threading.Lock()
 PREDICTION_DB_INIT_LOCK = threading.Lock()
 PREDICTION_AUTO_LOCK = threading.Lock()
 PREDICTION_PREWARM_LOCK = threading.Lock()
@@ -90,6 +94,7 @@ PREDICTION_AUTO_THREAD: threading.Thread | None = None
 TELEGRAM_BOT_STOP = threading.Event()
 TELEGRAM_BOT_THREAD: threading.Thread | None = None
 PREDICTION_DB_INITIALIZED = False
+AUTO_BET_DB_INITIALIZED = False
 HISTORY_CACHE_MAX_ITEMS = 5
 ANALYSIS_CACHE_MAX_ITEMS = 5
 PREDICTION_CACHE_MAX_ITEMS = 40
@@ -145,6 +150,22 @@ LEGACY_VOID_REASONS = {
 }
 
 LOTTERY_GAMES: dict[str, dict[str, Any]] = {
+    "spain_l_express_20_70": {
+        "key": "spain_l_express_20_70",
+        "lotteryId": "115889",
+        "name": "西班牙快车 L Express",
+        "shortName": "西班牙快车 20/70",
+        "country": "Spain",
+        "drawnNumbers": 20,
+        "totalNumbers": 70,
+        "drawIntervalMinutes": 4,
+        "historyPath": DATA_ROOT / "bc_spain_l_express_20_70_history.csv",
+        "supportsAnalysis": True,
+        "supportsPredictions": True,
+        "officialSupplement": "lotodate",
+        "supplementUrl": "https://lotodate.ro/en/Extrageri/5-spain-l-express-20-70",
+        "operatingHours": {"timezone": "Europe/Madrid", "start": "07:06", "end": "23:58"},
+    },
     "poland_keno_20_70": {
         "key": "poland_keno_20_70",
         "lotteryId": "79830",
@@ -160,6 +181,45 @@ LOTTERY_GAMES: dict[str, dict[str, Any]] = {
         "officialSupplement": "lotodate",
         "supplementUrl": "https://lotodate.ro/en/Extrageri/4-poland-keno-20-70",
         "operatingHours": {"timezone": "Europe/Warsaw", "start": "06:34", "end": "23:54"},
+    },
+    "russia_rapido_8_20": {
+        "key": "russia_rapido_8_20",
+        "lotteryId": "56526",
+        "name": "快速俄罗斯 Rapido",
+        "shortName": "快速俄罗斯 8/20",
+        "country": "Russia",
+        "drawnNumbers": 8,
+        "totalNumbers": 20,
+        "drawIntervalMinutes": 15,
+        "historyPath": DATA_ROOT / "bc_russia_rapido_8_20_history.csv",
+        "supportsAnalysis": True,
+        "supportsPredictions": True,
+        "officialSupplement": "yesplay",
+        "supplementUrl": "https://yesplay.bet/lucky-numbers/russia_rapido/results",
+        "hasBonusBall": True,
+        "bonusBallTotalNumbers": 4,
+        "bonusBallPredictionCount": 2,
+        "bonusBallPredictionLabel": "1主1辅",
+    },
+    "italy_win_for_life_10_20": {
+        "key": "italy_win_for_life_10_20",
+        "lotteryId": "69692",
+        "name": "意大利 Win for Life 经典版",
+        "shortName": "意大利终身赢 10/20",
+        "country": "Italy",
+        "drawnNumbers": 10,
+        "totalNumbers": 20,
+        "drawIntervalMinutes": 60,
+        "historyPath": DATA_ROOT / "bc_italy_win_for_life_10_20_history.csv",
+        "supportsAnalysis": True,
+        "supportsPredictions": True,
+        "officialSupplement": "lotodate",
+        "supplementUrl": "https://lotodate.ro/en/Extrageri/11-italy-win-for-life-classico-10-20",
+        "hasBonusBall": True,
+        "bonusBallTotalNumbers": 20,
+        "bonusBallPredictionCount": 3,
+        "bonusBallPredictionLabel": "1主2辅",
+        "operatingHours": {"timezone": "Europe/Rome", "start": "07:00", "end": "23:00"},
     },
 }
 SUM_RANGES = [
@@ -194,6 +254,38 @@ SUM_RANGES_20_70 = [
     ("861-890", 861, 890),
     ("891-1210", 891, 1210),
 ]
+SUM_RANGES_8_20 = [
+    ("36-53", 36, 53),
+    ("54-58", 54, 58),
+    ("59-64", 59, 64),
+    ("65-69", 65, 69),
+    ("70-73", 70, 73),
+    ("74-78", 74, 78),
+    ("79-83", 79, 83),
+    ("84-89", 84, 89),
+    ("90-94", 90, 94),
+    ("95-98", 95, 98),
+    ("99-103", 99, 103),
+    ("104-109", 104, 109),
+    ("110-114", 110, 114),
+    ("115-132", 115, 132),
+]
+SUM_RANGES_10_20 = [
+    ("55-77", 55, 77),
+    ("78-83", 78, 83),
+    ("84-89", 84, 89),
+    ("90-95", 90, 95),
+    ("96-101", 96, 101),
+    ("102-107", 102, 107),
+    ("108-113", 108, 113),
+    ("114-119", 114, 119),
+    ("120-125", 120, 125),
+    ("126-131", 126, 131),
+    ("132-137", 132, 137),
+    ("138-143", 138, 143),
+    ("144-149", 144, 149),
+    ("150-155", 150, 155),
+]
 LOTTERY_GAMES["poland_keno_20_70"]["sumRanges"] = SUM_RANGES_20_70
 RUN_CONDITIONS = [
     ("all", "全部开奖"),
@@ -212,6 +304,27 @@ RUN_CONDITIONS = [
     ("hasSix", "含六连"),
 ]
 RUN_CONDITION_LABELS = dict(RUN_CONDITIONS)
+RUSSIA_ITALY_RUN_CONDITION_KEYS = [
+    "hasPair",
+    "hasDoublePair",
+    "hasTriplePairSet",
+    "hasTriple",
+    "hasPairTriple",
+    "hasTripleDoublePair",
+    "hasQuad",
+    "hasQuadPair",
+    "hasFive",
+    "hasSix",
+]
+LOTTERY_GAMES["russia_rapido_8_20"]["runConditionKeys"] = RUSSIA_ITALY_RUN_CONDITION_KEYS
+LOTTERY_GAMES["russia_rapido_8_20"]["predictionConditionKeys"] = LOTTERY_GAMES[
+    "russia_rapido_8_20"
+]["runConditionKeys"]
+LOTTERY_GAMES["italy_win_for_life_10_20"]["runConditionKeys"] = RUSSIA_ITALY_RUN_CONDITION_KEYS
+LOTTERY_GAMES["italy_win_for_life_10_20"]["predictionConditionKeys"] = LOTTERY_GAMES[
+    "italy_win_for_life_10_20"
+]["runConditionKeys"]
+
 ACTIVE_GAME_KEYS = ("poland_keno_20_70",)
 LOTTERY_GAMES = {key: LOTTERY_GAMES[key] for key in ACTIVE_GAME_KEYS}
 DEFAULT_HISTORY = LOTTERY_GAMES[DEFAULT_GAME_KEY]["historyPath"]
@@ -306,11 +419,28 @@ BACKTEST_SCAN_MAX_RESULTS = 80
 BACKTEST_SHAPE_GROUP_LIMIT = 20000
 BACKTEST_SHAPE_FIXED_SCAN_LIMIT = 10000
 DEFAULT_MAIN_ODDS_BY_GAME = {
+    "spain_l_express_20_70": {1: 3.2, 2: 11, 3: 40, 4: 150, 5: 500, 6: 2000, 7: 6500, 8: 18000},
     "poland_keno_20_70": {1: 3.2, 2: 11, 3: 40, 4: 150, 5: 500, 6: 2000, 7: 6500, 8: 18000},
+    "italy_win_for_life_10_20": {1: 1.8, 2: 3.8, 3: 9, 4: 20, 5: 50, 6: 150, 7: 500, 8: 1650},
+    "russia_rapido_8_20": {1: 2.2, 2: 6, 3: 18, 4: 60, 5: 220, 6: 1000, 7: 5000},
 }
 DEFAULT_BONUS_ODDS_BY_GAME = {
+    "russia_rapido_8_20": {1: 9, 2: 25, 3: 70, 4: 200, 5: 700, 6: 2000, 7: 8000},
+    "italy_win_for_life_10_20": {1: 35, 2: 75, 3: 150, 4: 300, 5: 600, 6: 1500, 7: 3000, 8: 10000},
 }
 PREDICTION_TICKET_STRATEGIES = {
+    "italy_win_for_life_10_20": [
+        {"mode": "main", "pickCount": 3, "label": "意大利 3球候选票"},
+        {"mode": "main", "pickCount": 2, "label": "意大利 2球候选票"},
+    ],
+    "russia_rapido_8_20": [
+        {"mode": "main", "pickCount": 2, "label": "俄罗斯 2球候选票"},
+        {"mode": "bonus", "pickCount": 2, "label": "俄罗斯 2+1特殊球候选票"},
+    ],
+    "spain_l_express_20_70": [
+        {"mode": "main", "pickCount": 1, "label": "西班牙 1球候选票"},
+        {"mode": "main", "pickCount": 2, "label": "西班牙 2球候选票"},
+    ],
     "poland_keno_20_70": [
         {"mode": "main", "pickCount": 1, "label": "波兰 1球候选票"},
         {"mode": "main", "pickCount": 2, "label": "波兰 2球候选票"},
@@ -330,7 +460,7 @@ PREDICTION_TRACKING_METHOD_BY_PANEL = {
     PREDICTION_PANEL_B: "strategy-ticket-b-v1",
     PREDICTION_PANEL_C: "strategy-ticket-c-v1",
     PREDICTION_PANEL_D: "strategy-ticket-d-observe-23-v1",
-    PREDICTION_PANEL_E: "strategy-ticket-e-dprofit-five-v1",
+    PREDICTION_PANEL_E: "strategy-ticket-e-runshape-v1",
     PREDICTION_PANEL_M: "strategy-ticket-m-lowgroup-v1",
     PREDICTION_PANEL_F: "strategy-ticket-f-v2",
     PREDICTION_PANEL_G: "strategy-ticket-g-v1",
@@ -347,7 +477,6 @@ PREDICTION_PANEL_LABELS = {
 }
 PREDICTION_RETIRED_PANELS = {
     PREDICTION_PANEL_C,
-    PREDICTION_PANEL_E,
     PREDICTION_PANEL_F,
     PREDICTION_PANEL_G,
 }
@@ -356,6 +485,7 @@ PREDICTION_ACTIVE_TRACKING_PANELS = (
     PREDICTION_PANEL_B,
     PREDICTION_PANEL_M,
     PREDICTION_PANEL_D,
+    PREDICTION_PANEL_E,
 )
 PREDICTION_CURRENT_METHOD_FILTER_PANELS = {
     PREDICTION_PANEL_D,
@@ -412,6 +542,12 @@ PREDICTION_PANEL_D_RULES = (
     ("reverse", "逆向"),
     ("shape", "形态"),
 )
+PREDICTION_PANEL_D_RULE_RANKS = {
+    rule_key: index
+    for index, (rule_key, _label) in enumerate(PREDICTION_PANEL_D_RULES, start=1)
+}
+PREDICTION_PANEL_D_FOCUS_RANKS = (2, 8)
+PREDICTION_PANEL_D_FOCUS_RANK_SET = set(PREDICTION_PANEL_D_FOCUS_RANKS)
 PREDICTION_PANEL_D_RULE_PRIORITY_NEW = {
     "consensus": 1.00,
     "decompose": 0.94,
@@ -472,6 +608,23 @@ PREDICTION_PANEL_D_RULE_PRIORITY = {
     "c_mirror": 0.76,
 }
 PREDICTION_PANEL_D_DISABLED_STRUCTURE_TYPES_BY_GAME = {
+    "spain_l_express_20_70": {
+        "d_ab_mirror",
+        "d_ab_pm_1",
+        "d_ab_pm_3",
+        "d_ab_pm_4",
+        "d_ab_pm_7",
+        "d_ab_pm_9",
+        "d_ab_shift_minus_2",
+        "d_ab_shift_minus_4",
+        "d_ab_shift_minus_6",
+        "d_ab_shift_minus_8",
+        "d_ab_shift_plus_1",
+        "d_ab_shift_plus_3",
+        "d_ab_shift_plus_7",
+        "d_ab_tail_plus_10",
+        "d_c_original_offset_d",
+    },
     "poland_keno_20_70": {
         "d_ab_interval_mid_pm1",
         "d_ab_pm_3",
@@ -498,15 +651,96 @@ PREDICTION_PANEL_D_DISABLED_STRUCTURE_TYPES_BY_GAME = {
         "d_c_shift_plus_10_band_5_10",
         "d_c_shift_plus_10_cohit_free",
     },
+    "russia_rapido_8_20": {
+        "d_ab_shift_minus_1",
+        "d_ab_shift_minus_3",
+        "d_ab_shift_minus_4",
+        "d_ab_shift_plus_3",
+        "d_c_shift_minus_1_cohit_free",
+        "d_c_shift_plus_1_cohit_free",
+    },
+    "italy_win_for_life_10_20": {
+        "d_c_shift_minus_1_cohit_free",
+    },
 }
 PREDICTION_PANEL_E_TOP_COUNT = 32
+PREDICTION_PANEL_E_PAIR_POOL = 30
+PREDICTION_PANEL_E_TRIPLE_POOL = 18
+PREDICTION_PANEL_E_SINGLE_POOL = 28
+PREDICTION_PANEL_E_PREFILTER_LIMIT = 900
+PREDICTION_PANEL_E_PAIR_COMBO_LIMIT = 140
+PREDICTION_PANEL_E_THREE_PAIR_COMBO_LIMIT = 120
 PREDICTION_PANEL_E_D_SOURCE_LIMIT = 48
 PREDICTION_PANEL_E_DERIVED_PREFILTER_LIMIT = 240
 PREDICTION_PANEL_E_RULE_LIMIT = 4
 PREDICTION_PANEL_E_SOURCE_MIN_SETTLED = 30
 PREDICTION_PANEL_E_SOURCE_CACHE_TTL_SECONDS = 60
 PREDICTION_PANEL_E_SOURCE_CACHE: dict[str, tuple[float, set[str]]] = {}
+PREDICTION_PANEL_E_ALLOWED_SHAPES = {
+    4: {"2+2"},
+    5: {"3+2", "2+2+1"},
+    6: {"2+2+2", "2+2+1+1"},
+    7: {"2+2+2+1", "2+2+1+1+1"},
+}
+PREDICTION_PANEL_E_STRATEGY_SPECS = (
+    {"key": "e4_d8_pair_bridge", "pick": 4, "shape": "2+2", "source": "d8_pair", "mode": "seed", "label": "E4 D8拆两连+历史两连"},
+    {"key": "e4_pair_cohit_a", "pick": 4, "shape": "2+2", "source": "history", "mode": "cohit", "label": "E4 双两连共现A"},
+    {"key": "e4_pair_cohit_b", "pick": 4, "shape": "2+2", "source": "history", "mode": "balanced", "label": "E4 双两连共现B"},
+    {"key": "e4_pair_miss", "pick": 4, "shape": "2+2", "source": "history", "mode": "miss", "label": "E4 双两连当前遗漏"},
+    {"key": "e4_pair_active", "pick": 4, "shape": "2+2", "source": "history", "mode": "active", "label": "E4 双两连近窗活跃"},
+    {"key": "e4_pair_spread", "pick": 4, "shape": "2+2", "source": "history", "mode": "spread", "label": "E4 双两连区间分散"},
+    {"key": "e5_d8_triple_pair", "pick": 5, "shape": "3+2", "source": "d8_triple", "mode": "seed", "label": "E5 D8三连+历史两连"},
+    {"key": "e5_d8_pair_pair_single", "pick": 5, "shape": "2+2+1", "source": "d8_pair", "mode": "seed", "label": "E5 D8拆两连+两连散码"},
+    {"key": "e5_triple_pair_cohit", "pick": 5, "shape": "3+2", "source": "history", "mode": "cohit", "label": "E5 三连+两连共现"},
+    {"key": "e5_triple_pair_miss", "pick": 5, "shape": "3+2", "source": "history", "mode": "miss", "label": "E5 三连+两连遗漏"},
+    {"key": "e5_pair_pair_single_cohit", "pick": 5, "shape": "2+2+1", "source": "history", "mode": "cohit", "label": "E5 双两连+散码共现"},
+    {"key": "e5_pair_pair_single_miss", "pick": 5, "shape": "2+2+1", "source": "history", "mode": "miss", "label": "E5 双两连+散码遗漏"},
+    {"key": "e5_recent_active", "pick": 5, "shape": "3+2", "source": "history", "mode": "active", "label": "E5 近窗活跃"},
+    {"key": "e5_zone_spread", "pick": 5, "shape": "2+2+1", "source": "history", "mode": "spread", "label": "E5 区间分散"},
+    {"key": "e6_d8_three_pairs", "pick": 6, "shape": "2+2+2", "source": "d8_pair", "mode": "seed", "label": "E6 D8拆两连+三组两连"},
+    {"key": "e6_d8_two_pair_two_single", "pick": 6, "shape": "2+2+1+1", "source": "d8_pair", "mode": "seed", "label": "E6 D8拆两连+双两连散码"},
+    {"key": "e6_three_pairs_cohit_a", "pick": 6, "shape": "2+2+2", "source": "history", "mode": "cohit", "label": "E6 三组两连共现A"},
+    {"key": "e6_three_pairs_cohit_b", "pick": 6, "shape": "2+2+2", "source": "history", "mode": "balanced", "label": "E6 三组两连共现B"},
+    {"key": "e6_three_pairs_miss", "pick": 6, "shape": "2+2+2", "source": "history", "mode": "miss", "label": "E6 三组两连遗漏"},
+    {"key": "e6_three_pairs_spread", "pick": 6, "shape": "2+2+2", "source": "history", "mode": "spread", "label": "E6 三组两连分散"},
+    {"key": "e6_two_pair_two_single_cohit", "pick": 6, "shape": "2+2+1+1", "source": "history", "mode": "cohit", "label": "E6 双两连+两散共现"},
+    {"key": "e6_two_pair_two_single_miss", "pick": 6, "shape": "2+2+1+1", "source": "history", "mode": "miss", "label": "E6 双两连+两散遗漏"},
+    {"key": "e6_recent_active", "pick": 6, "shape": "2+2+2", "source": "history", "mode": "active", "label": "E6 近窗活跃"},
+    {"key": "e6_hot_cold", "pick": 6, "shape": "2+2+1+1", "source": "history", "mode": "hot_cold", "label": "E6 冷热混合"},
+    {"key": "e7_d8_three_pair_single", "pick": 7, "shape": "2+2+2+1", "source": "d8_pair", "mode": "seed", "label": "E7 D8提示三两连+散码"},
+    {"key": "e7_d8_two_pair_three_single", "pick": 7, "shape": "2+2+1+1+1", "source": "d8_pair", "mode": "seed", "label": "E7 D8提示双两连+三散"},
+    {"key": "e7_three_pair_single_cohit", "pick": 7, "shape": "2+2+2+1", "source": "history", "mode": "cohit", "label": "E7 三两连+散码共现"},
+    {"key": "e7_three_pair_single_miss", "pick": 7, "shape": "2+2+2+1", "source": "history", "mode": "miss", "label": "E7 三两连+散码遗漏"},
+    {"key": "e7_three_pair_single_spread", "pick": 7, "shape": "2+2+2+1", "source": "history", "mode": "spread", "label": "E7 三两连+散码分散"},
+    {"key": "e7_two_pair_three_single_cohit", "pick": 7, "shape": "2+2+1+1+1", "source": "history", "mode": "cohit", "label": "E7 双两连+三散共现"},
+    {"key": "e7_two_pair_three_single_miss", "pick": 7, "shape": "2+2+1+1+1", "source": "history", "mode": "miss", "label": "E7 双两连+三散遗漏"},
+    {"key": "e7_hot_cold_spread", "pick": 7, "shape": "2+2+1+1+1", "source": "history", "mode": "hot_cold", "label": "E7 冷热分散"},
+)
 PREDICTION_PANEL_E_FALLBACK_SOURCE_STRUCTURE_TYPES_BY_GAME = {
+    "spain_l_express_20_70": {
+        "d_c_shift_minus_10_cohit_free",
+        "d_c_shift_plus_1_cohit_free",
+        "d_c_original_band_5_10",
+        "d_c_original_cohit_free",
+        "d_ab_shift_plus_2",
+        "d_ab_shift_minus_1",
+        "d_ab_tail_minus_10",
+        "d_ab_tail_minus_20",
+        "d_ab_pm_2",
+        "d_ab_shift_minus_9",
+        "d_ab_interval_mid_pm1",
+        "d_ab_shift_plus_5",
+        "d_c_shift_minus_1_cohit_free",
+        "d_c_shift_minus_10_band_5_10",
+        "d_ab_shift_plus_9",
+        "d_c_mirror_cohit_free",
+        "d_ab_shift_plus_4",
+        "d_c_shift_minus_1_band_5_10",
+        "d_c_mirror_band_5_10",
+        "d_ab_shift_minus_3",
+        "d_ab_shift_plus_6",
+        "d_c_shift_plus_10_cohit_free",
+    },
     "poland_keno_20_70": {
         "d_ab_shift_minus_9",
         "d_c_shift_minus_10_cohit_free",
@@ -530,21 +764,45 @@ PREDICTION_PANEL_E_FALLBACK_SOURCE_STRUCTURE_TYPES_BY_GAME = {
         "d_ab_pm_9",
         "d_c_shift_minus_10_band_5_10",
     },
+    "russia_rapido_8_20": {
+        "d_ab_pm_1",
+        "d_c_mirror_cohit_free",
+        "d_ab_shift_plus_1",
+        "d_c_original_cohit_free",
+        "d_c_original_band_5_10",
+        "d_ab_shift_minus_2",
+        "d_ab_pm_3",
+        "d_ab_interval_mid_pm1",
+        "d_ab_shift_plus_2",
+    },
+    "italy_win_for_life_10_20": {
+        "d_c_mirror_cohit_free",
+    },
 }
 PREDICTION_PANEL_E_GAME_KEYS = {
+    "spain_l_express_20_70",
     "poland_keno_20_70",
+    "russia_rapido_8_20",
+    "italy_win_for_life_10_20",
 }
 PREDICTION_PANEL_F_TOP_COUNT = 1
 PREDICTION_PANEL_G_TOP_COUNT = 1
 PREDICTION_PREWARM_GAME_KEYS = (
+    "spain_l_express_20_70",
     "poland_keno_20_70",
 )
 PREDICTION_PREWARM_PANELS = (
     PREDICTION_PANEL_M,
 )
-PREDICTION_PANEL_D_KILL_C_ONLY_GAME_KEYS = set()
+PREDICTION_PANEL_D_KILL_C_ONLY_GAME_KEYS = {
+    "russia_rapido_8_20",
+    "italy_win_for_life_10_20",
+}
 ADJACENT_DERIVED_STATS_GAME_KEYS = {
+    "spain_l_express_20_70",
     "poland_keno_20_70",
+    "italy_win_for_life_10_20",
+    "russia_rapido_8_20",
 }
 ADJACENT_DERIVED_SOURCE_PICK_COUNTS = {1, 2, 4}
 ADJACENT_DERIVED_EXAMPLE_LIMIT = 4
@@ -695,13 +953,199 @@ def prediction_record_panel(record: dict[str, Any]) -> str:
 def prediction_record_matches_panel(record: dict[str, Any], panel: str | None) -> bool:
     if panel is None:
         return True
-    return prediction_record_panel(record) == prediction_panel_from_value(panel)
+    panel_key = prediction_panel_from_value(panel)
+    if prediction_record_panel(record) != panel_key:
+        return False
+    if panel_key == PREDICTION_PANEL_D:
+        return prediction_panel_d_record_is_focus(record)
+    return True
 
 
 def prediction_records_for_panel(records: list[dict[str, Any]], panel: str | None) -> list[dict[str, Any]]:
     if panel is None:
         return records
     return [record for record in records if prediction_record_matches_panel(record, panel)]
+
+
+def prediction_panel_d_ticket_rank(item: dict[str, Any]) -> int:
+    rank = parse_int(item.get("ticketRank"), 0) or parse_int(item.get("displayRank"), 0)
+    if rank > 0:
+        return rank
+    pick_count = parse_int(item.get("pickCount"), len(item.get("numbers") or []))
+    rule_rank = PREDICTION_PANEL_D_RULE_RANKS.get(str(item.get("derivedRule") or ""))
+    if not rule_rank:
+        return 0
+    if pick_count == 2:
+        return rule_rank
+    if pick_count == 3:
+        return len(PREDICTION_PANEL_D_RULES) + rule_rank
+    return 0
+
+
+def prediction_panel_d_record_is_focus(record: dict[str, Any]) -> bool:
+    return prediction_panel_d_ticket_rank(record) in PREDICTION_PANEL_D_FOCUS_RANK_SET
+
+
+def prediction_panel_d_focus_tickets(tickets: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    focused: list[dict[str, Any]] = []
+    for index, ticket in enumerate(tickets, start=1):
+        if not isinstance(ticket, dict):
+            continue
+        item = dict(ticket)
+        rank = prediction_panel_d_ticket_rank(item) or index
+        item["ticketRank"] = rank
+        item["displayRank"] = rank
+        if rank in PREDICTION_PANEL_D_FOCUS_RANK_SET:
+            focused.append(item)
+    return focused
+
+
+def prediction_tracking_focus_where(panel: str | None) -> tuple[str, list[Any]]:
+    panel_key = prediction_panel_from_value(panel) if panel is not None else None
+    if panel_key != PREDICTION_PANEL_D:
+        return "", []
+    rank_expr = "COALESCE(CAST(NULLIF(json_extract(record_json, '$.ticketRank'), '') AS INTEGER), 0)"
+    pick_expr = "COALESCE(CAST(NULLIF(json_extract(record_json, '$.pickCount'), '') AS INTEGER), 0)"
+    rule_expr = "COALESCE(json_extract(record_json, '$.derivedRule'), '')"
+    placeholders = ",".join("?" for _ in PREDICTION_PANEL_D_FOCUS_RANKS)
+    return (
+        " AND ("
+        f"{rank_expr} IN ({placeholders}) "
+        f"OR ({rank_expr} = 0 AND {pick_expr} = ? AND {rule_expr} = ?) "
+        f"OR ({rank_expr} = 0 AND {pick_expr} = ? AND {rule_expr} = ?)"
+        ")",
+        [*PREDICTION_PANEL_D_FOCUS_RANKS, 2, "decompose", 3, "shape"],
+    )
+
+
+def prediction_tracking_slot_value(value: Any) -> str:
+    slot = str(value or "all").strip().lower()
+    if slot in {"", "all", "*"}:
+        return "all"
+    if re.fullmatch(r"(?:pick|p):\d+", slot):
+        pick = parse_int(slot.split(":", 1)[1], 0)
+        return f"pick:{pick}" if pick > 0 else "all"
+    if re.fullmatch(r"rank:\d+", slot):
+        return slot
+    if re.fullmatch(r"(?:rank|#)?\d+", slot):
+        rank = parse_int(slot.lstrip("#").removeprefix("rank"), 0)
+        return f"rank:{rank}" if rank > 0 else "all"
+    if re.fullmatch(r"p\d+_\d+", slot):
+        return slot
+    return "all"
+
+
+def prediction_tracking_slot_rank_from_value(slot: str) -> int:
+    normalized = prediction_tracking_slot_value(slot)
+    if normalized.startswith("rank:"):
+        return parse_int(normalized.split(":", 1)[1], 0)
+    if normalized.startswith("p"):
+        parts = normalized[1:].split("_", 1)
+        if len(parts) == 2:
+            return parse_int(parts[1], 0)
+    return 0
+
+
+def prediction_tracking_slot_pick_from_value(slot: str) -> int:
+    normalized = prediction_tracking_slot_value(slot)
+    if normalized.startswith("pick:"):
+        return parse_int(normalized.split(":", 1)[1], 0)
+    return 0
+
+
+def prediction_tracking_slot_sql_filter(slot: str | None) -> tuple[str, list[Any]]:
+    normalized = prediction_tracking_slot_value(slot)
+    rank = prediction_tracking_slot_rank_from_value(normalized)
+    pick = prediction_tracking_slot_pick_from_value(normalized)
+    rank_expr = "COALESCE(CAST(NULLIF(json_extract(record_json, '$.ticketRank'), '') AS INTEGER), 0)"
+    if rank > 0:
+        return f" AND ({rank_expr} = ?)", [rank]
+    if pick > 0:
+        pick_expr = "COALESCE(CAST(NULLIF(json_extract(record_json, '$.pickCount'), '') AS INTEGER), 0)"
+        return f" AND ({pick_expr} = ?)", [pick]
+    return "", []
+
+
+def prediction_tracking_day_value(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", text)
+    if not match:
+        match = re.fullmatch(r"(\d{4})[./](\d{1,2})[./](\d{1,2})", text)
+    if not match:
+        return ""
+    year, month, day = (parse_int(part, 0) for part in match.groups())
+    try:
+        return datetime(year, month, day).date().isoformat()
+    except ValueError:
+        return ""
+
+
+def prediction_tracking_day_window(
+    config: dict[str, Any] | None,
+    day_filter: str | None,
+) -> dict[str, Any] | None:
+    day = prediction_tracking_day_value(day_filter)
+    if not day:
+        return None
+    try:
+        year, month, date_day = (parse_int(part, 0) for part in day.split("-"))
+        tz = telegram_game_day_timezone(config or {})
+        base_local = datetime(year, month, date_day, tzinfo=tz)
+    except Exception:
+        return None
+    schedule = (config or {}).get("operatingHours") if isinstance((config or {}).get("operatingHours"), dict) else {}
+    start_minute = staking_backtest_time_minutes(schedule.get("start")) if schedule else None
+    end_minute = staking_backtest_time_minutes(schedule.get("end")) if schedule else None
+    if start_minute is not None and end_minute is not None:
+        start_local = base_local + timedelta(minutes=start_minute)
+        end_local = base_local + timedelta(
+            days=1 if end_minute < start_minute else 0,
+            minutes=end_minute,
+        )
+        interval_ms = prediction_draw_interval_ms(config or {})
+        end_local += timedelta(milliseconds=max(interval_ms, 60_000))
+    else:
+        start_local = base_local
+        end_local = base_local + timedelta(days=1)
+    start_ms = int(start_local.astimezone(UTC).timestamp() * 1000)
+    end_ms = int(end_local.astimezone(UTC).timestamp() * 1000)
+    return {
+        "day": day,
+        "timezone": str(getattr(tz, "key", tz)),
+        "startMs": start_ms,
+        "endMs": end_ms,
+        "startUtc": draw_time_utc_from_ms(start_ms),
+        "endUtc": draw_time_utc_from_ms(end_ms),
+    }
+
+
+def prediction_tracking_day_sql_filter(day_window: dict[str, Any] | None) -> tuple[str, list[Any]]:
+    if not day_window:
+        return "", []
+    start_ms = parse_int(day_window.get("startMs"), 0)
+    end_ms = parse_int(day_window.get("endMs"), 0)
+    if start_ms <= 0 or end_ms <= start_ms:
+        return "", []
+    return " AND target_draw_time_ms >= ? AND target_draw_time_ms < ?", [start_ms, end_ms]
+
+
+def filter_prediction_tracking_records_by_day(
+    records: list[dict[str, Any]],
+    day_window: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not day_window:
+        return records
+    start_ms = parse_int(day_window.get("startMs"), 0)
+    end_ms = parse_int(day_window.get("endMs"), 0)
+    if start_ms <= 0 or end_ms <= start_ms:
+        return records
+    return [
+        record
+        for record in records
+        if start_ms <= parse_int(record.get("targetDrawTimeMs"), 0) < end_ms
+    ]
 
 
 def prediction_record_is_retired(record: dict[str, Any]) -> bool:
@@ -3657,6 +4101,8 @@ def staking_backtest_ms_iso(draw_time_ms: int) -> str:
 
 def current_backtest_source_panel(value: Any) -> tuple[str, str]:
     source = str(value or PREDICTION_PANEL_M).strip().lower()
+    if source in {"e", "panel_e", "prediction_e", "predictione"}:
+        return PREDICTION_PANEL_E, "E计划"
     if source in {"d", "panel_d", "prediction_d", "predictiond"}:
         return PREDICTION_PANEL_D, "D计划"
     return PREDICTION_PANEL_M, "C计划"
@@ -3667,17 +4113,21 @@ def current_backtest_slot_selection(value: Any, source_panel: str | None = None)
     panel = prediction_panel_from_value(source_panel)
     if panel == PREDICTION_PANEL_D:
         labels = {
-            "p2_1": "2码候选#1",
             "p2_2": "2码候选#2",
-            "p2_3": "2码候选#3",
-            "p2_4": "2码候选#4",
-            "p2_all": "全部2码候选#1-#4",
-            "p3_1": "3码候选#5",
-            "p3_2": "3码候选#6",
-            "p3_3": "3码候选#7",
             "p3_4": "3码候选#8",
-            "p3_all": "全部3码候选#5-#8",
-            "all": "全部候选",
+            "all": "全部D2+D8",
+        }
+    elif panel == PREDICTION_PANEL_E:
+        labels = {
+            **{f"p4_{index}": f"E4候选#{index}" for index in range(1, 7)},
+            **{f"p5_{index}": f"E5候选#{index}" for index in range(1, 9)},
+            **{f"p6_{index}": f"E6候选#{index}" for index in range(1, 11)},
+            **{f"p7_{index}": f"E7候选#{index}" for index in range(1, 9)},
+            "p4_all": "全部E4",
+            "p5_all": "全部E5",
+            "p6_all": "全部E6",
+            "p7_all": "全部E7",
+            "all": "全部E计划",
         }
     else:
         labels = {
@@ -3693,14 +4143,23 @@ def current_backtest_slot_selection(value: Any, source_panel: str | None = None)
             "p3_all": "全部3码候选",
             "all": "全部候选",
         }
-    if slot == "p2_all":
+    if panel != PREDICTION_PANEL_D and slot == "p2_all":
         return {"p2_1", "p2_2", "p2_3", "p2_4"}, labels[slot]
-    if slot == "p3_all":
+    if panel != PREDICTION_PANEL_D and slot == "p3_all":
         return {"p3_1", "p3_2", "p3_3", "p3_4"}, labels[slot]
+    if panel == PREDICTION_PANEL_E:
+        if slot == "p4_all":
+            return {f"p4_{index}" for index in range(1, 7)}, labels[slot]
+        if slot == "p5_all":
+            return {f"p5_{index}" for index in range(1, 9)}, labels[slot]
+        if slot == "p6_all":
+            return {f"p6_{index}" for index in range(1, 11)}, labels[slot]
+        if slot == "p7_all":
+            return {f"p7_{index}" for index in range(1, 9)}, labels[slot]
     if slot == "all":
         return set(), labels[slot]
     if slot not in labels:
-        slot = "p3_1"
+        slot = "p3_4" if panel == PREDICTION_PANEL_D else "p4_all" if panel == PREDICTION_PANEL_E else "p3_1"
     return {slot}, labels[slot]
 
 
@@ -3731,8 +4190,17 @@ def current_backtest_candidate_slots(records: list[dict[str, Any]]) -> list[dict
         record_id = str(record.get("id") or "")
         rank = slot_ranks.get(record_id) or prediction_tracking_slot_rank(record) or index
         pick_count = parse_int(record.get("pickCount"), len(record.get("numbers") or []))
-        pick_counts[pick_count] = pick_counts.get(pick_count, 0) + 1
-        slot = pick_counts[pick_count]
+        panel = prediction_panel_from_value(record.get("panel"))
+        if panel == PREDICTION_PANEL_D and rank > len(PREDICTION_PANEL_D_RULES):
+            slot = rank - len(PREDICTION_PANEL_D_RULES)
+        elif panel == PREDICTION_PANEL_D and rank > 0:
+            slot = rank
+        elif panel == PREDICTION_PANEL_E and rank > 0:
+            pick_counts[pick_count] = pick_counts.get(pick_count, 0) + 1
+            slot = pick_counts[pick_count]
+        else:
+            pick_counts[pick_count] = pick_counts.get(pick_count, 0) + 1
+            slot = pick_counts[pick_count]
         result.append(
             {
                 "key": f"p{pick_count}_{slot}",
@@ -3760,6 +4228,9 @@ def load_current_backtest_tracking_records(
         prediction_method_version_for_panel(panel),
     ]
     where = "game_key = ? AND panel = ? AND method_version = ? AND status IN ('won', 'lost')"
+    focus_where, focus_params = prediction_tracking_focus_where(panel)
+    where += focus_where
+    params.extend(focus_params)
     start_ms = parse_int(time_filter.get("startMs"), 0)
     end_ms = parse_int(time_filter.get("endMs"), 0)
     if start_ms > 0:
@@ -6632,6 +7103,510 @@ def prediction_panel_e_valid_five(numbers: list[int] | tuple[int, ...], total_nu
     return normalized if len(normalized) == 5 else None
 
 
+def prediction_panel_e_run_parts(numbers: Iterable[Any]) -> tuple[tuple[int, ...], ...]:
+    values = sorted({parse_int(number, 0) for number in numbers if parse_int(number, 0) > 0})
+    if not values:
+        return tuple()
+    parts: list[list[int]] = [[values[0]]]
+    for number in values[1:]:
+        if number == parts[-1][-1] + 1:
+            parts[-1].append(number)
+        else:
+            parts.append([number])
+    return tuple(tuple(part) for part in parts)
+
+
+def prediction_panel_e_shape_key(numbers: Iterable[Any]) -> str:
+    parts = prediction_panel_e_run_parts(numbers)
+    if not parts:
+        return ""
+    lengths = sorted((len(part) for part in parts), reverse=True)
+    return "+".join(str(length) for length in lengths)
+
+
+def prediction_panel_e_valid_shape(
+    numbers: Iterable[Any],
+    total_numbers: int,
+    *,
+    pick_count: int | None = None,
+    shape_key: str | None = None,
+) -> tuple[int, ...] | None:
+    normalized = tuple(sorted({parse_int(number, 0) for number in numbers if 1 <= parse_int(number, 0) <= total_numbers}))
+    if pick_count is not None and len(normalized) != pick_count:
+        return None
+    if not 4 <= len(normalized) <= 7:
+        return None
+    current_shape = prediction_panel_e_shape_key(normalized)
+    if shape_key is not None and current_shape != shape_key:
+        return None
+    if current_shape not in PREDICTION_PANEL_E_ALLOWED_SHAPES.get(len(normalized), set()):
+        return None
+    return normalized
+
+
+def prediction_panel_e_adjacent_pairs(numbers: Iterable[Any]) -> set[tuple[int, int]]:
+    pairs: set[tuple[int, int]] = set()
+    for part in prediction_panel_e_run_parts(numbers):
+        for left, right in zip(part, part[1:]):
+            pairs.add((left, right))
+    return pairs
+
+
+def prediction_panel_e_shape_label(shape_key: str) -> str:
+    labels = {
+        "2+2": "双两连",
+        "3+2": "三连+两连",
+        "2+2+1": "双两连+散码",
+        "2+2+2": "三组两连",
+        "2+2+1+1": "双两连+两散",
+        "2+2+2+1": "三组两连+散码",
+        "2+2+1+1+1": "双两连+三散",
+    }
+    return labels.get(shape_key, shape_key)
+
+
+def prediction_panel_e_seed_ticket(d_tickets: list[dict[str, Any]]) -> dict[str, Any] | None:
+    for index, ticket in enumerate(d_tickets, start=1):
+        item = dict(ticket)
+        rank = parse_int(item.get("ticketRank"), 0) or index
+        if rank == 8:
+            item["ticketRank"] = rank
+            return item
+    return None
+
+
+def prediction_panel_e_run_shape_tickets(
+    rows: list[dict[str, Any]],
+    config: dict[str, Any],
+    d_tickets: list[dict[str, Any]],
+    frequency: dict[int, dict[str, Any]],
+    recent_counts: dict[int, int],
+    recent_window: int,
+    draw_sets_oldest: list[set[int]],
+    bonus_values_oldest: list[int],
+    recent_draw_sets: list[set[int]],
+    recent_bonus_values: list[int],
+    *,
+    stats_index: dict[str, Any] | None = None,
+    top_count: int = PREDICTION_PANEL_E_TOP_COUNT,
+) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    game_key = str(config["key"])
+    total_numbers = int(config["totalNumbers"])
+    draw_count = len(rows)
+    number_range = list(range(1, total_numbers + 1))
+    scored = scored_numbers(
+        number_range,
+        PREDICTION_NUMBER_WEIGHTS[0],
+        frequency,
+        recent_counts,
+        recent_window,
+        draw_count,
+    )
+    score_values = [parse_float(item.get("score"), 0) for item in scored]
+    max_score = max(score_values, default=1) or 1
+    score_by_number = {int(item["number"]): parse_float(item.get("score"), 0) / max_score for item in scored}
+    recent_rate_by_number = {
+        number: (parse_int(recent_counts.get(number), 0) / recent_window if recent_window else 0)
+        for number in number_range
+    }
+    miss_by_number = {
+        number: parse_int((frequency.get(number) or {}).get("currentMiss"), 0)
+        for number in number_range
+    }
+    hot_pool = sorted(
+        number_range,
+        key=lambda number: (
+            -recent_rate_by_number.get(number, 0),
+            -score_by_number.get(number, 0),
+            number,
+        ),
+    )
+    miss_pool = sorted(
+        number_range,
+        key=lambda number: (
+            -miss_by_number.get(number, 0),
+            -score_by_number.get(number, 0),
+            number,
+        ),
+    )
+    single_pool = sorted(
+        number_range,
+        key=lambda number: (
+            -score_by_number.get(number, 0),
+            -recent_rate_by_number.get(number, 0),
+            -miss_by_number.get(number, 0),
+            number,
+        ),
+    )[:PREDICTION_PANEL_E_SINGLE_POOL]
+
+    def segment_stats(numbers: tuple[int, ...]) -> dict[str, Any]:
+        stats = ticket_stats_from_draw_sets(
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            numbers,
+            None,
+            stats_index=stats_index,
+        )
+        theoretical = hit_probability_for(config, len(numbers))
+        recent_ratio = parse_float(stats.get("recentHitRate"), 0) / theoretical if theoretical > 0 else 0
+        full_ratio = parse_float(stats.get("hitRate"), 0) / theoretical if theoretical > 0 else 0
+        miss_score = normalize_score(parse_int(stats.get("currentMiss"), 0), list(miss_by_number.values()) + [1])
+        number_score = sum(score_by_number.get(number, 0) for number in numbers) / max(len(numbers), 1)
+        return {
+            "numbers": numbers,
+            "stats": stats,
+            "numberScore": number_score,
+            "segmentScore": (
+                0.34 * min(1.8, recent_ratio) / 1.8
+                + 0.22 * min(1.8, full_ratio) / 1.8
+                + 0.24 * number_score
+                + 0.20 * miss_score
+            ),
+        }
+
+    pair_items = [segment_stats(tuple(pair)) for pair in pair_groups(config)]
+    triple_items = [segment_stats(tuple(triple)) for triple in triple_groups(config)]
+    pair_items.sort(key=lambda item: (-parse_float(item.get("segmentScore"), 0), item["numbers"]))
+    triple_items.sort(key=lambda item: (-parse_float(item.get("segmentScore"), 0), item["numbers"]))
+    pair_pool = pair_items[:PREDICTION_PANEL_E_PAIR_POOL]
+    triple_pool = triple_items[:PREDICTION_PANEL_E_TRIPLE_POOL]
+
+    d8_ticket = prediction_panel_e_seed_ticket(d_tickets)
+    d8_numbers = tuple(
+        sorted({
+            parse_int(number, 0)
+            for number in ((d8_ticket or {}).get("numbers") or [])
+            if 1 <= parse_int(number, 0) <= total_numbers
+        })
+    )
+    d8_set = set(d8_numbers)
+    d8_pairs = prediction_panel_e_adjacent_pairs(d8_numbers)
+    d8_shape = prediction_panel_e_shape_key(d8_numbers)
+    d8_triple = d8_numbers if d8_shape == "3" and len(d8_numbers) == 3 else tuple()
+
+    candidates_by_numbers: dict[tuple[int, ...], dict[str, Any]] = {}
+
+    def spread_score(numbers: tuple[int, ...]) -> float:
+        if not numbers:
+            return 0
+        thirds = {min(2, (number - 1) * 3 // max(total_numbers, 1)) for number in numbers}
+        values = sorted(numbers)
+        gaps = [right - left for left, right in zip(values, values[1:])]
+        gap_score = min(1.0, (sum(gaps) / max(len(gaps), 1)) / max(total_numbers / 8, 1)) if gaps else 0
+        return 0.55 * (len(thirds) / 3) + 0.45 * gap_score
+
+    def add_candidate(
+        numbers: Iterable[int],
+        *,
+        source_hint: str,
+        source_segments: Iterable[tuple[int, ...]],
+        base_score: float,
+    ) -> None:
+        normalized = prediction_panel_e_valid_shape(numbers, total_numbers)
+        if normalized is None:
+            return
+        shape_key = prediction_panel_e_shape_key(normalized)
+        pick_count = len(normalized)
+        if not DEFAULT_MAIN_ODDS_BY_GAME.get(game_key, {}).get(pick_count):
+            return
+        number_set = set(normalized)
+        parts = prediction_panel_e_run_parts(normalized)
+        pair_overlap = sum(1 for pair in d8_pairs if set(pair).issubset(number_set))
+        contains_d8_triple = bool(d8_triple and set(d8_triple).issubset(number_set))
+        d8_overlap = len(number_set & d8_set)
+        single_numbers = [number for part in parts if len(part) == 1 for number in part]
+        run_numbers = [number for part in parts if len(part) >= 2 for number in part]
+        number_score = sum(score_by_number.get(number, 0) for number in normalized) / max(len(normalized), 1)
+        recent_score = sum(recent_rate_by_number.get(number, 0) for number in normalized) / max(len(normalized), 1)
+        miss_score = normalize_score(
+            sum(miss_by_number.get(number, 0) for number in normalized) / max(len(normalized), 1),
+            list(miss_by_number.values()) + [1],
+        )
+        seed_bonus = min(1.0, 0.28 * pair_overlap + (0.34 if contains_d8_triple else 0) + 0.08 * d8_overlap)
+        item = {
+            "numbers": list(normalized),
+            "shapeKey": shape_key,
+            "shapeLabel": prediction_panel_e_shape_label(shape_key),
+            "pickCount": pick_count,
+            "sourceHint": source_hint,
+            "sourceSegments": [list(segment) for segment in source_segments],
+            "d8SeedNumbers": list(d8_numbers),
+            "d8SeedTicketLabel": str((d8_ticket or {}).get("ticketLabel") or "-".join(str(number) for number in d8_numbers)),
+            "d8OverlapCount": d8_overlap,
+            "d8PairOverlapCount": pair_overlap,
+            "containsD8Triple": contains_d8_triple,
+            "coreNumbers": run_numbers,
+            "companionNumbers": single_numbers,
+            "sourcePoolNumbers": sorted(set(run_numbers)),
+            "sourcePoolCount": len(set(run_numbers)),
+            "numberScore": number_score,
+            "recentNumberScore": recent_score,
+            "missNumberScore": miss_score,
+            "spreadScore": spread_score(normalized),
+            "seedScore": seed_bonus,
+            "prefilterScore": (
+                0.34 * base_score
+                + 0.22 * number_score
+                + 0.16 * recent_score
+                + 0.14 * miss_score
+                + 0.10 * spread_score(normalized)
+                + 0.04 * seed_bonus
+            ),
+        }
+        existing = candidates_by_numbers.get(normalized)
+        if existing is None or parse_float(item.get("prefilterScore"), 0) > parse_float(existing.get("prefilterScore"), 0):
+            candidates_by_numbers[normalized] = item
+
+    pair_combos2: list[dict[str, Any]] = []
+    for left, right in combinations(pair_pool, 2):
+        numbers = tuple(sorted({*left["numbers"], *right["numbers"]}))
+        if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=4, shape_key="2+2") is None:
+            continue
+        score = (parse_float(left.get("segmentScore"), 0) + parse_float(right.get("segmentScore"), 0)) / 2
+        pair_combos2.append({"numbers": numbers, "segments": [left["numbers"], right["numbers"]], "score": score})
+    pair_combos2.sort(key=lambda item: (-parse_float(item.get("score"), 0), item["numbers"]))
+    pair_combos2 = pair_combos2[:PREDICTION_PANEL_E_PAIR_COMBO_LIMIT]
+    for item in pair_combos2:
+        add_candidate(item["numbers"], source_hint="pair_pair", source_segments=item["segments"], base_score=parse_float(item.get("score"), 0))
+
+    pair_combos3: list[dict[str, Any]] = []
+    for pair_items_combo in combinations(pair_pool, 3):
+        numbers = tuple(sorted({number for pair in pair_items_combo for number in pair["numbers"]}))
+        if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=6, shape_key="2+2+2") is None:
+            continue
+        score = sum(parse_float(pair.get("segmentScore"), 0) for pair in pair_items_combo) / 3
+        pair_combos3.append({"numbers": numbers, "segments": [pair["numbers"] for pair in pair_items_combo], "score": score})
+    pair_combos3.sort(key=lambda item: (-parse_float(item.get("score"), 0), item["numbers"]))
+    pair_combos3 = pair_combos3[:PREDICTION_PANEL_E_THREE_PAIR_COMBO_LIMIT]
+    for item in pair_combos3:
+        add_candidate(item["numbers"], source_hint="pair_pair_pair", source_segments=item["segments"], base_score=parse_float(item.get("score"), 0))
+
+    for triple in triple_pool:
+        for pair in pair_pool:
+            numbers = tuple(sorted({*triple["numbers"], *pair["numbers"]}))
+            if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=5, shape_key="3+2") is None:
+                continue
+            add_candidate(
+                numbers,
+                source_hint="triple_pair",
+                source_segments=[triple["numbers"], pair["numbers"]],
+                base_score=(parse_float(triple.get("segmentScore"), 0) + parse_float(pair.get("segmentScore"), 0)) / 2,
+            )
+
+    for pair_combo in pair_combos2[:90]:
+        base_numbers = set(pair_combo["numbers"])
+        available_singles = [number for number in single_pool if number not in base_numbers]
+        for single in available_singles[:22]:
+            add_candidate(
+                [*pair_combo["numbers"], single],
+                source_hint="pair_pair_single",
+                source_segments=pair_combo["segments"],
+                base_score=0.82 * parse_float(pair_combo.get("score"), 0) + 0.18 * score_by_number.get(single, 0),
+            )
+        for singles in combinations(available_singles[:18], 2):
+            add_candidate(
+                [*pair_combo["numbers"], *singles],
+                source_hint="pair_pair_single_single",
+                source_segments=pair_combo["segments"],
+                base_score=0.74 * parse_float(pair_combo.get("score"), 0)
+                + 0.26 * sum(score_by_number.get(number, 0) for number in singles) / 2,
+            )
+        for singles in combinations(available_singles[:16], 3):
+            add_candidate(
+                [*pair_combo["numbers"], *singles],
+                source_hint="pair_pair_single_single_single",
+                source_segments=pair_combo["segments"],
+                base_score=0.68 * parse_float(pair_combo.get("score"), 0)
+                + 0.32 * sum(score_by_number.get(number, 0) for number in singles) / 3,
+            )
+
+    for pair_combo in pair_combos3[:90]:
+        base_numbers = set(pair_combo["numbers"])
+        available_singles = [number for number in single_pool if number not in base_numbers]
+        for single in available_singles[:20]:
+            add_candidate(
+                [*pair_combo["numbers"], single],
+                source_hint="pair_pair_pair_single",
+                source_segments=pair_combo["segments"],
+                base_score=0.80 * parse_float(pair_combo.get("score"), 0) + 0.20 * score_by_number.get(single, 0),
+            )
+
+    sorted_candidates = sorted(
+        candidates_by_numbers.values(),
+        key=lambda item: (
+            -parse_float(item.get("prefilterScore"), 0),
+            -parse_float(item.get("seedScore"), 0),
+            item.get("numbers") or [],
+        ),
+    )
+    shape_targets: dict[str, int] = {}
+    for spec in PREDICTION_PANEL_E_STRATEGY_SPECS:
+        shape = str(spec.get("shape") or "")
+        if shape:
+            shape_targets[shape] = shape_targets.get(shape, 0) + 1
+    candidates_by_shape: dict[str, list[dict[str, Any]]] = {}
+    for item in sorted_candidates:
+        candidates_by_shape.setdefault(str(item.get("shapeKey") or ""), []).append(item)
+    candidates = []
+    seen_candidate_keys: set[tuple[int, ...]] = set()
+    for shape, target in sorted(shape_targets.items()):
+        shape_items = candidates_by_shape.get(shape) or []
+        keep = min(len(shape_items), max(120, target * 80))
+        for item in shape_items[:keep]:
+            key = tuple(int(number) for number in item.get("numbers") or [])
+            if key in seen_candidate_keys:
+                continue
+            candidates.append(item)
+            seen_candidate_keys.add(key)
+    if len(candidates) < min(PREDICTION_PANEL_E_PREFILTER_LIMIT, len(sorted_candidates)):
+        for item in sorted_candidates:
+            key = tuple(int(number) for number in item.get("numbers") or [])
+            if key in seen_candidate_keys:
+                continue
+            candidates.append(item)
+            seen_candidate_keys.add(key)
+            if len(candidates) >= PREDICTION_PANEL_E_PREFILTER_LIMIT:
+                break
+    if not candidates:
+        return []
+
+    miss_values: list[int] = []
+    edge_values: list[float] = []
+    for item in candidates:
+        pick_count = parse_int(item.get("pickCount"), 0)
+        theoretical_hit_rate = hit_probability_for(config, pick_count)
+        stats = ticket_stats_from_draw_sets(
+            draw_sets_oldest,
+            bonus_values_oldest,
+            recent_draw_sets,
+            recent_bonus_values,
+            tuple(int(number) for number in item.get("numbers") or []),
+            None,
+            stats_index=stats_index,
+        )
+        item.update(stats)
+        miss_values.append(parse_int(item.get("currentMiss"), 0))
+        edge_values.append(parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate)
+
+    for item in candidates:
+        pick_count = parse_int(item.get("pickCount"), 0)
+        odds = parse_float(DEFAULT_MAIN_ODDS_BY_GAME.get(game_key, {}).get(pick_count), 0)
+        theoretical_hit_rate = hit_probability_for(config, pick_count)
+        fair_odds = 1 / theoretical_hit_rate if theoretical_hit_rate > 0 else 0
+        break_even_hit_rate = 1 / odds if odds > 0 else 0
+        recent_ratio = parse_float(item.get("recentHitRate"), 0) / theoretical_hit_rate if theoretical_hit_rate > 0 else 0
+        full_ratio = parse_float(item.get("hitRate"), 0) / theoretical_hit_rate if theoretical_hit_rate > 0 else 0
+        item["score"] = (
+            0.24 * parse_float(item.get("prefilterScore"), 0)
+            + 0.20 * min(1.8, recent_ratio) / 1.8
+            + 0.14 * min(1.8, full_ratio) / 1.8
+            + 0.16 * normalize_score(parse_int(item.get("currentMiss"), 0), miss_values)
+            + 0.12 * normalize_score(parse_float(item.get("recentHitRate"), 0) - theoretical_hit_rate, edge_values)
+            + 0.08 * parse_float(item.get("spreadScore"), 0)
+            + 0.06 * parse_float(item.get("seedScore"), 0)
+        )
+        item["theoreticalHitRate"] = theoretical_hit_rate
+        item["fairOdds"] = fair_odds
+        item["odds"] = float(odds)
+        item["breakEvenHitRate"] = break_even_hit_rate
+        item["evAtOdds"] = theoretical_hit_rate * float(odds) - 1
+        item["chasePeriods"] = PREDICTION_TICKET_CHASE_PERIODS
+        item["missAllProbability"] = (1 - theoretical_hit_rate) ** PREDICTION_TICKET_CHASE_PERIODS
+        item["sampleWarning"] = draw_count < 500 or parse_int(item.get("recentWindow"), 0) < 200
+        item["ticketLabel"] = "-".join(str(number) for number in item["numbers"])
+
+    def spec_score(item: dict[str, Any], spec: dict[str, Any]) -> float:
+        mode = str(spec.get("mode") or "balanced")
+        value = parse_float(item.get("score"), 0)
+        if mode == "seed":
+            value += 0.36 * parse_float(item.get("seedScore"), 0)
+        elif mode == "miss":
+            value += 0.28 * normalize_score(parse_int(item.get("currentMiss"), 0), miss_values)
+        elif mode == "active":
+            value += 0.24 * parse_float(item.get("recentHitRate"), 0)
+        elif mode == "spread":
+            value += 0.24 * parse_float(item.get("spreadScore"), 0)
+        elif mode == "hot_cold":
+            value += 0.16 * parse_float(item.get("recentNumberScore"), 0) + 0.18 * parse_float(item.get("missNumberScore"), 0)
+        elif mode == "cohit":
+            value += 0.18 * parse_float(item.get("hitRate"), 0) + 0.14 * parse_float(item.get("prefilterScore"), 0)
+        return value
+
+    selected: list[dict[str, Any]] = []
+    selected_numbers: set[tuple[int, ...]] = set()
+    for spec in PREDICTION_PANEL_E_STRATEGY_SPECS:
+        pick_count = parse_int(spec.get("pick"), 0)
+        shape = str(spec.get("shape") or "")
+        source = str(spec.get("source") or "history")
+        filtered = [
+            item
+            for item in candidates
+            if parse_int(item.get("pickCount"), 0) == pick_count
+            and str(item.get("shapeKey") or "") == shape
+            and tuple(int(number) for number in item.get("numbers") or []) not in selected_numbers
+        ]
+        if source == "d8_pair":
+            source_filtered = [item for item in filtered if parse_int(item.get("d8PairOverlapCount"), 0) > 0]
+            filtered = source_filtered or [item for item in filtered if parse_int(item.get("d8OverlapCount"), 0) > 0] or filtered
+            if not source_filtered and spec.get("key") == "e4_d8_pair_bridge" and d8_pairs:
+                seed_pairs = sorted(d8_pairs)
+                generated_seed: list[dict[str, Any]] = []
+                for seed_pair in seed_pairs:
+                    for pair in pair_pool:
+                        numbers = tuple(sorted({*seed_pair, *pair["numbers"]}))
+                        if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=4, shape_key="2+2") is None:
+                            continue
+                        source_segments = [seed_pair, pair["numbers"]]
+                        base_score = 0.55 + 0.45 * parse_float(pair.get("segmentScore"), 0)
+                        add_candidate(numbers, source_hint="d8_pair_pair", source_segments=source_segments, base_score=base_score)
+                        item = candidates_by_numbers.get(numbers)
+                        if item is not None:
+                            generated_seed.append(item)
+                if generated_seed:
+                    filtered = generated_seed + filtered
+        elif source == "d8_triple":
+            source_filtered = [item for item in filtered if bool(item.get("containsD8Triple"))]
+            filtered = source_filtered or [item for item in filtered if parse_int(item.get("d8OverlapCount"), 0) >= 2] or filtered
+        if not filtered:
+            continue
+        filtered.sort(key=lambda item: (-spec_score(item, spec), item.get("numbers") or []))
+        item = dict(filtered[0])
+        ticket_rank = len(selected) + 1
+        source_panels = [PREDICTION_PANEL_D] if source.startswith("d8") else []
+        source_panel = "d8_seed" if source.startswith("d8") else "history_run_shape"
+        seed_text = str(item.get("d8SeedTicketLabel") or "")
+        shape_label = prediction_panel_e_shape_label(shape)
+        item.update(
+            {
+                "panel": PREDICTION_PANEL_E,
+                "mode": "main",
+                "label": f"E计划 {spec['label']}",
+                "ticketRank": ticket_rank,
+                "displayRank": ticket_rank,
+                "strategyKey": str(spec.get("key") or ""),
+                "structureType": str(spec.get("key") or ""),
+                "structureLabel": f"{spec['label']} · {shape_label}",
+                "derivedRule": shape,
+                "auditSourceLabel": "D8种子" if source.startswith("d8") else "历史形态",
+                "sourcePanel": source_panel,
+                "sourcePanels": source_panels,
+                "sourceCoreTicketLabels": [f"D8 {seed_text}"] if source.startswith("d8") and seed_text else [],
+                "sourceStructureType": shape,
+                "sourceStructureLabel": shape_label,
+                "followDecision": "观察：E计划多策略跑数，按真实追踪回测筛选",
+            }
+        )
+        selected.append(item)
+        selected_numbers.add(tuple(int(number) for number in item.get("numbers") or []))
+        if len(selected) >= top_count:
+            break
+    return selected[:top_count]
+
+
 def prediction_panel_e_source_structure_types_for_game(game_key: str) -> set[str]:
     now_ts = time.time()
     cached = PREDICTION_PANEL_E_SOURCE_CACHE.get(game_key)
@@ -7239,11 +8214,11 @@ def prediction_payload(
     }
     needs_c_tickets = panel in {
         PREDICTION_PANEL_C,
-        PREDICTION_PANEL_E,
     }
     needs_m_tickets = panel in {
         PREDICTION_PANEL_M,
         PREDICTION_PANEL_D,
+        PREDICTION_PANEL_E,
     }
     e_supported = game_key in PREDICTION_PANEL_E_GAME_KEYS
     excluded_numbers = prediction_kill_numbers_from_tickets(base_strategy_tickets) if needs_b_tickets else []
@@ -7306,29 +8281,13 @@ def prediction_payload(
         excluded_numbers = []
     elif panel in {PREDICTION_PANEL_E, PREDICTION_PANEL_F, PREDICTION_PANEL_G}:
         excluded_numbers = []
-    if panel == PREDICTION_PANEL_D:
+    if panel in {PREDICTION_PANEL_D, PREDICTION_PANEL_E}:
         d_source_tickets = prediction_panel_d_observation_tickets(
             rows,
             config,
             base_strategy_tickets,
             b_strategy_tickets,
             m_strategy_tickets,
-            frequency,
-            recent_counts,
-            recent_window,
-            draw_sets_oldest,
-            bonus_values_oldest,
-            recent_draw_sets,
-            recent_bonus_values,
-            stats_index=stats_index,
-        )
-    elif panel == PREDICTION_PANEL_E:
-        d_source_tickets = prediction_panel_d_derived_four_tickets(
-            rows,
-            config,
-            base_strategy_tickets,
-            b_strategy_tickets,
-            c_strategy_tickets,
             frequency,
             recent_counts,
             recent_window,
@@ -7346,7 +8305,7 @@ def prediction_payload(
         strategy_tickets = d_source_tickets
     elif panel == PREDICTION_PANEL_E:
         e_source_tickets = (
-            prediction_panel_e_d_profit_five_tickets(
+            prediction_panel_e_run_shape_tickets(
                 rows,
                 config,
                 d_source_tickets,
@@ -7424,6 +8383,9 @@ def prediction_payload(
         )
     else:
         strategy_tickets = base_strategy_tickets
+    strategy_ticket_count_before_focus = len(strategy_tickets)
+    if panel == PREDICTION_PANEL_D:
+        strategy_tickets = prediction_panel_d_focus_tickets(strategy_tickets)
     forecasts = []
     newest = timeline_newest or (rows[0] if rows else None)
     newest_ms = parse_int(newest.get("drawTimeMs") if newest else 0, 0)
@@ -7448,16 +8410,16 @@ def prediction_payload(
     if panel == PREDICTION_PANEL_D:
         method = (
             "D计划：观察型2码/3码实验池；每期固定输出共识、拆解、逆向、形态四类规则，"
-            "各1组2码和1组3码。D只用于完整开奖日观察，不直接替代C计划。"
+            "各1组2码和1组3码。当前页面和追踪只保留#2拆解2码、#8形态3码；"
+            "完整8槽仍按固定顺序内部生成，避免改变D2/D8算法。"
         )
     if panel == PREDICTION_PANEL_E:
-        allowed_e_rules = prediction_panel_e_source_structure_types_for_game(game_key)
         method = (
-            f"E计划：只拿D计划当前盈利规则 {len(allowed_e_rules)} 个作为来源；"
-            "两张D盈利四码票互相组合，第五码也从D票差集中补入；"
-            "按D母规则+扩展规则分组追踪，先只观察"
+            "E计划：连号结构观察池；E4双两连6组、E5三连+两连/双两连+散码8组、"
+            "E6三组两连/双两连+两散10组、E7三组两连+散码/双两连+三散8组。"
+            "排除4连以上、双三连、2+2+3和3+4等大连形态；D8只作为种子和加分来源。"
             if e_supported
-            else "E计划：当前彩种未启用D盈利规则五码组合"
+            else "E计划：当前彩种未启用连号结构观察"
         )
     if panel == PREDICTION_PANEL_M:
         method = (
@@ -7488,8 +8450,8 @@ def prediction_payload(
         source_panel = "abc_observation"
         source_panels = [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B, PREDICTION_PANEL_M]
     elif panel == PREDICTION_PANEL_E:
-        source_panel = "d_profit_overlap_five"
-        source_panels = [PREDICTION_PANEL_D]
+        source_panel = "run_shape_observation"
+        source_panels = [PREDICTION_PANEL_D, "history_run_shape"]
     elif panel == PREDICTION_PANEL_M:
         source_panel = "ab_history_lowgroup"
         source_panels = [PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B]
@@ -7543,7 +8505,13 @@ def prediction_payload(
         "sourceTickets": source_tickets,
         "excludedNumbers": excluded_numbers,
         "disabledStructureTypes": [],
-        "sourceStructureTypes": sorted(prediction_panel_e_source_structure_types_for_game(game_key))
+        "sourceStructureTypes": sorted(
+            {
+                str(spec.get("shape") or "")
+                for spec in PREDICTION_PANEL_E_STRATEGY_SPECS
+                if spec.get("shape")
+            }
+        )
         if panel == PREDICTION_PANEL_E
         else [],
         "method": method,
@@ -7570,6 +8538,15 @@ def prediction_payload(
             "topNumbers": bonus_sets[0] if bonus_sets else [],
         },
         "strategyTickets": strategy_tickets,
+        "strategyTicketFocus": {
+            "enabled": True,
+            "ranks": list(PREDICTION_PANEL_D_FOCUS_RANKS),
+            "allCount": strategy_ticket_count_before_focus,
+            "visibleCount": len(strategy_tickets),
+            "note": "D计划只展示和新追踪#2拆解2码、#8形态3码；算法仍固定完整8槽。",
+        }
+        if panel == PREDICTION_PANEL_D
+        else None,
         "forecasts": forecasts,
     }
 
@@ -8077,7 +9054,7 @@ def predictions_payload(
     perf["panel"] = panel
     perf["includeStakingSimulation"] = include_staking_simulation
     if panel in PREDICTION_RETIRED_PANELS:
-        raise ValueError("旧C/D/E/F/G计划已停用，不再生成新预测")
+        raise ValueError("旧C/F/G计划已停用，不再生成新预测")
     now_value = now_ms if now_ms is not None else int(time.time() * 1000)
     history_identity_started = time.monotonic()
     try:
@@ -10491,6 +11468,8 @@ def load_prediction_tracking_for_game(
     limit: int | None = None,
     offset: int = 0,
     panel: str | None = None,
+    slot_filter: str = "all",
+    day_window: dict[str, Any] | None = None,
     include_retired: bool = False,
 ) -> list[dict[str, Any]]:
     init_prediction_tracking_db()
@@ -10507,6 +11486,16 @@ def load_prediction_tracking_for_game(
     method_where, method_params = prediction_tracking_current_method_where(panel_key, include_retired=include_retired)
     where += method_where
     params.extend(method_params)
+    focus_where, focus_params = prediction_tracking_focus_where(panel_key)
+    where += focus_where
+    params.extend(focus_params)
+    slot_filter = prediction_tracking_slot_value(slot_filter)
+    slot_where, slot_params = prediction_tracking_slot_sql_filter(slot_filter)
+    where += slot_where
+    params.extend(slot_params)
+    day_where, day_params = prediction_tracking_day_sql_filter(day_window)
+    where += day_where
+    params.extend(day_params)
     if status_filter != "all":
         where += " AND status = ?"
         params.append(status_filter)
@@ -10581,6 +11570,8 @@ def prediction_tracking_count(
     game_key: str | None = None,
     status_filter: str = "all",
     panel: str | None = None,
+    slot_filter: str = "all",
+    day_window: dict[str, Any] | None = None,
     include_retired: bool = False,
 ) -> int:
     init_prediction_tracking_db()
@@ -10601,6 +11592,19 @@ def prediction_tracking_count(
     if method_where:
         where_parts.append(method_where[5:])
         params.extend(method_params)
+    focus_where, focus_params = prediction_tracking_focus_where(panel_key)
+    if focus_where:
+        where_parts.append(focus_where[5:])
+        params.extend(focus_params)
+    slot_filter = prediction_tracking_slot_value(slot_filter)
+    slot_where, slot_params = prediction_tracking_slot_sql_filter(slot_filter)
+    if slot_where:
+        where_parts.append(slot_where[5:])
+        params.extend(slot_params)
+    day_where, day_params = prediction_tracking_day_sql_filter(day_window)
+    if day_where:
+        where_parts.append(day_where[5:])
+        params.extend(day_params)
     if status_filter != "all":
         where_parts.append("status = ?")
         params.append(status_filter)
@@ -10614,6 +11618,8 @@ def prediction_tracking_db_where(
     *,
     panel: str | None = None,
     status_filter: str = "all",
+    slot_filter: str = "all",
+    day_window: dict[str, Any] | None = None,
     include_retired: bool = False,
 ) -> tuple[str, list[Any]]:
     where_parts: list[str] = []
@@ -10633,6 +11639,19 @@ def prediction_tracking_db_where(
     if method_where:
         where_parts.append(method_where[5:])
         params.extend(method_params)
+    focus_where, focus_params = prediction_tracking_focus_where(panel_key)
+    if focus_where:
+        where_parts.append(focus_where[5:])
+        params.extend(focus_params)
+    slot_filter = prediction_tracking_slot_value(slot_filter)
+    slot_where, slot_params = prediction_tracking_slot_sql_filter(slot_filter)
+    if slot_where:
+        where_parts.append(slot_where[5:])
+        params.extend(slot_params)
+    day_where, day_params = prediction_tracking_day_sql_filter(day_window)
+    if day_where:
+        where_parts.append(day_where[5:])
+        params.extend(day_params)
     if status_filter != "all":
         where_parts.append("status = ?")
         params.append(status_filter)
@@ -10644,9 +11663,16 @@ def prediction_tracking_summary_from_db(
     game_key: str | None = None,
     *,
     panel: str | None = None,
+    slot_filter: str = "all",
+    day_window: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     init_prediction_tracking_db()
-    where, params = prediction_tracking_db_where(game_key, panel=panel)
+    where, params = prediction_tracking_db_where(
+        game_key,
+        panel=panel,
+        slot_filter=slot_filter,
+        day_window=day_window,
+    )
     with prediction_tracking_db_connect() as conn:
         row = conn.execute(
             f"""
@@ -10705,10 +11731,17 @@ def prediction_tracking_group_summaries_from_db(
     game_key: str | None = None,
     *,
     panel: str | None = None,
+    slot_filter: str = "all",
+    day_window: dict[str, Any] | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
     init_prediction_tracking_db()
-    where, params = prediction_tracking_db_where(game_key, panel=panel)
+    where, params = prediction_tracking_db_where(
+        game_key,
+        panel=panel,
+        slot_filter=slot_filter,
+        day_window=day_window,
+    )
     with prediction_tracking_db_connect() as conn:
         rows = conn.execute(
             f"""
@@ -11020,8 +12053,12 @@ def prediction_tracking_pending_batch_blocks(
 ) -> bool:
     key = prediction_tracking_batch_key(record)
     based_ms = parse_int(record.get("basedOnDrawTimeMs"), 0)
+    panel = prediction_panel_from_value(record.get("panel"))
+    rank = prediction_panel_d_ticket_rank(record) if panel == PREDICTION_PANEL_D else 0
     for existing in pending_records:
         if prediction_tracking_batch_key(existing) != key:
+            continue
+        if rank > 0 and prediction_panel_d_ticket_rank(existing) != rank:
             continue
         if parse_int(existing.get("basedOnDrawTimeMs"), 0) >= based_ms:
             return True
@@ -12164,7 +13201,11 @@ def adjacent_derived_stats_payload(query: dict[str, list[str]]) -> dict[str, Any
 
 def prediction_tracking_slot_rank(record: dict[str, Any]) -> int:
     rank = parse_int(record.get("ticketRank"), 0)
-    return rank if rank > 0 else 0
+    if rank > 0:
+        return rank
+    if prediction_panel_from_value(record.get("panel")) == PREDICTION_PANEL_D:
+        return prediction_panel_d_ticket_rank(record)
+    return 0
 
 
 def prediction_tracking_ticket_number_key(record: dict[str, Any]) -> tuple[int, ...]:
@@ -12239,6 +13280,39 @@ def load_prediction_tracking_day_records(
     method_where, method_params = prediction_tracking_current_method_where(panel_key)
     where += method_where
     params.extend(method_params)
+    focus_where, focus_params = prediction_tracking_focus_where(panel_key)
+    where += focus_where
+    params.extend(focus_params)
+    with prediction_tracking_db_connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT record_json
+            FROM prediction_records
+            WHERE {where}
+            ORDER BY target_draw_time_ms ASC, created_at ASC, id ASC
+            """,
+            params,
+        ).fetchall()
+    return prediction_tracking_records_from_rows(rows)
+
+
+def load_prediction_tracking_current_records(
+    config: dict[str, Any],
+    panel: str | None,
+) -> list[dict[str, Any]]:
+    init_prediction_tracking_db()
+    panel_key = prediction_panel_from_value(panel) if panel is not None else None
+    params: list[Any] = [str(config["key"])]
+    where = "game_key = ?"
+    if panel is not None:
+        where += " AND panel = ?"
+        params.append(panel_key)
+    method_where, method_params = prediction_tracking_current_method_where(panel_key)
+    where += method_where
+    params.extend(method_params)
+    focus_where, focus_params = prediction_tracking_focus_where(panel_key)
+    where += focus_where
+    params.extend(focus_params)
     with prediction_tracking_db_connect() as conn:
         rows = conn.execute(
             f"""
@@ -12273,10 +13347,10 @@ def prediction_tracking_daily_slot_rank_info(records: list[dict[str, Any]]) -> t
         unranked: list[dict[str, Any]] = []
         for record in records_for_target:
             record_id = str(record.get("id") or "")
-            rank = parse_int(record.get("ticketRank"), 0)
+            rank = prediction_tracking_slot_rank(record)
             if rank > 0:
                 ranks[record_id] = rank
-                rank_sources[record_id] = "stored"
+                rank_sources[record_id] = "stored" if parse_int(record.get("ticketRank"), 0) > 0 else "derived"
                 used_ranks.add(rank)
             else:
                 unranked.append(record)
@@ -12296,6 +13370,64 @@ def prediction_tracking_daily_slot_rank_info(records: list[dict[str, Any]]) -> t
 def prediction_tracking_daily_slot_ranks(records: list[dict[str, Any]]) -> dict[str, int]:
     ranks, _rank_sources = prediction_tracking_daily_slot_rank_info(records)
     return ranks
+
+
+def attach_prediction_tracking_slot_ranks(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not records:
+        return []
+    ranks, rank_sources = prediction_tracking_daily_slot_rank_info(records)
+    result: list[dict[str, Any]] = []
+    for record in records:
+        record_id = str(record.get("id") or "")
+        rank = ranks.get(record_id) or prediction_tracking_slot_rank(record)
+        if rank <= 0:
+            result.append(record)
+            continue
+        item = dict(record)
+        item["ticketRank"] = rank
+        item["rankSource"] = rank_sources.get(
+            record_id,
+            "stored" if parse_int(record.get("ticketRank"), 0) > 0 else "fallback",
+        )
+        result.append(item)
+    return result
+
+
+def filter_prediction_tracking_records_by_slot(
+    records: list[dict[str, Any]],
+    slot: str | None,
+) -> list[dict[str, Any]]:
+    rank = prediction_tracking_slot_rank_from_value(slot or "all")
+    pick = prediction_tracking_slot_pick_from_value(slot or "all")
+    ranked_records = attach_prediction_tracking_slot_ranks(records)
+    if rank > 0:
+        return [
+            record
+            for record in ranked_records
+            if parse_int(record.get("ticketRank"), 0) == rank
+        ]
+    if pick > 0:
+        return [
+            record
+            for record in ranked_records
+            if parse_int(record.get("pickCount"), len(record.get("numbers") or [])) == pick
+        ]
+    return [
+        record
+        for record in records
+    ]
+
+
+def ordered_prediction_tracking_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return sorted(
+        records,
+        key=lambda record: (
+            parse_int(record.get("targetDrawTimeMs"), 0),
+            str(record.get("createdAt") or ""),
+            str(record.get("id") or ""),
+        ),
+        reverse=True,
+    )
 
 
 def prediction_tracking_daily_key(
@@ -12330,10 +13462,11 @@ def attach_prediction_tracking_daily_miss_streaks(
 ) -> list[dict[str, Any]]:
     if config is None or not page_items:
         return page_items
+    supported_panels = {PREDICTION_PANEL_M, PREDICTION_PANEL_D, PREDICTION_PANEL_E}
     target_items = [
         record
         for record in page_items
-        if prediction_panel_from_value(record.get("panel")) == PREDICTION_PANEL_M
+        if prediction_panel_from_value(record.get("panel")) in supported_panels
     ]
     if not target_items:
         return page_items
@@ -12406,13 +13539,13 @@ def attach_prediction_tracking_daily_miss_streaks(
     result: list[dict[str, Any]] = []
     for record in page_items:
         item = dict(record)
-        if prediction_panel_from_value(item.get("panel")) != PREDICTION_PANEL_M:
+        if prediction_panel_from_value(item.get("panel")) not in supported_panels:
             result.append(item)
             continue
         key = prediction_tracking_daily_key(item, config, slot_ranks)
         record_id = str(item.get("id") or "")
         item["ticketRank"] = slot_ranks.get(record_id) or prediction_tracking_slot_rank(item)
-        item["rankSource"] = rank_sources.get(record_id, "stored" if prediction_tracking_slot_rank(item) > 0 else "fallback")
+        item["rankSource"] = rank_sources.get(record_id, "stored" if parse_int(item.get("ticketRank"), 0) > 0 else "fallback")
         has_daily_tracking = record_id in streak_by_id
         if has_daily_tracking:
             daily_miss_streak = streak_by_id.get(record_id, 0)
@@ -12435,13 +13568,132 @@ def attach_prediction_tracking_daily_miss_streaks(
     return result
 
 
+def prediction_tracking_current_key(
+    record: dict[str, Any],
+    config: dict[str, Any] | None,
+    slot_ranks: dict[str, int] | None = None,
+) -> tuple[str, str, int] | None:
+    if config is None:
+        return None
+    panel = prediction_panel_from_value(record.get("panel"))
+    record_id = str(record.get("id") or "")
+    rank = (slot_ranks or {}).get(record_id) or prediction_tracking_slot_rank(record)
+    if rank <= 0:
+        return None
+    return (
+        prediction_tracking_game_key(record),
+        panel,
+        rank,
+    )
+
+
+def attach_prediction_tracking_current_miss_streaks(
+    page_items: list[dict[str, Any]],
+    scoped_records: list[dict[str, Any]],
+    config: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if config is None or not page_items:
+        return page_items
+    target_items = [
+        record
+        for record in page_items
+        if prediction_panel_from_value(record.get("panel")) == PREDICTION_PANEL_E
+    ]
+    if not target_items:
+        return page_items
+    all_records_by_id: dict[str, dict[str, Any]] = {}
+    for record in [*scoped_records, *page_items]:
+        record_id = str(record.get("id") or "")
+        if record_id:
+            all_records_by_id[record_id] = record
+    for record in load_prediction_tracking_current_records(config, PREDICTION_PANEL_E):
+        record_id = str(record.get("id") or "")
+        if record_id:
+            all_records_by_id.setdefault(record_id, record)
+
+    context_records = list(all_records_by_id.values())
+    slot_ranks, rank_sources = prediction_tracking_daily_slot_rank_info(context_records)
+    requested_keys = {
+        key
+        for key in (prediction_tracking_current_key(record, config, slot_ranks) for record in target_items)
+        if key is not None
+    }
+    if not requested_keys:
+        return page_items
+
+    groups: dict[tuple[str, str, int], list[dict[str, Any]]] = {}
+    for record in context_records:
+        key = prediction_tracking_current_key(record, config, slot_ranks)
+        if key in requested_keys:
+            groups.setdefault(key, []).append(record)
+
+    streak_by_id: dict[str, int] = {}
+    start_by_key: dict[tuple[str, str, int], int] = {}
+    for key, records in groups.items():
+        miss_streak = 0
+        sorted_records = sorted(
+            records,
+            key=lambda record: (
+                parse_int(record.get("targetDrawTimeMs"), 0),
+                str(record.get("createdAt") or ""),
+                str(record.get("id") or ""),
+            ),
+        )
+        current_start = min((parse_int(record.get("targetDrawTimeMs"), 0) for record in sorted_records), default=0)
+        for record in sorted_records:
+            status = str(record.get("status") or "pending")
+            if status == "won":
+                miss_streak = 0
+                current_start = parse_int(record.get("targetDrawTimeMs"), 0)
+            elif status == "lost":
+                if miss_streak == 0:
+                    current_start = parse_int(record.get("targetDrawTimeMs"), 0)
+                miss_streak += 1
+            record_id = str(record.get("id") or "")
+            if record_id:
+                streak_by_id[record_id] = miss_streak
+                start_by_key[key] = current_start
+
+    result: list[dict[str, Any]] = []
+    for record in page_items:
+        item = dict(record)
+        if prediction_panel_from_value(item.get("panel")) != PREDICTION_PANEL_E:
+            result.append(item)
+            continue
+        record_id = str(item.get("id") or "")
+        rank = slot_ranks.get(record_id) or prediction_tracking_slot_rank(item)
+        if rank > 0:
+            item["ticketRank"] = rank
+            item["rankSource"] = rank_sources.get(record_id, "stored" if parse_int(record.get("ticketRank"), 0) > 0 else "fallback")
+        key = prediction_tracking_current_key(item, config, slot_ranks)
+        if record_id in streak_by_id:
+            miss_streak = streak_by_id.get(record_id, 0)
+            item["currentMissStreak"] = miss_streak
+            item["currentMissDisplayStreak"] = (
+                miss_streak + 1
+                if str(item.get("status") or "pending") == "pending"
+                else miss_streak
+            )
+            item["currentMissSource"] = "tracking_slot"
+        item["currentMissStartDrawTimeMs"] = start_by_key.get(key, 0) if key is not None else 0
+        if item["currentMissStartDrawTimeMs"]:
+            item["currentMissStartDrawTimeUtc"] = datetime.fromtimestamp(
+                item["currentMissStartDrawTimeMs"] / 1000,
+                tz=UTC,
+            ).isoformat(timespec="seconds")
+        else:
+            item["currentMissStartDrawTimeUtc"] = ""
+        result.append(item)
+    return result
+
+
 def attach_prediction_payload_daily_miss_streaks(
     payload: dict[str, Any],
     config: dict[str, Any],
 ) -> dict[str, Any]:
     predictions = payload.get("predictions") if isinstance(payload.get("predictions"), dict) else {}
     panel = prediction_panel_from_value(predictions.get("panel") or payload.get("panel"))
-    if panel != PREDICTION_PANEL_M:
+    if panel not in {PREDICTION_PANEL_M, PREDICTION_PANEL_D, PREDICTION_PANEL_E}:
         return payload
     tickets = predictions.get("strategyTickets") if isinstance(predictions.get("strategyTickets"), list) else []
     if not tickets:
@@ -12487,6 +13739,7 @@ def attach_prediction_payload_daily_miss_streaks(
         )
 
     enriched_records = attach_prediction_tracking_daily_miss_streaks(pseudo_records, [], config)
+    enriched_records = attach_prediction_tracking_current_miss_streaks(enriched_records, [], config)
     enriched_by_rank = {
         parse_int(record.get("ticketRank"), 0): record
         for record in enriched_records
@@ -12502,6 +13755,15 @@ def attach_prediction_payload_daily_miss_streaks(
         item["dailyMissSource"] = str(enriched.get("dailyMissSource") or "tracking_day_slot")
         item["dailyMissStartDrawTimeMs"] = parse_int(enriched.get("dailyMissStartDrawTimeMs"), 0)
         item["dailyMissStartDrawTimeUtc"] = str(enriched.get("dailyMissStartDrawTimeUtc") or "")
+        if panel == PREDICTION_PANEL_E:
+            item["currentMissStreak"] = parse_int(enriched.get("currentMissStreak"), 0)
+            item["currentMissDisplayStreak"] = parse_int(
+                enriched.get("currentMissDisplayStreak"),
+                item["currentMissStreak"] + 1,
+            )
+            item["currentMissSource"] = str(enriched.get("currentMissSource") or "tracking_slot")
+            item["currentMissStartDrawTimeMs"] = parse_int(enriched.get("currentMissStartDrawTimeMs"), 0)
+            item["currentMissStartDrawTimeUtc"] = str(enriched.get("currentMissStartDrawTimeUtc") or "")
     copied_predictions["strategyTickets"] = copied_tickets
     copied_payload["predictions"] = copied_predictions
     return copied_payload
@@ -12526,14 +13788,23 @@ def prediction_tracking_response(
     groups: list[dict[str, Any]] | None = None,
     adjacent_stats: dict[str, Any] | None = None,
     panel: str | None = PREDICTION_PANEL_DEFAULT,
+    slot_filter: str = "all",
+    day_filter: str = "",
+    day_window: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     panel_key = prediction_panel_from_value(panel) if panel is not None else None
+    slot_filter = prediction_tracking_slot_value(slot_filter)
+    day_filter = prediction_tracking_day_value(day_filter)
+    if day_window is None:
+        day_window = prediction_tracking_day_window(config, day_filter)
     scoped_records = (
         [record for record in records if prediction_tracking_game_key(record) == config["key"]]
         if config is not None
         else records
     )
     scoped_records = prediction_records_for_panel(scoped_records, panel_key)
+    scoped_records = filter_prediction_tracking_records_by_slot(scoped_records, slot_filter)
+    scoped_records = filter_prediction_tracking_records_by_day(scoped_records, day_window)
     allowed_statuses = {"pending", "won", "lost", "cancelled", "void"}
     status_filter = status_filter if status_filter in allowed_statuses else "all"
     page_size = max(10, min(page_size, 200))
@@ -12543,17 +13814,14 @@ def prediction_tracking_response(
             if status_filter != "all"
             else scoped_records
         )
-        ordered = sorted(
-            filtered_records,
-            key=lambda record: (
-                parse_int(record.get("targetDrawTimeMs"), 0),
-                str(record.get("createdAt") or ""),
-            ),
-            reverse=True,
-        )
+        ordered = ordered_prediction_tracking_records(filtered_records)
         total_items = len(ordered)
     else:
-        ordered = prediction_records_for_panel(list(page_items), panel_key)
+        ordered = filter_prediction_tracking_records_by_slot(
+            prediction_records_for_panel(list(page_items), panel_key),
+            slot_filter,
+        )
+        ordered = filter_prediction_tracking_records_by_day(ordered, day_window)
         total_items = len(ordered) if total_items is None else total_items
     total_page = max(1, math.ceil(total_items / page_size))
     page = max(1, min(page, total_page))
@@ -12569,6 +13837,7 @@ def prediction_tracking_response(
     group_items = groups if groups is not None else prediction_tracking_group_summaries(scoped_records)
     response_items = ordered if page_items is not None else ordered[start:end]
     response_items = attach_prediction_tracking_daily_miss_streaks(response_items, scoped_records, config)
+    response_items = attach_prediction_tracking_current_miss_streaks(response_items, scoped_records, config)
     return {
         "ok": True,
         "game": game_public_config(config) if config is not None else None,
@@ -12588,6 +13857,9 @@ def prediction_tracking_response(
         "allGroups": group_items,
         "adjacentStats": adjacent_stats,
         "statusFilter": status_filter,
+        "slotFilter": slot_filter,
+        "dayFilter": day_filter,
+        "dayWindow": day_window,
         "page": page,
         "pageSize": page_size,
         "total": total_items,
@@ -12969,12 +14241,17 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     status_filter = str(query.get("status", ["all"])[0] or "all")
     allowed_statuses = {"pending", "won", "lost", "cancelled", "void"}
     status_filter = status_filter if status_filter in allowed_statuses else "all"
+    slot_filter = prediction_tracking_slot_value(query.get("slot", ["all"])[0])
+    slot_rank = prediction_tracking_slot_rank_from_value(slot_filter)
+    day_filter = prediction_tracking_day_value(query.get("day", [""])[0])
+    day_window = prediction_tracking_day_window(config, day_filter)
     allow_auto_sync = query_bool(query, "autoSync", True)
     auto_sync: dict[str, Any] | None = None
     settled_for_panel = 0
     summary: dict[str, Any] | None = None
     all_summary: dict[str, Any] | None = None
     groups: list[dict[str, Any]] | None = None
+    all_total = 0
     if allow_auto_sync:
         with DATA_LOCK:
             rows = load_history_rows(game_history_path(config), config)
@@ -12989,7 +14266,34 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
             if settled_now:
                 write_prediction_tracking(changed_records)
             settled_for_panel = len(prediction_records_for_panel(changed_records, panel)) if settled_now else 0
-            total_items = prediction_tracking_count(config["key"], status_filter, panel=panel)
+        if slot_rank > 0:
+            scoped_records = load_prediction_tracking_for_game(
+                config["key"],
+                status_filter="all",
+                panel=panel,
+                day_window=day_window,
+            )
+            scoped_records = filter_prediction_tracking_records_by_slot(scoped_records, slot_filter)
+            summary = prediction_tracking_summary(scoped_records)
+            groups = prediction_tracking_group_summaries(scoped_records)
+            filtered_records = (
+                [record for record in scoped_records if record.get("status") == status_filter]
+                if status_filter != "all"
+                else scoped_records
+            )
+            ordered = ordered_prediction_tracking_records(filtered_records)
+            total_items = len(ordered)
+            total_page = max(1, math.ceil(total_items / page_size))
+            page = max(1, min(page, total_page))
+            page_items = ordered[(page - 1) * page_size : page * page_size]
+        else:
+            total_items = prediction_tracking_count(
+                config["key"],
+                status_filter,
+                panel=panel,
+                slot_filter=slot_filter,
+                day_window=day_window,
+            )
             total_page = max(1, math.ceil(total_items / page_size))
             page = max(1, min(page, total_page))
             page_items = load_prediction_tracking_for_game(
@@ -12998,28 +14302,59 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
                 limit=page_size,
                 offset=(page - 1) * page_size,
                 panel=panel,
+                slot_filter=slot_filter,
+                day_window=day_window,
             )
-        summary = prediction_tracking_summary_from_db(config["key"], panel=panel)
+            summary = prediction_tracking_summary_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
+            groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
         all_total = prediction_tracking_count(panel=panel)
         all_summary = {"total": all_total}
-        groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel)
     else:
         auto_sync = {"skipped": True, "reason": "request_disabled"}
-        total_items = prediction_tracking_count(config["key"], status_filter, panel=panel)
-        total_page = max(1, math.ceil(total_items / page_size))
-        page = max(1, min(page, total_page))
-        page_items = load_prediction_tracking_for_game(
-            config["key"],
-            status_filter=status_filter,
-            limit=page_size,
-            offset=(page - 1) * page_size,
-            panel=panel,
-        )
         records = []
-        summary = prediction_tracking_summary_from_db(config["key"], panel=panel)
+        if slot_rank > 0:
+            scoped_records = load_prediction_tracking_for_game(
+                config["key"],
+                status_filter="all",
+                panel=panel,
+                day_window=day_window,
+            )
+            scoped_records = filter_prediction_tracking_records_by_slot(scoped_records, slot_filter)
+            summary = prediction_tracking_summary(scoped_records)
+            groups = prediction_tracking_group_summaries(scoped_records)
+            filtered_records = (
+                [record for record in scoped_records if record.get("status") == status_filter]
+                if status_filter != "all"
+                else scoped_records
+            )
+            ordered = ordered_prediction_tracking_records(filtered_records)
+            total_items = len(ordered)
+            total_page = max(1, math.ceil(total_items / page_size))
+            page = max(1, min(page, total_page))
+            page_items = ordered[(page - 1) * page_size : page * page_size]
+        else:
+            total_items = prediction_tracking_count(
+                config["key"],
+                status_filter,
+                panel=panel,
+                slot_filter=slot_filter,
+                day_window=day_window,
+            )
+            total_page = max(1, math.ceil(total_items / page_size))
+            page = max(1, min(page, total_page))
+            page_items = load_prediction_tracking_for_game(
+                config["key"],
+                status_filter=status_filter,
+                limit=page_size,
+                offset=(page - 1) * page_size,
+                panel=panel,
+                slot_filter=slot_filter,
+                day_window=day_window,
+            )
+            summary = prediction_tracking_summary_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
+            groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
         all_total = prediction_tracking_count(panel=panel)
         all_summary = {"total": all_total}
-        groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel)
     return prediction_tracking_response(
         records,
         settled_now=settled_for_panel,
@@ -13035,6 +14370,9 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         all_summary=all_summary,
         groups=groups,
         panel=panel,
+        slot_filter=slot_filter,
+        day_filter=day_filter,
+        day_window=day_window,
     )
 
 
@@ -13090,6 +14428,933 @@ def delete_prediction_tracking(record_id: str, query: dict[str, list[str]]) -> d
             raise KeyError("追踪记录不存在或不属于当前彩种")
         delete_prediction_tracking_records([record_id])
         return prediction_tracking_response(remaining, deleted=deleted, config=config, panel=panel)
+
+
+AUTO_BET_ALLOWED_SLOTS = {
+    "p3_1": {"rank": 3, "label": "3码候选#3"},
+    "p3_2": {"rank": 4, "label": "3码候选#4"},
+}
+
+
+def default_auto_bet_config() -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "mode": "assist",
+        "game": "poland_keno_20_70",
+        "panel": PREDICTION_PANEL_M,
+        "slot": "p3_1",
+        "allowedSlots": ["p3_1", "p3_2"],
+        "baseStake": 1.0,
+        "stepMisses": 20,
+        "stepStake": 1.0,
+        "maxStake": 3.0,
+        "odds": 40.0,
+        "takeProfitEnabled": True,
+        "takeProfitAmount": 40.0,
+        "stopLossEnabled": True,
+        "stopLossAmount": 50.0,
+        "maxSessionMiss": 60,
+        "maxDailyLossEnabled": True,
+        "maxDailyLoss": 100.0,
+        "maxDailyStakeEnabled": True,
+        "maxDailyStake": 200.0,
+        "minLeadSeconds": 30,
+        "requireHumanStart": True,
+        "requireFirstBetConfirm": True,
+        "stopAfterWin": True,
+        "stopAfterMissedTarget": True,
+        "stopAfterUnknownSubmit": True,
+        "platform": "bc_game",
+        "autoSubmitEnabled": False,
+    }
+
+
+def normalize_auto_bet_slot(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"p3_2", "3_2", "rank4", "ticket4", "#4", "4"}:
+        return "p3_2"
+    return "p3_1"
+
+
+def normalize_auto_bet_mode(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if text in {"observe", "assist", "confirm_first", "live"}:
+        return text
+    return "assist"
+
+
+def normalize_auto_bet_config(config: dict[str, Any]) -> dict[str, Any]:
+    normalized = default_auto_bet_config()
+    normalized.update({key: value for key, value in config.items() if key in normalized})
+    normalized["mode"] = normalize_auto_bet_mode(normalized.get("mode"))
+    normalized["game"] = "poland_keno_20_70"
+    normalized["panel"] = PREDICTION_PANEL_M
+    normalized["slot"] = normalize_auto_bet_slot(normalized.get("slot"))
+    allowed_slots = normalized.get("allowedSlots") if isinstance(normalized.get("allowedSlots"), list) else ["p3_1", "p3_2"]
+    normalized["allowedSlots"] = [
+        slot
+        for slot in (normalize_auto_bet_slot(item) for item in allowed_slots)
+        if slot in AUTO_BET_ALLOWED_SLOTS
+    ] or ["p3_1"]
+    if normalized["slot"] not in normalized["allowedSlots"]:
+        normalized["slot"] = normalized["allowedSlots"][0]
+    normalized["enabled"] = bool(normalized.get("enabled", False))
+    normalized["baseStake"] = max(0.01, parse_float(normalized.get("baseStake"), 1.0))
+    normalized["stepMisses"] = max(1, parse_int(normalized.get("stepMisses"), 20))
+    normalized["stepStake"] = max(0.0, parse_float(normalized.get("stepStake"), 1.0))
+    normalized["maxStake"] = max(normalized["baseStake"], parse_float(normalized.get("maxStake"), 3.0))
+    normalized["odds"] = max(1.0, parse_float(normalized.get("odds"), 40.0))
+    normalized["takeProfitEnabled"] = bool(normalized.get("takeProfitEnabled", True))
+    normalized["takeProfitAmount"] = max(0.01, parse_float(normalized.get("takeProfitAmount"), 40.0))
+    normalized["stopLossEnabled"] = bool(normalized.get("stopLossEnabled", True))
+    normalized["stopLossAmount"] = max(0.01, parse_float(normalized.get("stopLossAmount"), 50.0))
+    normalized["maxSessionMiss"] = max(1, parse_int(normalized.get("maxSessionMiss"), 60))
+    normalized["maxDailyLossEnabled"] = bool(normalized.get("maxDailyLossEnabled", True))
+    normalized["maxDailyLoss"] = max(0.01, parse_float(normalized.get("maxDailyLoss"), 100.0))
+    normalized["maxDailyStakeEnabled"] = bool(normalized.get("maxDailyStakeEnabled", True))
+    normalized["maxDailyStake"] = max(0.01, parse_float(normalized.get("maxDailyStake"), 200.0))
+    normalized["minLeadSeconds"] = max(15, parse_int(normalized.get("minLeadSeconds"), 30))
+    normalized["requireHumanStart"] = bool(normalized.get("requireHumanStart", True))
+    normalized["requireFirstBetConfirm"] = bool(normalized.get("requireFirstBetConfirm", True))
+    normalized["stopAfterWin"] = bool(normalized.get("stopAfterWin", True))
+    normalized["stopAfterMissedTarget"] = True
+    normalized["stopAfterUnknownSubmit"] = True
+    normalized["platform"] = str(normalized.get("platform") or "bc_game")
+    normalized["autoSubmitEnabled"] = False
+    return normalized
+
+
+def load_auto_bet_config() -> dict[str, Any]:
+    if DEFAULT_AUTO_BET_CONFIG.exists():
+        try:
+            with DEFAULT_AUTO_BET_CONFIG.open("r", encoding="utf-8") as fh:
+                stored = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            stored = {}
+    else:
+        stored = {}
+    return normalize_auto_bet_config(stored if isinstance(stored, dict) else {})
+
+
+def write_auto_bet_config(config: dict[str, Any]) -> None:
+    normalized = normalize_auto_bet_config(config)
+    temp_path = DEFAULT_AUTO_BET_CONFIG.with_suffix(".json.tmp")
+    with temp_path.open("w", encoding="utf-8") as fh:
+        json.dump(normalized, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    replace_path_with_retry(temp_path, DEFAULT_AUTO_BET_CONFIG)
+
+
+def auto_bet_db_connect() -> sqlite3.Connection:
+    conn = sqlite3.connect(DEFAULT_AUTO_BET_DB, timeout=3)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=3000")
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def init_auto_bet_db() -> None:
+    global AUTO_BET_DB_INITIALIZED
+    if AUTO_BET_DB_INITIALIZED:
+        return
+    with AUTO_BET_DB_INIT_LOCK:
+        if AUTO_BET_DB_INITIALIZED:
+            return
+        with auto_bet_db_connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS auto_bet_sessions (
+                    id TEXT PRIMARY KEY,
+                    game_key TEXT NOT NULL,
+                    panel TEXT NOT NULL,
+                    slot_key TEXT NOT NULL,
+                    slot_label TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    stopped_at TEXT NOT NULL DEFAULT '',
+                    global_miss_at_start INTEGER NOT NULL DEFAULT 0,
+                    session_miss INTEGER NOT NULL DEFAULT 0,
+                    session_profit REAL NOT NULL DEFAULT 0,
+                    session_stake_total REAL NOT NULL DEFAULT 0,
+                    session_payout_total REAL NOT NULL DEFAULT 0,
+                    config_json TEXT NOT NULL,
+                    stop_reason TEXT NOT NULL DEFAULT ''
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS auto_bet_orders (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    prediction_record_id TEXT NOT NULL,
+                    game_key TEXT NOT NULL,
+                    panel TEXT NOT NULL,
+                    slot_key TEXT NOT NULL,
+                    target_draw_time_ms INTEGER NOT NULL,
+                    target_draw_time_utc TEXT NOT NULL,
+                    ticket_label TEXT NOT NULL,
+                    numbers_json TEXT NOT NULL,
+                    global_miss INTEGER NOT NULL DEFAULT 0,
+                    session_miss INTEGER NOT NULL DEFAULT 0,
+                    stake REAL NOT NULL,
+                    odds REAL NOT NULL,
+                    expected_payout REAL NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    claimed_at TEXT NOT NULL DEFAULT '',
+                    claim_expires_at_ms INTEGER NOT NULL DEFAULT 0,
+                    extension_instance_id TEXT NOT NULL DEFAULT '',
+                    submitted_at TEXT NOT NULL DEFAULT '',
+                    accepted_at TEXT NOT NULL DEFAULT '',
+                    settled_at TEXT NOT NULL DEFAULT '',
+                    platform TEXT NOT NULL DEFAULT 'bc_game',
+                    platform_bet_id TEXT NOT NULL DEFAULT '',
+                    confirmed_stake REAL NOT NULL DEFAULT 0,
+                    confirmed_numbers_json TEXT NOT NULL DEFAULT '[]',
+                    payout REAL NOT NULL DEFAULT 0,
+                    profit REAL NOT NULL DEFAULT 0,
+                    error TEXT NOT NULL DEFAULT '',
+                    raw_json TEXT NOT NULL DEFAULT '{}',
+                    UNIQUE(session_id, target_draw_time_ms, slot_key, ticket_label)
+                )
+                """
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_auto_bet_sessions_status ON auto_bet_sessions(status, started_at DESC)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_auto_bet_orders_session_target ON auto_bet_orders(session_id, target_draw_time_ms)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_auto_bet_orders_status ON auto_bet_orders(status, target_draw_time_ms)")
+            conn.commit()
+        AUTO_BET_DB_INITIALIZED = True
+
+
+def auto_bet_row_to_session(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    try:
+        config_json = json.loads(row["config_json"])
+    except json.JSONDecodeError:
+        config_json = {}
+    return {
+        "id": str(row["id"] or ""),
+        "gameKey": str(row["game_key"] or ""),
+        "panel": str(row["panel"] or ""),
+        "slotKey": str(row["slot_key"] or ""),
+        "slotLabel": str(row["slot_label"] or ""),
+        "mode": str(row["mode"] or ""),
+        "status": str(row["status"] or ""),
+        "startedAt": str(row["started_at"] or ""),
+        "stoppedAt": str(row["stopped_at"] or ""),
+        "globalMissAtStart": parse_int(row["global_miss_at_start"], 0),
+        "sessionMiss": parse_int(row["session_miss"], 0),
+        "sessionProfit": round(parse_float(row["session_profit"], 0), 4),
+        "sessionStakeTotal": round(parse_float(row["session_stake_total"], 0), 4),
+        "sessionPayoutTotal": round(parse_float(row["session_payout_total"], 0), 4),
+        "config": config_json if isinstance(config_json, dict) else {},
+        "stopReason": str(row["stop_reason"] or ""),
+    }
+
+
+def auto_bet_row_to_order(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    try:
+        numbers = json.loads(row["numbers_json"])
+    except json.JSONDecodeError:
+        numbers = []
+    try:
+        confirmed_numbers = json.loads(row["confirmed_numbers_json"])
+    except json.JSONDecodeError:
+        confirmed_numbers = []
+    try:
+        raw_json = json.loads(row["raw_json"])
+    except json.JSONDecodeError:
+        raw_json = {}
+    return {
+        "id": str(row["id"] or ""),
+        "sessionId": str(row["session_id"] or ""),
+        "predictionRecordId": str(row["prediction_record_id"] or ""),
+        "gameKey": str(row["game_key"] or ""),
+        "panel": str(row["panel"] or ""),
+        "slotKey": str(row["slot_key"] or ""),
+        "targetDrawTimeMs": parse_int(row["target_draw_time_ms"], 0),
+        "targetDrawTimeUtc": str(row["target_draw_time_utc"] or ""),
+        "ticketLabel": str(row["ticket_label"] or ""),
+        "numbers": numbers if isinstance(numbers, list) else [],
+        "globalMiss": parse_int(row["global_miss"], 0),
+        "sessionMiss": parse_int(row["session_miss"], 0),
+        "stake": round(parse_float(row["stake"], 0), 4),
+        "odds": round(parse_float(row["odds"], 0), 4),
+        "expectedPayout": round(parse_float(row["expected_payout"], 0), 4),
+        "status": str(row["status"] or ""),
+        "createdAt": str(row["created_at"] or ""),
+        "claimedAt": str(row["claimed_at"] or ""),
+        "claimExpiresAtMs": parse_int(row["claim_expires_at_ms"], 0),
+        "extensionInstanceId": str(row["extension_instance_id"] or ""),
+        "submittedAt": str(row["submitted_at"] or ""),
+        "acceptedAt": str(row["accepted_at"] or ""),
+        "settledAt": str(row["settled_at"] or ""),
+        "platform": str(row["platform"] or ""),
+        "platformBetId": str(row["platform_bet_id"] or ""),
+        "confirmedStake": round(parse_float(row["confirmed_stake"], 0), 4),
+        "confirmedNumbers": confirmed_numbers if isinstance(confirmed_numbers, list) else [],
+        "payout": round(parse_float(row["payout"], 0), 4),
+        "profit": round(parse_float(row["profit"], 0), 4),
+        "error": str(row["error"] or ""),
+        "raw": raw_json if isinstance(raw_json, dict) else {},
+    }
+
+
+def auto_bet_active_session(conn: sqlite3.Connection) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM auto_bet_sessions
+        WHERE status IN ('armed', 'running', 'paused')
+        ORDER BY started_at DESC
+        LIMIT 1
+        """
+    ).fetchone()
+    return auto_bet_row_to_session(row)
+
+
+def auto_bet_open_order(conn: sqlite3.Connection, session_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM auto_bet_orders
+        WHERE session_id = ?
+          AND status IN ('planned', 'claimed', 'submitted', 'unknown')
+        ORDER BY target_draw_time_ms ASC, created_at ASC
+        LIMIT 1
+        """,
+        [session_id],
+    ).fetchone()
+    return auto_bet_row_to_order(row)
+
+
+def auto_bet_latest_order(conn: sqlite3.Connection, session_id: str) -> dict[str, Any] | None:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM auto_bet_orders
+        WHERE session_id = ?
+        ORDER BY target_draw_time_ms DESC, created_at DESC
+        LIMIT 1
+        """,
+        [session_id],
+    ).fetchone()
+    return auto_bet_row_to_order(row)
+
+
+def auto_bet_game_day_timezone(config: dict[str, Any]) -> ZoneInfo:
+    schedule = config.get("operatingHours") if isinstance(config.get("operatingHours"), dict) else {}
+    try:
+        return ZoneInfo(str(schedule.get("timezone") or "Asia/Shanghai"))
+    except Exception:
+        return ZoneInfo("Asia/Shanghai")
+
+
+def auto_bet_daily_window(config: dict[str, Any]) -> tuple[str, str, str]:
+    tz = auto_bet_game_day_timezone(config)
+    now_local = datetime.now(UTC).astimezone(tz)
+    start_local = datetime(now_local.year, now_local.month, now_local.day, tzinfo=tz)
+    end_local = start_local + timedelta(days=1)
+    return (
+        start_local.astimezone(UTC).isoformat(timespec="seconds"),
+        end_local.astimezone(UTC).isoformat(timespec="seconds"),
+        now_local.date().isoformat(),
+    )
+
+
+def auto_bet_daily_totals(conn: sqlite3.Connection, game_key: str) -> dict[str, Any]:
+    game_config = LOTTERY_GAMES.get(game_key) or LOTTERY_GAMES["poland_keno_20_70"]
+    start_utc, end_utc, day_key = auto_bet_daily_window(game_config)
+    rows = conn.execute(
+        """
+        SELECT stake, profit
+        FROM auto_bet_orders
+        WHERE game_key = ?
+          AND created_at >= ?
+          AND created_at < ?
+          AND status IN ('accepted', 'settled_won', 'settled_lost')
+        """,
+        [game_key, start_utc, end_utc],
+    ).fetchall()
+    return {
+        "gameDay": day_key,
+        "startUtc": start_utc,
+        "endUtc": end_utc,
+        "stake": round(sum(parse_float(row["stake"], 0) for row in rows), 4),
+        "profit": round(sum(parse_float(row["profit"], 0) for row in rows), 4),
+    }
+
+
+def auto_bet_sync_settled_orders(conn: sqlite3.Connection, config: dict[str, Any]) -> int:
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM auto_bet_orders
+        WHERE status = 'accepted'
+        ORDER BY target_draw_time_ms ASC, created_at ASC
+        LIMIT 100
+        """
+    ).fetchall()
+    orders = [order for order in (auto_bet_row_to_order(row) for row in rows) if order is not None]
+    record_ids = [str(order.get("predictionRecordId") or "") for order in orders if str(order.get("predictionRecordId") or "")]
+    if not record_ids:
+        return 0
+    records_by_id = {
+        str(record.get("id") or ""): record
+        for record in load_prediction_tracking_for_ids(record_ids)
+    }
+    settled = 0
+    for order in orders:
+        record = records_by_id.get(str(order.get("predictionRecordId") or ""))
+        if not record:
+            continue
+        status = str(record.get("status") or "")
+        if status not in {"won", "lost", "cancelled", "void"}:
+            continue
+        stake = parse_float(order.get("stake"), 0)
+        odds = parse_float(order.get("odds"), parse_float(config.get("odds"), 40.0))
+        won = status == "won"
+        payout = round(stake * odds, 4) if won else 0.0
+        profit = round(payout - stake, 4)
+        order_status = "settled_won" if won else "settled_lost" if status == "lost" else status
+        conn.execute(
+            """
+            UPDATE auto_bet_orders
+            SET status = ?, settled_at = ?, payout = ?, profit = ?
+            WHERE id = ?
+            """,
+            [order_status, utc_now_iso(), payout, profit, str(order.get("id") or "")],
+        )
+        session_row = conn.execute(
+            "SELECT * FROM auto_bet_sessions WHERE id = ?",
+            [str(order.get("sessionId") or "")],
+        ).fetchone()
+        session = auto_bet_row_to_session(session_row)
+        if session is not None:
+            next_miss = 0 if won else parse_int(order.get("sessionMiss"), 0) + 1
+            next_profit = round(parse_float(session.get("sessionProfit"), 0) + profit, 4)
+            next_stake_total = round(parse_float(session.get("sessionStakeTotal"), 0) + stake, 4)
+            next_payout_total = round(parse_float(session.get("sessionPayoutTotal"), 0) + payout, 4)
+            next_status = str(session.get("status") or "running")
+            stop_reason = str(session.get("stopReason") or "")
+            if won and config.get("stopAfterWin"):
+                next_status = "paused"
+                stop_reason = "won_pause"
+            if config.get("takeProfitEnabled") and next_profit >= parse_float(config.get("takeProfitAmount"), 40):
+                next_status = "paused"
+                stop_reason = "take_profit"
+            if config.get("stopLossEnabled") and next_profit <= -parse_float(config.get("stopLossAmount"), 50):
+                next_status = "paused"
+                stop_reason = "stop_loss"
+            conn.execute(
+                """
+                UPDATE auto_bet_sessions
+                SET session_miss = ?, session_profit = ?, session_stake_total = ?,
+                    session_payout_total = ?, status = ?, stop_reason = ?
+                WHERE id = ?
+                """,
+                [
+                    next_miss,
+                    next_profit,
+                    next_stake_total,
+                    next_payout_total,
+                    next_status,
+                    stop_reason,
+                    str(order.get("sessionId") or ""),
+                ],
+            )
+        settled += 1
+    return settled
+
+
+def auto_bet_stake_for_miss(config: dict[str, Any], session_miss: int) -> float:
+    base = parse_float(config.get("baseStake"), 1.0)
+    stake = base + (max(0, session_miss) // max(1, parse_int(config.get("stepMisses"), 20))) * parse_float(config.get("stepStake"), 1.0)
+    return round(min(parse_float(config.get("maxStake"), stake), max(base, stake)), 4)
+
+
+def auto_bet_order_seconds_until_target(order: dict[str, Any]) -> float:
+    return round((parse_int(order.get("targetDrawTimeMs"), 0) - int(time.time() * 1000)) / 1000, 3)
+
+
+def auto_bet_mark_missed_orders(conn: sqlite3.Connection, config: dict[str, Any]) -> int:
+    now_ms = int(time.time() * 1000)
+    min_lead_ms = parse_int(config.get("minLeadSeconds"), 30) * 1000
+    rows = conn.execute(
+        """
+        SELECT *
+        FROM auto_bet_orders
+        WHERE status IN ('planned', 'claimed')
+          AND target_draw_time_ms <= ?
+        ORDER BY target_draw_time_ms ASC, created_at ASC
+        LIMIT 100
+        """,
+        [now_ms + min_lead_ms],
+    ).fetchall()
+    missed = 0
+    for row in rows:
+        order = auto_bet_row_to_order(row)
+        if order is None:
+            continue
+        conn.execute(
+            """
+            UPDATE auto_bet_orders
+            SET status = 'missed', error = ?
+            WHERE id = ?
+            """,
+            ["target_too_close_or_past", str(order.get("id") or "")],
+        )
+        if config.get("stopAfterMissedTarget"):
+            conn.execute(
+                """
+                UPDATE auto_bet_sessions
+                SET status = 'paused', stop_reason = 'missed_target'
+                WHERE id = ? AND status IN ('armed', 'running')
+                """,
+                [str(order.get("sessionId") or "")],
+            )
+        missed += 1
+    return missed
+
+
+def auto_bet_latest_tracking_record(
+    config: dict[str, Any],
+    slot_key: str,
+    *,
+    min_lead_seconds: int | None = None,
+) -> dict[str, Any] | None:
+    rank = parse_int(AUTO_BET_ALLOWED_SLOTS.get(slot_key, {}).get("rank"), 3)
+    records = load_prediction_tracking_for_game(
+        "poland_keno_20_70",
+        status_filter="pending",
+        limit=80,
+        panel=PREDICTION_PANEL_M,
+    )
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for record in records:
+        target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+        if target_ms > 0:
+            grouped.setdefault(target_ms, []).append(record)
+    now_ms = int(time.time() * 1000)
+    lead_seconds = parse_int(config.get("minLeadSeconds"), 30) if min_lead_seconds is None else max(0, min_lead_seconds)
+    minimum_target_ms = now_ms + lead_seconds * 1000
+    for target_ms in sorted(grouped):
+        if target_ms <= minimum_target_ms:
+            continue
+        for item in current_backtest_candidate_slots(grouped[target_ms]):
+            if str(item.get("key") or "") != slot_key:
+                continue
+            record = item.get("record") if isinstance(item.get("record"), dict) else {}
+            if parse_int(record.get("pickCount"), len(record.get("numbers") or [])) != 3:
+                continue
+            if parse_int(item.get("ticketRank"), 0) == rank:
+                return record
+            return record
+    return None
+
+
+def auto_bet_preview_order(config: dict[str, Any]) -> dict[str, Any] | None:
+    slot_key = str(config.get("slot") or "p3_1")
+    record = auto_bet_latest_tracking_record(config, slot_key, min_lead_seconds=0)
+    if record is None:
+        return None
+    stake = auto_bet_stake_for_miss(config, 0)
+    odds = parse_float(config.get("odds"), 40.0)
+    session_miss = 0
+    global_miss = auto_bet_tracking_global_miss(record)
+    target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+    return {
+        "id": f"preview_{slot_key}_{str(record.get('id') or '')}",
+        "sessionId": "",
+        "predictionRecordId": str(record.get("id") or ""),
+        "gameKey": "poland_keno_20_70",
+        "panel": PREDICTION_PANEL_M,
+        "slotKey": slot_key,
+        "targetDrawTimeMs": target_ms,
+        "targetDrawTimeUtc": draw_time_utc_from_ms(target_ms),
+        "ticketLabel": str(record.get("ticketLabel") or "-".join(str(number) for number in record.get("numbers") or [])),
+        "numbers": [int(number) for number in record.get("numbers") or []],
+        "globalMiss": global_miss,
+        "sessionMiss": session_miss,
+        "stake": stake,
+        "odds": odds,
+        "expectedPayout": round(stake * odds, 4),
+        "status": "preview",
+        "createdAt": utc_now_iso(),
+        "claimedAt": "",
+        "claimExpiresAtMs": 0,
+        "extensionInstanceId": "",
+        "submittedAt": "",
+        "acceptedAt": "",
+        "settledAt": "",
+        "platform": str(config.get("platform") or "bc_game"),
+        "platformBetId": "",
+        "confirmedStake": 0,
+        "confirmedNumbers": [],
+        "payout": 0,
+        "profit": 0,
+        "error": "",
+        "raw": {"preview": True},
+        "preview": True,
+    }
+
+
+def auto_bet_tracking_global_miss(record: dict[str, Any]) -> int:
+    return parse_int(
+        record.get("dailyMissDisplayStreak"),
+        parse_int(record.get("dailyMissStreak"), parse_int(record.get("currentMiss"), 0)),
+    )
+
+
+def auto_bet_order_id(session_id: str, record: dict[str, Any], slot_key: str) -> str:
+    key = {
+        "sessionId": session_id,
+        "recordId": str(record.get("id") or ""),
+        "slot": slot_key,
+        "target": parse_int(record.get("targetDrawTimeMs"), 0),
+        "ticket": str(record.get("ticketLabel") or ""),
+    }
+    text = json.dumps(key, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return f"abo_{hashlib.sha1(text.encode('utf-8')).hexdigest()[:20]}"
+
+
+def auto_bet_insert_order(
+    conn: sqlite3.Connection,
+    session: dict[str, Any],
+    record: dict[str, Any],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    session_id = str(session["id"])
+    slot_key = str(session["slotKey"])
+    session_miss = parse_int(session.get("sessionMiss"), 0)
+    stake = auto_bet_stake_for_miss(config, session_miss)
+    odds = parse_float(config.get("odds"), 40.0)
+    target_ms = parse_int(record.get("targetDrawTimeMs"), 0)
+    if target_ms <= int(time.time() * 1000) + parse_int(config.get("minLeadSeconds"), 30) * 1000:
+        return {}
+    order_id = auto_bet_order_id(session_id, record, slot_key)
+    numbers = [int(number) for number in record.get("numbers") or []]
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO auto_bet_orders (
+            id, session_id, prediction_record_id, game_key, panel, slot_key,
+            target_draw_time_ms, target_draw_time_utc, ticket_label, numbers_json,
+            global_miss, session_miss, stake, odds, expected_payout, status,
+            created_at, platform
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            order_id,
+            session_id,
+            str(record.get("id") or ""),
+            prediction_tracking_game_key(record),
+            PREDICTION_PANEL_M,
+            slot_key,
+            target_ms,
+            str(record.get("targetDrawTimeUtc") or draw_time_utc_from_ms(target_ms)),
+            str(record.get("ticketLabel") or "-".join(str(number) for number in numbers)),
+            json.dumps(numbers, ensure_ascii=False, separators=(",", ":")),
+            auto_bet_tracking_global_miss(record),
+            session_miss,
+            stake,
+            odds,
+            round(stake * odds, 4),
+            "planned",
+            utc_now_iso(),
+            str(config.get("platform") or "bc_game"),
+        ],
+    )
+    row = conn.execute("SELECT * FROM auto_bet_orders WHERE id = ?", [order_id]).fetchone()
+    return auto_bet_row_to_order(row) or {}
+
+
+def auto_bet_risk_status(
+    config: dict[str, Any],
+    session: dict[str, Any] | None,
+    order: dict[str, Any] | None,
+    daily_totals: dict[str, Any],
+) -> dict[str, Any]:
+    reasons: list[str] = []
+    hard_stop = False
+    now_ms = int(time.time() * 1000)
+    if not config.get("enabled"):
+        reasons.append("auto_bet_disabled")
+    if session is None:
+        reasons.append("no_active_session")
+    if session and str(session.get("status") or "") not in {"armed", "running"}:
+        reasons.append(f"session_status_{session.get('status')}")
+    if order is None:
+        reasons.append("no_planned_order")
+    else:
+        order_status = str(order.get("status") or "")
+        if order_status not in {"planned", "claimed"}:
+            reasons.append(f"order_status_{order_status}")
+        seconds_until_target = round((parse_int(order.get("targetDrawTimeMs"), 0) - now_ms) / 1000, 3)
+        if seconds_until_target < parse_int(config.get("minLeadSeconds"), 30):
+            reasons.append("target_too_close")
+            hard_stop = True
+    if session and parse_int(session.get("sessionMiss"), 0) >= parse_int(config.get("maxSessionMiss"), 60):
+        reasons.append("max_session_miss_reached")
+        hard_stop = True
+    if session and config.get("takeProfitEnabled") and parse_float(session.get("sessionProfit"), 0) >= parse_float(config.get("takeProfitAmount"), 40):
+        reasons.append("take_profit_reached")
+        hard_stop = True
+    if session and config.get("stopLossEnabled") and parse_float(session.get("sessionProfit"), 0) <= -parse_float(config.get("stopLossAmount"), 50):
+        reasons.append("stop_loss_reached")
+        hard_stop = True
+    if config.get("maxDailyLossEnabled") and parse_float(daily_totals.get("profit"), 0) <= -parse_float(config.get("maxDailyLoss"), 100):
+        reasons.append("daily_stop_loss_reached")
+        hard_stop = True
+    if config.get("maxDailyStakeEnabled") and parse_float(daily_totals.get("stake"), 0) >= parse_float(config.get("maxDailyStake"), 200):
+        reasons.append("daily_stake_limit_reached")
+        hard_stop = True
+    return {
+        "ok": not reasons,
+        "hardStop": hard_stop,
+        "reasons": reasons,
+        "minLeadSeconds": parse_int(config.get("minLeadSeconds"), 30),
+        "dailyTotals": daily_totals,
+        "secondsUntilTarget": auto_bet_order_seconds_until_target(order) if order else None,
+    }
+
+
+def auto_bet_status_payload() -> dict[str, Any]:
+    config = load_auto_bet_config()
+    init_auto_bet_db()
+    with AUTO_BET_LOCK, auto_bet_db_connect() as conn:
+        settled_now = auto_bet_sync_settled_orders(conn, config)
+        missed_now = auto_bet_mark_missed_orders(conn, config)
+        if settled_now or missed_now:
+            conn.commit()
+        session = auto_bet_active_session(conn)
+        order = auto_bet_open_order(conn, str(session.get("id") or "")) if session else None
+        if (
+            session
+            and order is None
+            and config.get("enabled")
+            and str(session.get("status") or "") in {"armed", "running"}
+        ):
+            record = auto_bet_latest_tracking_record(config, str(session["slotKey"]))
+            if record is not None:
+                order = auto_bet_insert_order(conn, session, record, config)
+                conn.commit()
+        latest_order = auto_bet_latest_order(conn, str(session.get("id") or "")) if session else None
+        daily_totals = auto_bet_daily_totals(conn, config["game"])
+        risk = auto_bet_risk_status(config, session, order, daily_totals)
+    preview_order = order or auto_bet_preview_order(config)
+    return {
+        "ok": True,
+        "generatedAt": utc_now_iso(),
+        "config": config,
+        "configFile": file_info(DEFAULT_AUTO_BET_CONFIG),
+        "dbFile": file_info(DEFAULT_AUTO_BET_DB),
+        "session": session,
+        "nextOrder": order,
+        "previewOrder": preview_order,
+        "latestOrder": latest_order,
+        "risk": risk,
+        "settledNow": settled_now,
+        "missedNow": missed_now,
+    }
+
+
+def auto_bet_start_session(payload: dict[str, Any]) -> dict[str, Any]:
+    config = load_auto_bet_config()
+    updates = payload.get("config") if isinstance(payload.get("config"), dict) else {}
+    config.update({key: value for key, value in updates.items() if key in config})
+    config["enabled"] = True
+    config["mode"] = normalize_auto_bet_mode(payload.get("mode") or config.get("mode"))
+    config["slot"] = normalize_auto_bet_slot(payload.get("slot") or config.get("slot"))
+    write_auto_bet_config(config)
+    config = load_auto_bet_config()
+    record = auto_bet_latest_tracking_record(config, config["slot"])
+    global_miss = auto_bet_tracking_global_miss(record or {})
+    session_id = f"abs_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}"
+    slot_info = AUTO_BET_ALLOWED_SLOTS[config["slot"]]
+    init_auto_bet_db()
+    with AUTO_BET_LOCK, auto_bet_db_connect() as conn:
+        if auto_bet_active_session(conn) is not None:
+            raise ValueError("auto bet session already active")
+        conn.execute(
+            """
+            INSERT INTO auto_bet_sessions (
+                id, game_key, panel, slot_key, slot_label, mode, status,
+                started_at, global_miss_at_start, session_miss, config_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                session_id,
+                config["game"],
+                PREDICTION_PANEL_M,
+                config["slot"],
+                str(slot_info["label"]),
+                config["mode"],
+                "armed",
+                utc_now_iso(),
+                global_miss,
+                0,
+                json.dumps(config, ensure_ascii=False, separators=(",", ":")),
+            ],
+        )
+        conn.commit()
+    return auto_bet_status_payload()
+
+
+def auto_bet_stop_session(payload: dict[str, Any]) -> dict[str, Any]:
+    reason = str(payload.get("reason") or "user_stop") if isinstance(payload, dict) else "user_stop"
+    init_auto_bet_db()
+    with AUTO_BET_LOCK, auto_bet_db_connect() as conn:
+        session = auto_bet_active_session(conn)
+        if session is not None:
+            conn.execute(
+                """
+                UPDATE auto_bet_sessions
+                SET status = 'stopped', stopped_at = ?, stop_reason = ?
+                WHERE id = ?
+                """,
+                [utc_now_iso(), reason, session["id"]],
+            )
+        config = load_auto_bet_config()
+        config["enabled"] = False
+        write_auto_bet_config(config)
+        conn.commit()
+    return auto_bet_status_payload()
+
+
+def auto_bet_claim_order(payload: dict[str, Any]) -> dict[str, Any]:
+    order_id = str(payload.get("orderId") or "").strip()
+    extension_instance_id = str(payload.get("extensionInstanceId") or "").strip()[:120]
+    if not order_id:
+        raise ValueError("orderId is required")
+    init_auto_bet_db()
+    now_ms = int(time.time() * 1000)
+    expires_ms = now_ms + 30000
+    with AUTO_BET_LOCK, auto_bet_db_connect() as conn:
+        row = conn.execute("SELECT * FROM auto_bet_orders WHERE id = ?", [order_id]).fetchone()
+        order = auto_bet_row_to_order(row)
+        if order is None:
+            raise KeyError("order not found")
+        session_row = conn.execute(
+            "SELECT * FROM auto_bet_sessions WHERE id = ?",
+            [str(order.get("sessionId") or "")],
+        ).fetchone()
+        session = auto_bet_row_to_session(session_row)
+        config = normalize_auto_bet_config((session or {}).get("config") or load_auto_bet_config())
+        if session is None or str(session.get("status") or "") not in {"armed", "running"}:
+            raise ValueError("session is not ready")
+        if auto_bet_order_seconds_until_target(order) < parse_int(config.get("minLeadSeconds"), 30):
+            conn.execute(
+                """
+                UPDATE auto_bet_orders
+                SET status = 'missed', error = ?
+                WHERE id = ?
+                """,
+                ["target_too_close_or_past", order_id],
+            )
+            if config.get("stopAfterMissedTarget"):
+                conn.execute(
+                    """
+                    UPDATE auto_bet_sessions
+                    SET status = 'paused', stop_reason = 'missed_target'
+                    WHERE id = ?
+                    """,
+                    [str(order.get("sessionId") or "")],
+                )
+            conn.commit()
+            raise ValueError("target is too close to prepare safely")
+        if str(order.get("status") or "") not in {"planned", "claimed"}:
+            raise ValueError(f"order is not claimable: {order.get('status')}")
+        existing_expires = parse_int(order.get("claimExpiresAtMs"), 0)
+        existing_instance = str(order.get("extensionInstanceId") or "")
+        if existing_expires > now_ms and existing_instance and existing_instance != extension_instance_id:
+            raise ValueError("order already claimed")
+        conn.execute(
+            """
+            UPDATE auto_bet_orders
+            SET status = 'claimed', claimed_at = ?, claim_expires_at_ms = ?, extension_instance_id = ?
+            WHERE id = ?
+            """,
+            [utc_now_iso(), expires_ms, extension_instance_id, order_id],
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM auto_bet_orders WHERE id = ?", [order_id]).fetchone()
+    return {"ok": True, "order": auto_bet_row_to_order(row), "leaseSeconds": 30}
+
+
+def auto_bet_submit_result(payload: dict[str, Any]) -> dict[str, Any]:
+    order_id = str(payload.get("orderId") or "").strip()
+    if not order_id:
+        raise ValueError("orderId is required")
+    accepted_raw = payload.get("accepted")
+    status = "accepted" if accepted_raw is True else "rejected" if accepted_raw is False else "unknown"
+    platform_bet_id = str(payload.get("platformBetId") or "").strip()
+    confirmed_stake = parse_float(payload.get("confirmedStake"), 0)
+    confirmed_numbers = payload.get("confirmedNumbers") if isinstance(payload.get("confirmedNumbers"), list) else []
+    error_text = str(payload.get("error") or "")
+    raw = payload.get("raw") if isinstance(payload.get("raw"), dict) else {}
+    init_auto_bet_db()
+    with AUTO_BET_LOCK, auto_bet_db_connect() as conn:
+        row = conn.execute("SELECT * FROM auto_bet_orders WHERE id = ?", [order_id]).fetchone()
+        order = auto_bet_row_to_order(row)
+        if order is None:
+            raise KeyError("order not found")
+        submitted_at = utc_now_iso()
+        conn.execute(
+            """
+            UPDATE auto_bet_orders
+            SET status = ?, submitted_at = ?, accepted_at = ?, platform_bet_id = ?,
+                confirmed_stake = ?, confirmed_numbers_json = ?, error = ?, raw_json = ?
+            WHERE id = ?
+            """,
+            [
+                status,
+                submitted_at,
+                submitted_at if status == "accepted" else "",
+                platform_bet_id,
+                confirmed_stake,
+                json.dumps([int(number) for number in confirmed_numbers], ensure_ascii=False, separators=(",", ":")),
+                error_text,
+                json.dumps(raw, ensure_ascii=False, separators=(",", ":")),
+                order_id,
+            ],
+        )
+        if status == "accepted":
+            conn.execute("UPDATE auto_bet_sessions SET status = 'running' WHERE id = ? AND status = 'armed'", [str(order.get("sessionId") or "")])
+        elif status == "unknown":
+            conn.execute(
+                "UPDATE auto_bet_sessions SET status = 'paused', stop_reason = 'order_status_unknown' WHERE id = ?",
+                [str(order.get("sessionId") or "")],
+            )
+        elif status == "rejected":
+            conn.execute(
+                "UPDATE auto_bet_sessions SET status = 'paused', stop_reason = 'order_rejected' WHERE id = ?",
+                [str(order.get("sessionId") or "")],
+            )
+        conn.commit()
+    return auto_bet_status_payload()
+
+
+def auto_bet_request(path: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if path == "/api/auto-bet/config":
+        config = load_auto_bet_config()
+        updates = payload if isinstance(payload, dict) else {}
+        config.update({key: value for key, value in updates.items() if key in config})
+        write_auto_bet_config(config)
+        return auto_bet_status_payload()
+    if path == "/api/auto-bet/session/start":
+        return auto_bet_start_session(payload)
+    if path == "/api/auto-bet/session/stop":
+        return auto_bet_stop_session(payload)
+    if path == "/api/auto-bet/order/claim":
+        return auto_bet_claim_order(payload)
+    if path == "/api/auto-bet/order/submit-result":
+        return auto_bet_submit_result(payload)
+    raise ValueError("unknown auto-bet action")
 
 
 def default_telegram_config() -> dict[str, Any]:
@@ -14737,6 +17002,7 @@ def prediction_tracking_panel_summaries_for_config(config: dict[str, Any]) -> di
             PREDICTION_PANEL_B,
             PREDICTION_PANEL_M,
             PREDICTION_PANEL_D,
+            PREDICTION_PANEL_E,
         ]
     }
 
@@ -14825,31 +17091,36 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                 prediction_b = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_B]})
                 prediction_m = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_M]})
                 prediction_d = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_D]})
+                prediction_e = predictions_payload({"game": [key], "panel": [PREDICTION_PANEL_E]})
                 tracking_a = prediction_a.get("predictionTracking") or {}
                 tracking_b = prediction_b.get("predictionTracking") or {}
                 tracking_m = prediction_m.get("predictionTracking") or {}
                 tracking_d = prediction_d.get("predictionTracking") or {}
+                tracking_e = prediction_e.get("predictionTracking") or {}
                 panel_summaries = prediction_tracking_panel_summaries_for_config(game_config)
                 tracking = {
                     "settledNow": parse_int(tracking_a.get("settledNow"), 0)
                     + parse_int(tracking_b.get("settledNow"), 0)
                     + parse_int(tracking_m.get("settledNow"), 0)
-                    + parse_int(tracking_d.get("settledNow"), 0),
+                    + parse_int(tracking_d.get("settledNow"), 0)
+                    + parse_int(tracking_e.get("settledNow"), 0),
                     "createdNow": parse_int(tracking_a.get("createdNow"), 0)
                     + parse_int(tracking_b.get("createdNow"), 0)
                     + parse_int(tracking_m.get("createdNow"), 0)
-                    + parse_int(tracking_d.get("createdNow"), 0),
+                    + parse_int(tracking_d.get("createdNow"), 0)
+                    + parse_int(tracking_e.get("createdNow"), 0),
                     "summaryA": panel_summaries.get(PREDICTION_PANEL_DEFAULT) or {},
                     "summaryB": panel_summaries.get(PREDICTION_PANEL_B) or {},
                     "summaryM": panel_summaries.get(PREDICTION_PANEL_M) or {},
                     "summaryD": panel_summaries.get(PREDICTION_PANEL_D) or {},
+                    "summaryE": panel_summaries.get(PREDICTION_PANEL_E) or {},
                 }
                 prediction_waiting_for_target = any(
                     (
                         isinstance(prediction.get("predictions"), dict)
                         and prediction["predictions"].get("trackingReady") is False
                     )
-                    for prediction in [prediction_a, prediction_b, prediction_m, prediction_d]
+                    for prediction in [prediction_a, prediction_b, prediction_m, prediction_d, prediction_e]
                 )
                 if not prediction_waiting_for_target or parse_int(tracking.get("createdNow"), 0) > 0:
                     PREDICTION_AUTO_HISTORY_MARKERS[key] = marker
@@ -14863,6 +17134,7 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "summaryB": panel_summaries.get(PREDICTION_PANEL_B) or {},
                     "summaryM": panel_summaries.get(PREDICTION_PANEL_M) or {},
                     "summaryD": panel_summaries.get(PREDICTION_PANEL_D) or {},
+                    "summaryE": panel_summaries.get(PREDICTION_PANEL_E) or {},
                 }
                 skipped_prediction = True
                 prediction_prewarm = {"scheduled": False, "reason": "prediction_generation_skipped", "game": key}
@@ -14870,7 +17142,12 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
             tracking_summary_b = tracking.get("summaryB") or {}
             tracking_summary_m = tracking.get("summaryM") or {}
             tracking_summary_d = tracking.get("summaryD") or {}
-            telegram_result = telegram_notify_game(game_config)
+            tracking_summary_e = tracking.get("summaryE") or {}
+            telegram_result = (
+                telegram_notify_game(game_config)
+                if config.get("notifyTelegram", True)
+                else {"ok": True, "skipped": "notifyTelegram_disabled"}
+            )
             results.append(
                 {
                     "game": key,
@@ -14881,11 +17158,13 @@ def run_prediction_auto_once(config: dict[str, Any]) -> tuple[list[dict[str, Any
                     "trackingTotal": parse_int(tracking_summary_a.get("total"), 0)
                     + parse_int(tracking_summary_b.get("total"), 0)
                     + parse_int(tracking_summary_m.get("total"), 0)
-                    + parse_int(tracking_summary_d.get("total"), 0),
+                    + parse_int(tracking_summary_d.get("total"), 0)
+                    + parse_int(tracking_summary_e.get("total"), 0),
                     "trackingTotalA": parse_int(tracking_summary_a.get("total"), 0),
                     "trackingTotalB": parse_int(tracking_summary_b.get("total"), 0),
                     "trackingTotalM": parse_int(tracking_summary_m.get("total"), 0),
                     "trackingTotalD": parse_int(tracking_summary_d.get("total"), 0),
+                    "trackingTotalE": parse_int(tracking_summary_e.get("total"), 0),
                     "skippedPrediction": skipped_prediction,
                     "waitingForDraw": waiting_for_draw or prediction_waiting_for_target,
                     "waitingForTarget": prediction_waiting_for_target,
@@ -14968,6 +17247,7 @@ def prediction_auto_worker() -> None:
             nextRunAt=datetime.fromtimestamp(next_run_ts, tz=UTC).isoformat(timespec="seconds"),
             message=(
                 f"自动追踪完成：{len(results)} 个彩种，{len(errors)} 个错误；"
+                f"{f'本轮检测到跳过候选目标 {missed_candidate_targets} 期；' if missed_candidate_targets else ''}"
                 f"{'等待开奖同步，短轮询' if has_waiting_draw else '常规轮询'} {poll_seconds} 秒"
             ),
             results=results,
@@ -16821,6 +19101,25 @@ def refresh_all_games(options: dict[str, Any]) -> dict[str, Any]:
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "KenoDashboard/0.1"
 
+    def add_api_headers(self) -> None:
+        origin = str(self.headers.get("Origin") or "")
+        if origin.startswith("chrome-extension://") or origin in {"http://127.0.0.1:8787", "http://localhost:8787"}:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+
+    def do_OPTIONS(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path.startswith("/api/"):
+            self.send_response(204)
+            self.add_api_headers()
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_error_json(404, "Not found")
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/api/status":
@@ -16928,6 +19227,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             except Exception as exc:
                 self.send_error_json(500, str(exc))
             return
+        if parsed.path in {"/api/auto-bet/status", "/api/auto-bet/config"}:
+            try:
+                self.send_json(auto_bet_status_payload())
+            except Exception as exc:
+                self.send_error_json(500, str(exc))
+            return
         if parsed.path == "/api/telegram":
             try:
                 self.send_json(telegram_status_payload())
@@ -16985,6 +19290,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self.send_json(prediction_auto_request(self.read_json_body()))
             except RequestBodyTooLarge as exc:
                 self.send_error_json(413, str(exc))
+            except ValueError as exc:
+                self.send_error_json(400, str(exc))
+            except Exception as exc:
+                self.send_error_json(500, str(exc))
+            return
+        if parsed.path.startswith("/api/auto-bet/"):
+            try:
+                self.send_json(auto_bet_request(parsed.path, self.read_json_body()))
+            except RequestBodyTooLarge as exc:
+                self.send_error_json(413, str(exc))
+            except KeyError as exc:
+                self.send_error_json(404, str(exc))
             except ValueError as exc:
                 self.send_error_json(400, str(exc))
             except Exception as exc:
@@ -17077,6 +19394,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         self.send_response(status)
+        self.add_api_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
