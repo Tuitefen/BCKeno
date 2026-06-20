@@ -106,6 +106,40 @@ node --check passed for web/app.js.
 - BacktestBets=30
 ```
 
+## 2026-06-21 History Run-Shape Stats
+
+Implementation completed:
+
+```text
+The history draw page run-shape stats now keeps the original 2-run through
+7-run window rows and adds E-observation shape rows:
+- 2+2
+- 2+2+2
+- 2+3
+- 2+2+2+1
+- 2+2+2+2
+
+These new rows are counted from actual independent consecutive segments in the
+full draw. A single 4-run is not counted as 2+2 for these shape rows.
+
+The frontend renders shape rows with a wider badge so labels such as
+2+2+2+2 do not get squeezed into the normal number ball.
+```
+
+Local verification on 2026-06-21:
+
+```text
+python compile check passed for keno_dashboard_server.py.
+node --check passed for web/app.js.
+
+/api/draws?game=poland_keno_20_70 returned 5 shape rows:
+- 2+2
+- 2+2+2
+- 2+3
+- 2+2+2+1
+- 2+2+2+2
+```
+
 ## 2026-06-19 D Plan #8 Algorithm Lock
 
 User decision:

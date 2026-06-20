@@ -11125,6 +11125,13 @@ def draws_payload(query: dict[str, list[str]]) -> dict[str, Any]:
 def history_run_stats(rows: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     total_numbers = int(config.get("totalNumbers") or 0)
     lengths = (2, 3, 4, 5, 6, 7)
+    shape_specs = (
+        {"key": "2+2", "label": "2+2", "parts": (2, 2)},
+        {"key": "2+2+2", "label": "2+2+2", "parts": (2, 2, 2)},
+        {"key": "3+2", "label": "2+3", "parts": (2, 3)},
+        {"key": "2+2+2+1", "label": "2+2+2+1", "parts": (2, 2, 2, 1)},
+        {"key": "2+2+2+2", "label": "2+2+2+2", "parts": (2, 2, 2, 2)},
+    )
     items = {
         length: {
             "length": length,
@@ -11139,6 +11146,23 @@ def history_run_stats(rows: list[dict[str, Any]], config: dict[str, Any]) -> dic
             "latestDrawTimeMs": 0,
         }
         for length in lengths
+    }
+    shape_items = {
+        str(spec["key"]): {
+            "kind": "shape",
+            "shape": str(spec["key"]),
+            "length": 0,
+            "label": str(spec["label"]),
+            "draws": 0,
+            "occurrences": 0,
+            "drawShare": 0.0,
+            "avgOccurrencesPerDraw": 0.0,
+            "maxOccurrencesInDraw": 0,
+            "latestDrawEventId": "",
+            "latestDrawTimeUtc": "",
+            "latestDrawTimeMs": 0,
+        }
+        for spec in shape_specs
     }
     valid_rows = [row for row in rows if is_valid_draw_row(row, config)]
     for row in valid_rows:
@@ -11159,6 +11183,7 @@ def history_run_stats(rows: list[dict[str, Any]], config: dict[str, Any]) -> dic
                 current_length = 1
         segment_lengths.append(current_length)
         draw_ms = parse_int(row.get("drawTimeMs"), 0)
+        segment_counts = Counter(segment_lengths)
         for length in lengths:
             count = sum(max(0, segment_length - length + 1) for segment_length in segment_lengths)
             if count <= 0:
@@ -11171,6 +11196,25 @@ def history_run_stats(rows: list[dict[str, Any]], config: dict[str, Any]) -> dic
                 item["latestDrawTimeMs"] = draw_ms
                 item["latestDrawTimeUtc"] = str(row.get("drawTimeUtc") or "")
                 item["latestDrawEventId"] = str(row.get("drawEventId") or "")
+        for spec in shape_specs:
+            part_counts = Counter(spec["parts"])
+            occurrences = 1
+            for part_length, needed_count in part_counts.items():
+                available_count = parse_int(segment_counts.get(part_length), 0)
+                if available_count < needed_count:
+                    occurrences = 0
+                    break
+                occurrences *= math.comb(available_count, needed_count)
+            if occurrences <= 0:
+                continue
+            item = shape_items[str(spec["key"])]
+            item["draws"] += 1
+            item["occurrences"] += occurrences
+            item["maxOccurrencesInDraw"] = max(parse_int(item.get("maxOccurrencesInDraw"), 0), occurrences)
+            if draw_ms > parse_int(item.get("latestDrawTimeMs"), 0):
+                item["latestDrawTimeMs"] = draw_ms
+                item["latestDrawTimeUtc"] = str(row.get("drawTimeUtc") or "")
+                item["latestDrawEventId"] = str(row.get("drawEventId") or "")
     draw_count = len(valid_rows)
     result_items = []
     for length in lengths:
@@ -11179,10 +11223,18 @@ def history_run_stats(rows: list[dict[str, Any]], config: dict[str, Any]) -> dic
         item["avgOccurrencesPerDraw"] = parse_int(item.get("occurrences"), 0) / draw_count if draw_count else 0
         item.pop("latestDrawTimeMs", None)
         result_items.append(item)
+    result_shapes = []
+    for spec in shape_specs:
+        item = shape_items[str(spec["key"])]
+        item["drawShare"] = parse_int(item.get("draws"), 0) / draw_count if draw_count else 0
+        item["avgOccurrencesPerDraw"] = parse_int(item.get("occurrences"), 0) / draw_count if draw_count else 0
+        item.pop("latestDrawTimeMs", None)
+        result_shapes.append(item)
     return {
         "drawCount": draw_count,
         "lengths": list(lengths),
-        "items": result_items,
+        "shapes": [str(spec["key"]) for spec in shape_specs],
+        "items": [*result_items, *result_shapes],
     }
 
 

@@ -7266,6 +7266,11 @@ function renderHistoryRunStats(data) {
   els.historyRunStats.innerHTML = items
     .map((item) => {
       const length = Number(item.length || 0);
+      const isShape = item.kind === "shape" || Boolean(item.shape);
+      const label = String(item.label || item.shape || `${length}连`);
+      const marker = isShape
+        ? `<span class="history-run-shape-badge">${escapeHtml(label)}</span>`
+        : `<span class="${historyBallClass(length)}">${length}</span>`;
       const draws = Number(item.draws || 0);
       const occurrences = Number(item.occurrences || 0);
       const share = Number(item.drawShare || 0);
@@ -7273,7 +7278,7 @@ function renderHistoryRunStats(data) {
       const latestId = item.latestDrawEventId || "";
       const latest = latestId ? `${latestTime} · ${escapeHtml(latestId)}` : "--";
       return `<tr>
-        <td><span class="${historyBallClass(length)}">${length}</span><strong>${escapeHtml(item.label || `${length}连`)}</strong></td>
+        <td>${marker}<strong>${escapeHtml(isShape ? "组合形态" : label)}</strong></td>
         <td>${draws.toLocaleString("zh-CN")}</td>
         <td>${occurrences.toLocaleString("zh-CN")}<div class="history-run-note">单期最多 ${Number(
           item.maxOccurrencesInDraw || 0,
