@@ -3141,7 +3141,21 @@ function buildCurrentBacktestQuery() {
   return params;
 }
 
+const CURRENT_BACKTEST_AB_SLOT_OPTIONS = [
+  ["all", "全部候选"],
+  ["p1_all", "全部1码候选"],
+  ["p2_all", "全部2码候选"],
+  ["p1_1", "1码候选#1"],
+  ["p1_2", "1码候选#2"],
+  ["p1_3", "1码候选#3"],
+  ["p2_1", "2码候选#4"],
+  ["p2_2", "2码候选#5"],
+  ["p2_3", "2码候选#6"],
+];
+
 const CURRENT_BACKTEST_SLOT_OPTIONS = {
+  a: CURRENT_BACKTEST_AB_SLOT_OPTIONS,
+  b: CURRENT_BACKTEST_AB_SLOT_OPTIONS,
   m: [
     ["p3_1", "3码候选#3"],
     ["p3_2", "3码候选#4"],
@@ -3171,7 +3185,9 @@ const CURRENT_BACKTEST_SLOT_OPTIONS = {
 
 function syncCurrentBacktestSlotOptions() {
   if (!els.currentBacktestSource || !els.currentBacktestSlot) return;
-  const source = els.currentBacktestSource.value === "e" ? "e" : els.currentBacktestSource.value === "d" ? "d" : "m";
+  const source = ["a", "b", "d", "e", "m"].includes(els.currentBacktestSource.value)
+    ? els.currentBacktestSource.value
+    : "m";
   const options = CURRENT_BACKTEST_SLOT_OPTIONS[source] || CURRENT_BACKTEST_SLOT_OPTIONS.m;
   const previous = els.currentBacktestSlot.value;
   const allowed = new Set(options.map(([value]) => value));
@@ -3185,7 +3201,15 @@ function syncCurrentBacktestSlotOptions() {
     option.textContent = label;
     els.currentBacktestSlot.appendChild(option);
   }
-  els.currentBacktestSlot.value = allowed.has(previous) ? previous : source === "d" ? "p3_4" : source === "e" ? "p4_all" : "p3_1";
+  els.currentBacktestSlot.value = allowed.has(previous)
+    ? previous
+    : source === "d"
+      ? "p3_4"
+      : source === "e"
+        ? "p4_all"
+        : source === "a" || source === "b"
+          ? "all"
+          : "p3_1";
   els.currentBacktestSlot.dataset.source = source;
 }
 

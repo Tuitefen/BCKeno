@@ -5,6 +5,76 @@ Updated: 2026-06-21 Asia/Shanghai
 This handoff is intentionally ASCII-only. Local PowerShell output can garble
 Chinese text, and the next session must be able to read this file reliably.
 
+## 2026-06-21 Current Backtest A/B Sources
+
+User request:
+
+```text
+Add A plan and B plan to the current staking backtest.
+```
+
+Implementation completed locally:
+
+```text
+Files changed:
+- keno_dashboard_server.py
+- web/app.js
+- web/index.html
+- HANDOFF.md
+
+Backend current staking backtest now accepts:
+- source=a for A plan tracking records
+- source=b for B plan tracking records
+
+A/B current-backtest slots:
+- all = all A/B tickets
+- p1_all = all 1-number tickets (#1 through #3)
+- p2_all = all 2-number tickets (#4 through #6)
+- p1_1, p1_2, p1_3 = 1-number tickets #1, #2, #3
+- p2_1, p2_2, p2_3 = 2-number tickets #4, #5, #6
+
+The frontend current-backtest source selector now includes A plan and B plan.
+When A or B is selected, the slot dropdown shows the A/B slots above.
+app.js cache bust was updated to 20260621-current-ab-backtest.
+```
+
+Important behavior:
+
+```text
+This is a current-backtest/readout change only. It reads existing settled
+prediction tracking records. It does not change A/B prediction generation,
+ranking, ticket creation, settlement, staking formulas, D8, or E.
+```
+
+Local verification:
+
+```text
+python compile check passed for keno_dashboard_server.py.
+node --check passed for web/app.js.
+
+Direct function check passed:
+- current_backtest_source_panel("a") -> source a, label A plan
+- current_backtest_source_panel("b") -> source b, label B plan
+- source=a with an invalid/default C slot falls back to all A tickets
+- source=e with an invalid/default C slot falls back to all E4 tickets
+- p1_all expands to p1_1, p1_2, p1_3
+- p2_all expands to p2_1, p2_2, p2_3
+- p2_3 label is 2-number ticket #6
+
+Initial HTTP smoke test against http://127.0.0.1:8787 returned old source=m
+because the local server process had not been restarted after the edit.
+
+Local server was then restarted:
+- old PID 52196 stopped
+- new PID 52780 listening on 127.0.0.1:8787
+
+HTTP smoke after restart:
+- /api/current-staking-backtest?source=a&slot=all returned source=a,
+  sourceLabel=A plan, slotCounts including p1_1/p1_2/p1_3 and p2_1/p2_2/p2_3.
+- /api/current-staking-backtest?source=b&slot=p2_all returned source=b,
+  sourceLabel=B plan, selectedSlots p2_1/p2_2/p2_3.
+```
+
 ## 2026-06-21 E Plan Run-Shape Observation
 
 User decision:

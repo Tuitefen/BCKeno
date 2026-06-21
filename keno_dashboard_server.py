@@ -4101,11 +4101,17 @@ def staking_backtest_ms_iso(draw_time_ms: int) -> str:
 
 def current_backtest_source_panel(value: Any) -> tuple[str, str]:
     source = str(value or PREDICTION_PANEL_M).strip().lower()
-    if source in {"e", "panel_e", "prediction_e", "predictione"}:
-        return PREDICTION_PANEL_E, "E计划"
-    if source in {"d", "panel_d", "prediction_d", "predictiond"}:
-        return PREDICTION_PANEL_D, "D计划"
-    return PREDICTION_PANEL_M, "C计划"
+    if source in {"a", "panel_a", "prediction_a", "predictiona", "default"}:
+        panel = PREDICTION_PANEL_DEFAULT
+    elif source in {"b", "panel_b", "prediction_b", "predictionb"}:
+        panel = PREDICTION_PANEL_B
+    elif source in {"e", "panel_e", "prediction_e", "predictione"}:
+        panel = PREDICTION_PANEL_E
+    elif source in {"d", "panel_d", "prediction_d", "predictiond"}:
+        panel = PREDICTION_PANEL_D
+    else:
+        panel = PREDICTION_PANEL_M
+    return panel, prediction_panel_label(panel)
 
 
 def current_backtest_slot_selection(value: Any, source_panel: str | None = None) -> tuple[set[str], str]:
@@ -4129,6 +4135,18 @@ def current_backtest_slot_selection(value: Any, source_panel: str | None = None)
             "p7_all": "全部E7",
             "all": "全部E计划",
         }
+    elif panel in {PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B}:
+        labels = {
+            "p1_1": "1码候选#1",
+            "p1_2": "1码候选#2",
+            "p1_3": "1码候选#3",
+            "p1_all": "全部1码候选",
+            "p2_1": "2码候选#4",
+            "p2_2": "2码候选#5",
+            "p2_3": "2码候选#6",
+            "p2_all": "全部2码候选",
+            "all": "全部候选",
+        }
     else:
         labels = {
             "p2_1": "2码候选#1",
@@ -4143,9 +4161,24 @@ def current_backtest_slot_selection(value: Any, source_panel: str | None = None)
             "p3_all": "全部3码候选",
             "all": "全部候选",
         }
-    if panel != PREDICTION_PANEL_D and slot == "p2_all":
+    if slot not in labels:
+        slot = (
+            "p3_4"
+            if panel == PREDICTION_PANEL_D
+            else "p4_all"
+            if panel == PREDICTION_PANEL_E
+            else "all"
+            if panel in {PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B}
+            else "p3_1"
+        )
+    if panel in {PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B}:
+        if slot == "p1_all":
+            return {f"p1_{index}" for index in range(1, 4)}, labels[slot]
+        if slot == "p2_all":
+            return {f"p2_{index}" for index in range(1, 4)}, labels[slot]
+    if panel == PREDICTION_PANEL_M and slot == "p2_all":
         return {"p2_1", "p2_2", "p2_3", "p2_4"}, labels[slot]
-    if panel != PREDICTION_PANEL_D and slot == "p3_all":
+    if panel == PREDICTION_PANEL_M and slot == "p3_all":
         return {"p3_1", "p3_2", "p3_3", "p3_4"}, labels[slot]
     if panel == PREDICTION_PANEL_E:
         if slot == "p4_all":
@@ -4158,8 +4191,6 @@ def current_backtest_slot_selection(value: Any, source_panel: str | None = None)
             return {f"p7_{index}" for index in range(1, 9)}, labels[slot]
     if slot == "all":
         return set(), labels[slot]
-    if slot not in labels:
-        slot = "p3_4" if panel == PREDICTION_PANEL_D else "p4_all" if panel == PREDICTION_PANEL_E else "p3_1"
     return {slot}, labels[slot]
 
 
