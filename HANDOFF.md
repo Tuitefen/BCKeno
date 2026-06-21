@@ -176,6 +176,90 @@ node --check passed for web/app.js.
 - BacktestBets=30
 ```
 
+## 2026-06-21 E Plan E8 / Hit Count Filters
+
+User request:
+
+```text
+Add E8 to E plan using structures:
+- 2+2+2+2
+- 2+2+2+1+1
+- 2+2+3+1
+- 2+2+1+1+1+1
+- 2+2+4
+
+Also add E tracking filters for hit counts:
+- hit:3 / hit:4 / hit:5 / hit:6 / hit:7
+
+Purpose: observe whether current E4 often hits 3 numbers, E5 often hits
+4 numbers, E6 often hits 5 numbers, etc.
+```
+
+Implementation note:
+
+```text
+The internal shape key sorts run segment lengths descending:
+- user 2+2+3+1 is stored as 3+2+2+1
+- user 2+2+4 is stored as 4+2+2
+```
+
+Files changed:
+
+```text
+- keno_dashboard_server.py
+- web/app.js
+- web/index.html
+- HANDOFF.md
+```
+
+Backend behavior:
+
+```text
+E now generates 37 independent strategy tickets per target draw:
+- E4: 6 tickets
+- E5: 8 tickets
+- E6: 10 tickets
+- E7: 8 tickets
+- E8: 5 tickets
+
+E8 allowed structures:
+- 2+2+2+2
+- 2+2+2+1+1
+- 3+2+2+1 (display meaning: 2+2+3+1)
+- 2+2+1+1+1+1
+- 4+2+2 (display meaning: 2+2+4)
+
+E tracking slot parsing now accepts:
+- hit:3 through hit:7
+- UI values use hit:N; option labels show the Chinese text for hit 3-7.
+
+The hit filter counts len(record.result.matchedNumbers). It does not change
+winning settlement, odds, ranking, staking, D8, or C/D prediction rules.
+```
+
+Frontend behavior:
+
+```text
+E tracking filter now includes:
+- all E
+- pick:4 / pick:5 / pick:6 / pick:7 / pick:8
+- rank:1 through rank:37
+
+Correction: hit count is a separate E-only filter, not part of the candidate
+slot dropdown. The UI now supports combinations such as:
+- status=lost
+- slot=pick:8 / pick:7 / pick:6 / pick:5 / pick:4
+- hit=hit:3 / hit:4 / hit:5 / hit:6 / hit:7
+- day filter
+
+Current staking backtest source=e now includes:
+- p8_all
+- p8_1 through p8_5
+
+web/index.html app.js cache bust was updated to:
+20260621-e-hit-filter-combo
+```
+
 ## 2026-06-21 History Run-Shape Stats
 
 Implementation completed:
@@ -208,6 +292,76 @@ node --check passed for web/app.js.
 - 2+3
 - 2+2+2+1
 - 2+2+2+2
+```
+
+## 2026-06-21 A/B Tracking Slot Filter Fix
+
+Issue found:
+
+```text
+The backend tracking data for A and B was complete, but the frontend tracking
+slot dropdown only exposed all, #1, #2, and #3 for A/B. Poland A/B currently
+track 6 tickets per target draw:
+- #1 #2 #3 are 1-number tickets.
+- #4 #5 #6 are 2-number tickets.
+
+This made the page look like A/B "all candidates" or candidate filtering was
+incomplete, even though the stored tracking records were present.
+```
+
+Implementation completed locally:
+
+```text
+Files changed:
+- web/app.js
+- web/index.html
+
+Frontend A/B tracking slot options now include:
+- all
+- pick:1
+- pick:2
+- rank:1
+- rank:2
+- rank:3
+- rank:4
+- rank:5
+- rank:6
+
+web/index.html app.js cache bust was updated to:
+20260621-ab-slot-filters
+```
+
+Local verification on 2026-06-21:
+
+```text
+node --check web/app.js passed.
+
+Latest A tracking batch:
+- Count=6
+- Ranks=1,2,3,4,5,6
+- Picks=1,1,1,2,2,2
+
+Latest B tracking batch:
+- Count=6
+- Ranks=1,2,3,4,5,6
+- Picks=1,1,1,2,2,2
+
+API filters checked with Bad=0:
+- panel=a/b slot=rank:1 through rank:6
+- panel=a/b slot=pick:1 and pick:2
+```
+
+Current local state note:
+
+```text
+This fix has been recorded locally but was not committed or pushed in this
+session unless a later message says otherwise. Relevant modified files are:
+- HANDOFF.md
+- web/app.js
+- web/index.html
+
+There are still unrelated dirty/runtime files in the working tree. Do not stage
+or commit them unless the user explicitly asks.
 ```
 
 ## 2026-06-19 D Plan #8 Algorithm Lock

@@ -7,6 +7,7 @@ const state = {
   predictionTrackingPage: 1,
   predictionTrackingStatus: "all",
   predictionTrackingSlot: "all",
+  predictionTrackingHit: "all",
   predictionTrackingDay: "",
   adjacentStats: null,
   adjacentHitPage: 1,
@@ -233,6 +234,7 @@ const els = {
   predictionTrackingRows: document.querySelector("#predictionTrackingRows"),
   predictionTrackingStatusFilter: document.querySelector("#predictionTrackingStatusFilter"),
   predictionTrackingSlotFilter: document.querySelector("#predictionTrackingSlotFilter"),
+  predictionTrackingHitFilter: document.querySelector("#predictionTrackingHitFilter"),
   predictionTrackingDayFilter: document.querySelector("#predictionTrackingDayFilter"),
   predictionTrackingPrevBtn: document.querySelector("#predictionTrackingPrevBtn"),
   predictionTrackingNextBtn: document.querySelector("#predictionTrackingNextBtn"),
@@ -831,6 +833,7 @@ function syncPredictionPanelMirror(panel = state.predictionPanel) {
   state.predictionTrackingPage = slot.predictionTrackingPage;
   state.predictionTrackingStatus = slot.predictionTrackingStatus;
   state.predictionTrackingSlot = slot.predictionTrackingSlot || "all";
+  state.predictionTrackingHit = slot.predictionTrackingHit || "all";
   state.predictionTrackingDay = slot.predictionTrackingDay || "";
   state.adjacentStats = slot.adjacentStats;
   state.adjacentHitPage = slot.adjacentHitPage;
@@ -855,6 +858,11 @@ function setPredictionPanel(panel) {
   const values = new Set(predictionTrackingSlotOptions(panelKey).map(([value]) => value));
   if (!values.has(slot.predictionTrackingSlot || "all")) {
     slot.predictionTrackingSlot = "all";
+    slot.predictionTrackingPage = 1;
+  }
+  const hitValues = new Set(predictionTrackingHitOptions(panelKey).map(([value]) => value));
+  if (!hitValues.has(slot.predictionTrackingHit || "all")) {
+    slot.predictionTrackingHit = "all";
     slot.predictionTrackingPage = 1;
   }
   syncPredictionPanelMirror(panelKey);
@@ -2101,12 +2109,13 @@ function renderPredictionLoading() {
     els.predictionTitle.textContent = predictionPanelLabel(panel);
   }
   renderPredictionTrackingSlotFilter({ panel });
+  renderPredictionTrackingHitFilter({ panel });
   els.predictionWindow.textContent = "预测计算中";
   els.predictionMethod.textContent =
     panel === PREDICTION_PANEL_D
       ? "生成共识、拆解、逆向、形态四类2码/3码观察候选"
       : panel === PREDICTION_PANEL_E
-      ? "生成E4/E5/E6/E7连号结构观察候选"
+      ? "生成E4/E5/E6/E7/E8连号结构观察候选"
       : panel === PREDICTION_PANEL_M
       ? "审计低组数2码/3码候选，最多保留4组"
       : panel === PREDICTION_PANEL_B
@@ -2198,6 +2207,7 @@ async function loadPredictionTracking(options = {}) {
       panel,
       status: slot.predictionTrackingStatus || "all",
       slot: slot.predictionTrackingSlot || "all",
+      hit: slot.predictionTrackingHit || "all",
       day: slot.predictionTrackingDay || "",
       page: String(slot.predictionTrackingPage || 1),
       pageSize: "20",
@@ -2213,6 +2223,7 @@ async function loadPredictionTracking(options = {}) {
       predictionTracking: data,
       predictionTrackingPage: Number(data.page || 1),
       predictionTrackingSlot: data.slotFilter || slot.predictionTrackingSlot || "all",
+      predictionTrackingHit: data.hitFilter || slot.predictionTrackingHit || "all",
       predictionTrackingDay: data.dayFilter || slot.predictionTrackingDay || "",
     };
     if (refreshAdjacent) {
@@ -3175,11 +3186,13 @@ const CURRENT_BACKTEST_SLOT_OPTIONS = {
     ["p5_all", "全部E5"],
     ["p6_all", "全部E6"],
     ["p7_all", "全部E7"],
+    ["p8_all", "全部E8"],
     ["all", "全部E计划"],
     ...Array.from({ length: 6 }, (_, index) => [`p4_${index + 1}`, `E4候选#${index + 1}`]),
     ...Array.from({ length: 8 }, (_, index) => [`p5_${index + 1}`, `E5候选#${index + 1}`]),
     ...Array.from({ length: 10 }, (_, index) => [`p6_${index + 1}`, `E6候选#${index + 1}`]),
     ...Array.from({ length: 8 }, (_, index) => [`p7_${index + 1}`, `E7候选#${index + 1}`]),
+    ...Array.from({ length: 5 }, (_, index) => [`p8_${index + 1}`, `E8候选#${index + 1}`]),
   ],
 };
 
@@ -6076,7 +6089,8 @@ function predictionTrackingSlotOptions(panel = state.predictionPanel) {
       ["pick:5", "全部E5"],
       ["pick:6", "全部E6"],
       ["pick:7", "全部E7"],
-      ...Array.from({ length: 32 }, (_, index) => [`rank:${index + 1}`, `#${index + 1}`]),
+      ["pick:8", "全部E8"],
+      ...Array.from({ length: 37 }, (_, index) => [`rank:${index + 1}`, `#${index + 1}`]),
     ];
   }
   if (panelKey === PREDICTION_PANEL_M) {
@@ -6090,9 +6104,29 @@ function predictionTrackingSlotOptions(panel = state.predictionPanel) {
   }
   return [
     ["all", "全部候选"],
+    ["pick:1", "全部1球"],
+    ["pick:2", "全部2球"],
     ["rank:1", "#1"],
     ["rank:2", "#2"],
     ["rank:3", "#3"],
+    ["rank:4", "#4"],
+    ["rank:5", "#5"],
+    ["rank:6", "#6"],
+  ];
+}
+
+function predictionTrackingHitOptions(panel = state.predictionPanel) {
+  const panelKey = normalizePredictionPanel(panel);
+  if (panelKey !== PREDICTION_PANEL_E) {
+    return [["all", "全部命中"]];
+  }
+  return [
+    ["all", "全部命中"],
+    ["hit:3", "中3"],
+    ["hit:4", "中4"],
+    ["hit:5", "中5"],
+    ["hit:6", "中6"],
+    ["hit:7", "中7"],
   ];
 }
 
@@ -6110,6 +6144,23 @@ function renderPredictionTrackingSlotFilter(data) {
     )
     .join("");
   els.predictionTrackingSlotFilter.value = value;
+}
+
+function renderPredictionTrackingHitFilter(data) {
+  if (!els.predictionTrackingHitFilter) return;
+  const panel = normalizePredictionPanel(data?.panel || state.predictionPanel);
+  const options = predictionTrackingHitOptions(panel);
+  const selected = data?.hitFilter || predictionPanelState(panel).predictionTrackingHit || "all";
+  const validValues = new Set(options.map(([value]) => value));
+  const value = validValues.has(selected) ? selected : "all";
+  els.predictionTrackingHitFilter.innerHTML = options
+    .map(
+      ([optionValue, label]) =>
+        `<option value="${escapeHtml(optionValue)}"${optionValue === value ? " selected" : ""}>${escapeHtml(label)}</option>`,
+    )
+    .join("");
+  els.predictionTrackingHitFilter.value = value;
+  els.predictionTrackingHitFilter.classList.toggle("hidden", panel !== PREDICTION_PANEL_E);
 }
 
 function predictionMissCount(item) {
@@ -6499,6 +6550,7 @@ function renderPredictionTracking() {
       data?.statusFilter || predictionPanelState().predictionTrackingStatus || "all";
   }
   renderPredictionTrackingSlotFilter(data);
+  renderPredictionTrackingHitFilter(data);
   if (els.predictionTrackingDayFilter) {
     els.predictionTrackingDayFilter.value = data?.dayFilter || predictionPanelState().predictionTrackingDay || "";
   }
@@ -7514,6 +7566,15 @@ if (els.predictionTrackingSlotFilter) {
   els.predictionTrackingSlotFilter.addEventListener("change", () => {
     const slot = predictionPanelState();
     slot.predictionTrackingSlot = els.predictionTrackingSlotFilter.value || "all";
+    slot.predictionTrackingPage = 1;
+    syncPredictionPanelMirror();
+    loadPredictionTracking({ silent: true, panel: state.predictionPanel });
+  });
+}
+if (els.predictionTrackingHitFilter) {
+  els.predictionTrackingHitFilter.addEventListener("change", () => {
+    const slot = predictionPanelState();
+    slot.predictionTrackingHit = els.predictionTrackingHitFilter.value || "all";
     slot.predictionTrackingPage = 1;
     syncPredictionPanelMirror();
     loadPredictionTracking({ silent: true, panel: state.predictionPanel });

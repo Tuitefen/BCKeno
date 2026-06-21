@@ -663,13 +663,15 @@ PREDICTION_PANEL_D_DISABLED_STRUCTURE_TYPES_BY_GAME = {
         "d_c_shift_minus_1_cohit_free",
     },
 }
-PREDICTION_PANEL_E_TOP_COUNT = 32
+PREDICTION_PANEL_E_TOP_COUNT = 37
 PREDICTION_PANEL_E_PAIR_POOL = 30
 PREDICTION_PANEL_E_TRIPLE_POOL = 18
+PREDICTION_PANEL_E_QUAD_POOL = 14
 PREDICTION_PANEL_E_SINGLE_POOL = 28
 PREDICTION_PANEL_E_PREFILTER_LIMIT = 900
 PREDICTION_PANEL_E_PAIR_COMBO_LIMIT = 140
 PREDICTION_PANEL_E_THREE_PAIR_COMBO_LIMIT = 120
+PREDICTION_PANEL_E_FOUR_PAIR_COMBO_LIMIT = 90
 PREDICTION_PANEL_E_D_SOURCE_LIMIT = 48
 PREDICTION_PANEL_E_DERIVED_PREFILTER_LIMIT = 240
 PREDICTION_PANEL_E_RULE_LIMIT = 4
@@ -681,6 +683,7 @@ PREDICTION_PANEL_E_ALLOWED_SHAPES = {
     5: {"3+2", "2+2+1"},
     6: {"2+2+2", "2+2+1+1"},
     7: {"2+2+2+1", "2+2+1+1+1"},
+    8: {"2+2+2+2", "2+2+2+1+1", "3+2+2+1", "2+2+1+1+1+1", "4+2+2"},
 }
 PREDICTION_PANEL_E_STRATEGY_SPECS = (
     {"key": "e4_d8_pair_bridge", "pick": 4, "shape": "2+2", "source": "d8_pair", "mode": "seed", "label": "E4 D8拆两连+历史两连"},
@@ -715,6 +718,11 @@ PREDICTION_PANEL_E_STRATEGY_SPECS = (
     {"key": "e7_two_pair_three_single_cohit", "pick": 7, "shape": "2+2+1+1+1", "source": "history", "mode": "cohit", "label": "E7 双两连+三散共现"},
     {"key": "e7_two_pair_three_single_miss", "pick": 7, "shape": "2+2+1+1+1", "source": "history", "mode": "miss", "label": "E7 双两连+三散遗漏"},
     {"key": "e7_hot_cold_spread", "pick": 7, "shape": "2+2+1+1+1", "source": "history", "mode": "hot_cold", "label": "E7 冷热分散"},
+    {"key": "e8_four_pairs_cohit", "pick": 8, "shape": "2+2+2+2", "source": "history", "mode": "cohit", "label": "E8 四组两连共现"},
+    {"key": "e8_three_pair_two_single_spread", "pick": 8, "shape": "2+2+2+1+1", "source": "history", "mode": "spread", "label": "E8 三两连+两散分散"},
+    {"key": "e8_triple_two_pair_single_cohit", "pick": 8, "shape": "3+2+2+1", "source": "history", "mode": "cohit", "label": "E8 三连+双两连+散码"},
+    {"key": "e8_two_pair_four_single_hot_cold", "pick": 8, "shape": "2+2+1+1+1+1", "source": "history", "mode": "hot_cold", "label": "E8 双两连+四散冷热"},
+    {"key": "e8_quad_two_pair_miss", "pick": 8, "shape": "4+2+2", "source": "history", "mode": "miss", "label": "E8 四连+双两连遗漏"},
 )
 PREDICTION_PANEL_E_FALLBACK_SOURCE_STRUCTURE_TYPES_BY_GAME = {
     "spain_l_express_20_70": {
@@ -1022,6 +1030,14 @@ def prediction_tracking_slot_value(value: Any) -> str:
     slot = str(value or "all").strip().lower()
     if slot in {"", "all", "*"}:
         return "all"
+    hit_match = re.fullmatch(r"(?:hit|hits)\s*:?\s*(\d+)", slot)
+    if hit_match:
+        hit = parse_int(hit_match.group(1), 0)
+        return f"hit:{hit}" if hit > 0 else "all"
+    hit_match = re.fullmatch(r"中\s*:?\s*(\d+)", slot)
+    if hit_match:
+        hit = parse_int(hit_match.group(1), 0)
+        return f"hit:{hit}" if hit > 0 else "all"
     if re.fullmatch(r"(?:pick|p):\d+", slot):
         pick = parse_int(slot.split(":", 1)[1], 0)
         return f"pick:{pick}" if pick > 0 else "all"
@@ -1053,17 +1069,41 @@ def prediction_tracking_slot_pick_from_value(slot: str) -> int:
     return 0
 
 
+def prediction_tracking_slot_hit_from_value(slot: str) -> int:
+    normalized = prediction_tracking_slot_value(slot)
+    if normalized.startswith("hit:"):
+        return parse_int(normalized.split(":", 1)[1], 0)
+    return 0
+
+
+def prediction_tracking_hit_value(value: Any) -> str:
+    normalized = prediction_tracking_slot_value(value)
+    return normalized if normalized.startswith("hit:") else "all"
+
+
 def prediction_tracking_slot_sql_filter(slot: str | None) -> tuple[str, list[Any]]:
     normalized = prediction_tracking_slot_value(slot)
     rank = prediction_tracking_slot_rank_from_value(normalized)
     pick = prediction_tracking_slot_pick_from_value(normalized)
+    hit = prediction_tracking_slot_hit_from_value(normalized)
     rank_expr = "COALESCE(CAST(NULLIF(json_extract(record_json, '$.ticketRank'), '') AS INTEGER), 0)"
     if rank > 0:
         return f" AND ({rank_expr} = ?)", [rank]
     if pick > 0:
         pick_expr = "COALESCE(CAST(NULLIF(json_extract(record_json, '$.pickCount'), '') AS INTEGER), 0)"
         return f" AND ({pick_expr} = ?)", [pick]
+    if hit > 0:
+        hit_expr = "COALESCE(json_array_length(record_json, '$.result.matchedNumbers'), 0)"
+        return f" AND ({hit_expr} = ?)", [hit]
     return "", []
+
+
+def prediction_tracking_hit_sql_filter(hit_filter: str | None) -> tuple[str, list[Any]]:
+    hit = prediction_tracking_slot_hit_from_value(prediction_tracking_hit_value(hit_filter))
+    if hit <= 0:
+        return "", []
+    hit_expr = "COALESCE(json_array_length(record_json, '$.result.matchedNumbers'), 0)"
+    return f" AND ({hit_expr} = ?)", [hit]
 
 
 def prediction_tracking_day_value(value: Any) -> str:
@@ -4129,10 +4169,12 @@ def current_backtest_slot_selection(value: Any, source_panel: str | None = None)
             **{f"p5_{index}": f"E5候选#{index}" for index in range(1, 9)},
             **{f"p6_{index}": f"E6候选#{index}" for index in range(1, 11)},
             **{f"p7_{index}": f"E7候选#{index}" for index in range(1, 9)},
+            **{f"p8_{index}": f"E8候选#{index}" for index in range(1, 6)},
             "p4_all": "全部E4",
             "p5_all": "全部E5",
             "p6_all": "全部E6",
             "p7_all": "全部E7",
+            "p8_all": "全部E8",
             "all": "全部E计划",
         }
     elif panel in {PREDICTION_PANEL_DEFAULT, PREDICTION_PANEL_B}:
@@ -4189,6 +4231,8 @@ def current_backtest_slot_selection(value: Any, source_panel: str | None = None)
             return {f"p6_{index}" for index in range(1, 11)}, labels[slot]
         if slot == "p7_all":
             return {f"p7_{index}" for index in range(1, 9)}, labels[slot]
+        if slot == "p8_all":
+            return {f"p8_{index}" for index in range(1, 6)}, labels[slot]
     if slot == "all":
         return set(), labels[slot]
     return {slot}, labels[slot]
@@ -7165,7 +7209,7 @@ def prediction_panel_e_valid_shape(
     normalized = tuple(sorted({parse_int(number, 0) for number in numbers if 1 <= parse_int(number, 0) <= total_numbers}))
     if pick_count is not None and len(normalized) != pick_count:
         return None
-    if not 4 <= len(normalized) <= 7:
+    if not 4 <= len(normalized) <= 8:
         return None
     current_shape = prediction_panel_e_shape_key(normalized)
     if shape_key is not None and current_shape != shape_key:
@@ -7192,6 +7236,11 @@ def prediction_panel_e_shape_label(shape_key: str) -> str:
         "2+2+1+1": "双两连+两散",
         "2+2+2+1": "三组两连+散码",
         "2+2+1+1+1": "双两连+三散",
+        "2+2+2+2": "四组两连",
+        "2+2+2+1+1": "三组两连+两散",
+        "3+2+2+1": "双两连+三连+散码",
+        "2+2+1+1+1+1": "双两连+四散",
+        "4+2+2": "双两连+四连",
     }
     return labels.get(shape_key, shape_key)
 
@@ -7301,10 +7350,13 @@ def prediction_panel_e_run_shape_tickets(
 
     pair_items = [segment_stats(tuple(pair)) for pair in pair_groups(config)]
     triple_items = [segment_stats(tuple(triple)) for triple in triple_groups(config)]
+    quad_items = [segment_stats(tuple(quad)) for quad in quad_groups(config)]
     pair_items.sort(key=lambda item: (-parse_float(item.get("segmentScore"), 0), item["numbers"]))
     triple_items.sort(key=lambda item: (-parse_float(item.get("segmentScore"), 0), item["numbers"]))
+    quad_items.sort(key=lambda item: (-parse_float(item.get("segmentScore"), 0), item["numbers"]))
     pair_pool = pair_items[:PREDICTION_PANEL_E_PAIR_POOL]
     triple_pool = triple_items[:PREDICTION_PANEL_E_TRIPLE_POOL]
+    quad_pool = quad_items[:PREDICTION_PANEL_E_QUAD_POOL]
 
     d8_ticket = prediction_panel_e_seed_ticket(d_tickets)
     d8_numbers = tuple(
@@ -7416,6 +7468,18 @@ def prediction_panel_e_run_shape_tickets(
     for item in pair_combos3:
         add_candidate(item["numbers"], source_hint="pair_pair_pair", source_segments=item["segments"], base_score=parse_float(item.get("score"), 0))
 
+    pair_combos4: list[dict[str, Any]] = []
+    for pair_items_combo in combinations(pair_pool, 4):
+        numbers = tuple(sorted({number for pair in pair_items_combo for number in pair["numbers"]}))
+        if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=8, shape_key="2+2+2+2") is None:
+            continue
+        score = sum(parse_float(pair.get("segmentScore"), 0) for pair in pair_items_combo) / 4
+        pair_combos4.append({"numbers": numbers, "segments": [pair["numbers"] for pair in pair_items_combo], "score": score})
+    pair_combos4.sort(key=lambda item: (-parse_float(item.get("score"), 0), item["numbers"]))
+    pair_combos4 = pair_combos4[:PREDICTION_PANEL_E_FOUR_PAIR_COMBO_LIMIT]
+    for item in pair_combos4:
+        add_candidate(item["numbers"], source_hint="pair_pair_pair_pair", source_segments=item["segments"], base_score=parse_float(item.get("score"), 0))
+
     for triple in triple_pool:
         for pair in pair_pool:
             numbers = tuple(sorted({*triple["numbers"], *pair["numbers"]}))
@@ -7426,6 +7490,35 @@ def prediction_panel_e_run_shape_tickets(
                 source_hint="triple_pair",
                 source_segments=[triple["numbers"], pair["numbers"]],
                 base_score=(parse_float(triple.get("segmentScore"), 0) + parse_float(pair.get("segmentScore"), 0)) / 2,
+            )
+
+    for triple in triple_pool[:14]:
+        for pair_combo in pair_combos2[:80]:
+            base_numbers = set(triple["numbers"]) | set(pair_combo["numbers"])
+            available_singles = [number for number in single_pool if number not in base_numbers]
+            for single in available_singles[:16]:
+                numbers = tuple(sorted({*base_numbers, single}))
+                if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=8, shape_key="3+2+2+1") is None:
+                    continue
+                add_candidate(
+                    numbers,
+                    source_hint="triple_pair_pair_single",
+                    source_segments=[triple["numbers"], *pair_combo["segments"]],
+                    base_score=0.42 * parse_float(triple.get("segmentScore"), 0)
+                    + 0.42 * parse_float(pair_combo.get("score"), 0)
+                    + 0.16 * score_by_number.get(single, 0),
+                )
+
+    for quad in quad_pool:
+        for pair_combo in pair_combos2[:90]:
+            numbers = tuple(sorted({*quad["numbers"], *pair_combo["numbers"]}))
+            if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=8, shape_key="4+2+2") is None:
+                continue
+            add_candidate(
+                numbers,
+                source_hint="quad_pair_pair",
+                source_segments=[quad["numbers"], *pair_combo["segments"]],
+                base_score=0.42 * parse_float(quad.get("segmentScore"), 0) + 0.58 * parse_float(pair_combo.get("score"), 0),
             )
 
     for pair_combo in pair_combos2[:90]:
@@ -7454,6 +7547,17 @@ def prediction_panel_e_run_shape_tickets(
                 base_score=0.68 * parse_float(pair_combo.get("score"), 0)
                 + 0.32 * sum(score_by_number.get(number, 0) for number in singles) / 3,
             )
+        for singles in combinations(available_singles[:12], 4):
+            numbers = tuple(sorted({*pair_combo["numbers"], *singles}))
+            if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=8, shape_key="2+2+1+1+1+1") is None:
+                continue
+            add_candidate(
+                numbers,
+                source_hint="pair_pair_single_single_single_single",
+                source_segments=pair_combo["segments"],
+                base_score=0.62 * parse_float(pair_combo.get("score"), 0)
+                + 0.38 * sum(score_by_number.get(number, 0) for number in singles) / 4,
+            )
 
     for pair_combo in pair_combos3[:90]:
         base_numbers = set(pair_combo["numbers"])
@@ -7464,6 +7568,17 @@ def prediction_panel_e_run_shape_tickets(
                 source_hint="pair_pair_pair_single",
                 source_segments=pair_combo["segments"],
                 base_score=0.80 * parse_float(pair_combo.get("score"), 0) + 0.20 * score_by_number.get(single, 0),
+            )
+        for singles in combinations(available_singles[:14], 2):
+            numbers = tuple(sorted({*pair_combo["numbers"], *singles}))
+            if prediction_panel_e_valid_shape(numbers, total_numbers, pick_count=8, shape_key="2+2+2+1+1") is None:
+                continue
+            add_candidate(
+                numbers,
+                source_hint="pair_pair_pair_single_single",
+                source_segments=pair_combo["segments"],
+                base_score=0.70 * parse_float(pair_combo.get("score"), 0)
+                + 0.30 * sum(score_by_number.get(number, 0) for number in singles) / 2,
             )
 
     sorted_candidates = sorted(
@@ -8447,8 +8562,9 @@ def prediction_payload(
     if panel == PREDICTION_PANEL_E:
         method = (
             "E计划：连号结构观察池；E4双两连6组、E5三连+两连/双两连+散码8组、"
-            "E6三组两连/双两连+两散10组、E7三组两连+散码/双两连+三散8组。"
-            "排除4连以上、双三连、2+2+3和3+4等大连形态；D8只作为种子和加分来源。"
+            "E6三组两连/双两连+两散10组、E7三组两连+散码/双两连+三散8组、"
+            "E8按2+2+2+2、2+2+2+1+1、2+2+3+1、2+2+1+1+1+1、2+2+4各1组观察。"
+            "E4-E7仍排除4连以上、双三连、2+2+3和3+4等大连形态；D8只作为种子和加分来源。"
             if e_supported
             else "E计划：当前彩种未启用连号结构观察"
         )
@@ -11552,6 +11668,7 @@ def load_prediction_tracking_for_game(
     offset: int = 0,
     panel: str | None = None,
     slot_filter: str = "all",
+    hit_filter: str = "all",
     day_window: dict[str, Any] | None = None,
     include_retired: bool = False,
 ) -> list[dict[str, Any]]:
@@ -11576,6 +11693,10 @@ def load_prediction_tracking_for_game(
     slot_where, slot_params = prediction_tracking_slot_sql_filter(slot_filter)
     where += slot_where
     params.extend(slot_params)
+    hit_filter = prediction_tracking_hit_value(hit_filter)
+    hit_where, hit_params = prediction_tracking_hit_sql_filter(hit_filter)
+    where += hit_where
+    params.extend(hit_params)
     day_where, day_params = prediction_tracking_day_sql_filter(day_window)
     where += day_where
     params.extend(day_params)
@@ -11654,6 +11775,7 @@ def prediction_tracking_count(
     status_filter: str = "all",
     panel: str | None = None,
     slot_filter: str = "all",
+    hit_filter: str = "all",
     day_window: dict[str, Any] | None = None,
     include_retired: bool = False,
 ) -> int:
@@ -11684,6 +11806,11 @@ def prediction_tracking_count(
     if slot_where:
         where_parts.append(slot_where[5:])
         params.extend(slot_params)
+    hit_filter = prediction_tracking_hit_value(hit_filter)
+    hit_where, hit_params = prediction_tracking_hit_sql_filter(hit_filter)
+    if hit_where:
+        where_parts.append(hit_where[5:])
+        params.extend(hit_params)
     day_where, day_params = prediction_tracking_day_sql_filter(day_window)
     if day_where:
         where_parts.append(day_where[5:])
@@ -11702,6 +11829,7 @@ def prediction_tracking_db_where(
     panel: str | None = None,
     status_filter: str = "all",
     slot_filter: str = "all",
+    hit_filter: str = "all",
     day_window: dict[str, Any] | None = None,
     include_retired: bool = False,
 ) -> tuple[str, list[Any]]:
@@ -11731,6 +11859,11 @@ def prediction_tracking_db_where(
     if slot_where:
         where_parts.append(slot_where[5:])
         params.extend(slot_params)
+    hit_filter = prediction_tracking_hit_value(hit_filter)
+    hit_where, hit_params = prediction_tracking_hit_sql_filter(hit_filter)
+    if hit_where:
+        where_parts.append(hit_where[5:])
+        params.extend(hit_params)
     day_where, day_params = prediction_tracking_day_sql_filter(day_window)
     if day_where:
         where_parts.append(day_where[5:])
@@ -11747,6 +11880,7 @@ def prediction_tracking_summary_from_db(
     *,
     panel: str | None = None,
     slot_filter: str = "all",
+    hit_filter: str = "all",
     day_window: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     init_prediction_tracking_db()
@@ -11754,6 +11888,7 @@ def prediction_tracking_summary_from_db(
         game_key,
         panel=panel,
         slot_filter=slot_filter,
+        hit_filter=hit_filter,
         day_window=day_window,
     )
     with prediction_tracking_db_connect() as conn:
@@ -11815,6 +11950,7 @@ def prediction_tracking_group_summaries_from_db(
     *,
     panel: str | None = None,
     slot_filter: str = "all",
+    hit_filter: str = "all",
     day_window: dict[str, Any] | None = None,
     limit: int = 20,
 ) -> list[dict[str, Any]]:
@@ -11823,6 +11959,7 @@ def prediction_tracking_group_summaries_from_db(
         game_key,
         panel=panel,
         slot_filter=slot_filter,
+        hit_filter=hit_filter,
         day_window=day_window,
     )
     with prediction_tracking_db_connect() as conn:
@@ -13476,12 +13613,19 @@ def attach_prediction_tracking_slot_ranks(records: list[dict[str, Any]]) -> list
     return result
 
 
+def prediction_tracking_record_hit_count(record: dict[str, Any]) -> int:
+    result = record.get("result") if isinstance(record.get("result"), dict) else {}
+    matched = result.get("matchedNumbers") if isinstance(result, dict) else []
+    return len(matched) if isinstance(matched, list) else 0
+
+
 def filter_prediction_tracking_records_by_slot(
     records: list[dict[str, Any]],
     slot: str | None,
 ) -> list[dict[str, Any]]:
     rank = prediction_tracking_slot_rank_from_value(slot or "all")
     pick = prediction_tracking_slot_pick_from_value(slot or "all")
+    hit = prediction_tracking_slot_hit_from_value(slot or "all")
     ranked_records = attach_prediction_tracking_slot_ranks(records)
     if rank > 0:
         return [
@@ -13495,9 +13639,29 @@ def filter_prediction_tracking_records_by_slot(
             for record in ranked_records
             if parse_int(record.get("pickCount"), len(record.get("numbers") or [])) == pick
         ]
+    if hit > 0:
+        return [
+            record
+            for record in ranked_records
+            if prediction_tracking_record_hit_count(record) == hit
+        ]
     return [
         record
         for record in records
+    ]
+
+
+def filter_prediction_tracking_records_by_hit(
+    records: list[dict[str, Any]],
+    hit_filter: str | None,
+) -> list[dict[str, Any]]:
+    hit = prediction_tracking_slot_hit_from_value(prediction_tracking_hit_value(hit_filter))
+    if hit <= 0:
+        return records
+    return [
+        record
+        for record in records
+        if prediction_tracking_record_hit_count(record) == hit
     ]
 
 
@@ -13872,11 +14036,13 @@ def prediction_tracking_response(
     adjacent_stats: dict[str, Any] | None = None,
     panel: str | None = PREDICTION_PANEL_DEFAULT,
     slot_filter: str = "all",
+    hit_filter: str = "all",
     day_filter: str = "",
     day_window: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     panel_key = prediction_panel_from_value(panel) if panel is not None else None
     slot_filter = prediction_tracking_slot_value(slot_filter)
+    hit_filter = prediction_tracking_hit_value(hit_filter)
     day_filter = prediction_tracking_day_value(day_filter)
     if day_window is None:
         day_window = prediction_tracking_day_window(config, day_filter)
@@ -13887,6 +14053,7 @@ def prediction_tracking_response(
     )
     scoped_records = prediction_records_for_panel(scoped_records, panel_key)
     scoped_records = filter_prediction_tracking_records_by_slot(scoped_records, slot_filter)
+    scoped_records = filter_prediction_tracking_records_by_hit(scoped_records, hit_filter)
     scoped_records = filter_prediction_tracking_records_by_day(scoped_records, day_window)
     allowed_statuses = {"pending", "won", "lost", "cancelled", "void"}
     status_filter = status_filter if status_filter in allowed_statuses else "all"
@@ -13904,6 +14071,7 @@ def prediction_tracking_response(
             prediction_records_for_panel(list(page_items), panel_key),
             slot_filter,
         )
+        ordered = filter_prediction_tracking_records_by_hit(ordered, hit_filter)
         ordered = filter_prediction_tracking_records_by_day(ordered, day_window)
         total_items = len(ordered) if total_items is None else total_items
     total_page = max(1, math.ceil(total_items / page_size))
@@ -13941,6 +14109,7 @@ def prediction_tracking_response(
         "adjacentStats": adjacent_stats,
         "statusFilter": status_filter,
         "slotFilter": slot_filter,
+        "hitFilter": hit_filter,
         "dayFilter": day_filter,
         "dayWindow": day_window,
         "page": page,
@@ -14325,6 +14494,7 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
     allowed_statuses = {"pending", "won", "lost", "cancelled", "void"}
     status_filter = status_filter if status_filter in allowed_statuses else "all"
     slot_filter = prediction_tracking_slot_value(query.get("slot", ["all"])[0])
+    hit_filter = prediction_tracking_hit_value(query.get("hit", ["all"])[0])
     slot_rank = prediction_tracking_slot_rank_from_value(slot_filter)
     day_filter = prediction_tracking_day_value(query.get("day", [""])[0])
     day_window = prediction_tracking_day_window(config, day_filter)
@@ -14354,9 +14524,11 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
                 config["key"],
                 status_filter="all",
                 panel=panel,
+                hit_filter=hit_filter,
                 day_window=day_window,
             )
             scoped_records = filter_prediction_tracking_records_by_slot(scoped_records, slot_filter)
+            scoped_records = filter_prediction_tracking_records_by_hit(scoped_records, hit_filter)
             summary = prediction_tracking_summary(scoped_records)
             groups = prediction_tracking_group_summaries(scoped_records)
             filtered_records = (
@@ -14375,6 +14547,7 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
                 status_filter,
                 panel=panel,
                 slot_filter=slot_filter,
+                hit_filter=hit_filter,
                 day_window=day_window,
             )
             total_page = max(1, math.ceil(total_items / page_size))
@@ -14386,10 +14559,11 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
                 offset=(page - 1) * page_size,
                 panel=panel,
                 slot_filter=slot_filter,
+                hit_filter=hit_filter,
                 day_window=day_window,
             )
-            summary = prediction_tracking_summary_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
-            groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
+            summary = prediction_tracking_summary_from_db(config["key"], panel=panel, slot_filter=slot_filter, hit_filter=hit_filter, day_window=day_window)
+            groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel, slot_filter=slot_filter, hit_filter=hit_filter, day_window=day_window)
         all_total = prediction_tracking_count(panel=panel)
         all_summary = {"total": all_total}
     else:
@@ -14400,9 +14574,11 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
                 config["key"],
                 status_filter="all",
                 panel=panel,
+                hit_filter=hit_filter,
                 day_window=day_window,
             )
             scoped_records = filter_prediction_tracking_records_by_slot(scoped_records, slot_filter)
+            scoped_records = filter_prediction_tracking_records_by_hit(scoped_records, hit_filter)
             summary = prediction_tracking_summary(scoped_records)
             groups = prediction_tracking_group_summaries(scoped_records)
             filtered_records = (
@@ -14421,6 +14597,7 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
                 status_filter,
                 panel=panel,
                 slot_filter=slot_filter,
+                hit_filter=hit_filter,
                 day_window=day_window,
             )
             total_page = max(1, math.ceil(total_items / page_size))
@@ -14432,10 +14609,11 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
                 offset=(page - 1) * page_size,
                 panel=panel,
                 slot_filter=slot_filter,
+                hit_filter=hit_filter,
                 day_window=day_window,
             )
-            summary = prediction_tracking_summary_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
-            groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel, slot_filter=slot_filter, day_window=day_window)
+            summary = prediction_tracking_summary_from_db(config["key"], panel=panel, slot_filter=slot_filter, hit_filter=hit_filter, day_window=day_window)
+            groups = prediction_tracking_group_summaries_from_db(config["key"], panel=panel, slot_filter=slot_filter, hit_filter=hit_filter, day_window=day_window)
         all_total = prediction_tracking_count(panel=panel)
         all_summary = {"total": all_total}
     return prediction_tracking_response(
@@ -14454,6 +14632,7 @@ def prediction_tracking_payload(query: dict[str, list[str]]) -> dict[str, Any]:
         groups=groups,
         panel=panel,
         slot_filter=slot_filter,
+        hit_filter=hit_filter,
         day_filter=day_filter,
         day_window=day_window,
     )

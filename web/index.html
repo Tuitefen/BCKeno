@@ -166,6 +166,14 @@
                     <select id="predictionTrackingSlotFilter" title="候选筛选">
                       <option value="all">全部候选</option>
                     </select>
+                    <select id="predictionTrackingHitFilter" class="hidden" title="命中数筛选">
+                      <option value="all">全部命中</option>
+                      <option value="hit:3">中3</option>
+                      <option value="hit:4">中4</option>
+                      <option value="hit:5">中5</option>
+                      <option value="hit:6">中6</option>
+                      <option value="hit:7">中7</option>
+                    </select>
                     <input id="predictionTrackingDayFilter" type="date" title="开奖日筛选" />
                   </div>
                   <div class="tracking-ops">
@@ -1566,6 +1574,6 @@
     </div>
 
     <div id="toast" class="toast hidden"></div>
-    <script src="/app.js?v=20260621-current-ab-backtest"></script>
+    <script src="/app.js?v=20260621-e-hit-filter-combo"></script>
   </body>
 </html>
